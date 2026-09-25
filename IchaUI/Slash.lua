@@ -27,6 +27,14 @@ SlashCmdList["IUI"] = function(msg)
         maskDebug()
         return
     end
+    if msg == "mapdebug" then
+        if IchaUI_WorldMap_Debug then
+            IchaUI_WorldMap_Debug()
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("World map not loaded.")
+        end
+        return
+    end
     openOptions()
 end
 
@@ -34,6 +42,14 @@ SlashCmdList["ICHA"] = function(msg)
     msg = string.lower(string.gsub(msg or "", "^%s+", ""))
     if msg == "maskdebug" then
         maskDebug()
+        return
+    end
+    if msg == "mapdebug" then
+        if IchaUI_WorldMap_Debug then
+            IchaUI_WorldMap_Debug()
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("World map not loaded.")
+        end
         return
     end
     if msg == "options" or msg == "option" or msg == "config" or msg == "opt" then

@@ -31,8 +31,8 @@ local function installIchaUIWorldMap()
     local LEVEL_KEYS = { levels = true, levelInst = true, levelRaids = true, levelPvP = true, levelFish = true }
     local SCALE_LO, SCALE_HI = 0.4, 1.5
     local ALPHA_LO, ALPHA_HI = 0.2, 1
-    -- Title is 17 above the frame, gold border 4 around it; keep a few px of air.
-    local CHROME_TOP, CHROME_SIDE, CHROME_BOT, SCREEN_PAD = 21, 4, 4, 8
+    -- Pixels of the title bar that must stay on screen after release / scale.
+    local TITLE_KEEP = 40
 
     local st = {
         installed = false, active = false, blocked = nil,
@@ -109,122 +109,95 @@ local function installIchaUIWorldMap()
         return WORLDMAP_WINDOWED ~= 1
     end
 
-    -- Largest SetScale at which the window plus title, border and a little
-    -- margin still fits on UIParent. Chrome is in the map's own units, so it
-    -- grows with scale.
-    local function fitScale()
-        local f = WorldMapFrame
-        local w = (f:GetWidth() or 0) + CHROME_SIDE * 2
-        local h = (f:GetHeight() or 0) + CHROME_TOP + CHROME_BOT
-        local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
-        local us = UIParent:GetEffectiveScale() or 1
-        if us <= 0 then us = 1 end
-        local pad = SCREEN_PAD / us
-        if w <= 0 or h <= 0 or sw <= pad * 2 or sh <= pad * 2 then return SCALE_HI end
-        local s = (sw - pad * 2) / w
-        if (sh - pad * 2) / h < s then s = (sh - pad * 2) / h end
-        return s
-    end
-
     local function scaleFor(v)
-        local s = clamp(v, SCALE_LO, SCALE_HI)
-        local fit = fitScale()
-        if fit < s then s = fit end
-        if s < 0.1 then s = 0.1 end
-        return s
-    end
-
-    -- Map units to UIParent units; the parent is not assumed to be UIParent.
-    local function unitRatio()
-        local f = WorldMapFrame
-        local fs = f:GetEffectiveScale() or 0
-        local us = UIParent:GetEffectiveScale() or 0
-        if fs > 0 and us > 0 then return fs / us end
-        return f:GetScale() or 1
+        return clamp(v, SCALE_LO, SCALE_HI)
     end
 
     local function round2(v)
         return math.floor(v * 100 + 0.5) / 100
     end
 
-    -- Anchors CENTER to UIParent and pulls the saved spot back so the whole
-    -- window (title bar, border, grip) is on screen. If it can never fit,
-    -- top and left stay reachable.
-    local function place()
+    local function getAnchor(f)
+        local p, rel, rp, x, y
+        local ok = pcall(function()
+            p, rel, rp, x, y = f:GetPoint(1)
+        end)
+        if not p then
+            p, rel, rp, x, y = f:GetPoint()
+        end
+        if not p then return nil end
+        return p, rel, rp, x or 0, y or 0
+    end
+
+    -- Re-apply exactly what we saved. No derived size, no fit-cap shove.
+    local function applyAnchor()
         local d = db()
         local f = WorldMapFrame
         if f._ichaMoving then return end
-        if d.point ~= "CENTER" or d.relPoint ~= "CENTER" then
-            d.point, d.relPoint, d.x, d.y = "CENTER", "CENTER", 0, 0
-        end
-        local s = unitRatio()
-        local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
-        local us = UIParent:GetEffectiveScale() or 1
-        if us <= 0 then us = 1 end
-        local hw = (f:GetWidth() or 0) * s / 2
-        local hh = (f:GetHeight() or 0) * s / 2
-        local x, y = tonumber(d.x) or 0, tonumber(d.y) or 0
-        if s > 0 and sw > 0 and sh > 0 and hw > 0 and hh > 0 then
-            local padP = SCREEN_PAD / us
-            local sideP = CHROME_SIDE * s
-            local topP = CHROME_TOP * s
-            local botP = CHROME_BOT * s
-            local cx = sw / 2 + x * s
-            local cy = sh / 2 + y * s
-            if hw * 2 + sideP * 2 >= sw - padP * 2 or cx - hw - sideP < padP then
-                x = (hw + sideP + padP - sw / 2) / s
-            elseif cx + hw + sideP > sw - padP then
-                x = (sw / 2 - hw - sideP - padP) / s
-            end
-            if hh * 2 + topP + botP >= sh - padP * 2 or cy + hh + topP > sh - padP then
-                y = (sh / 2 - hh - topP - padP) / s
-            elseif cy - hh - botP < padP then
-                y = (hh + botP + padP - sh / 2) / s
-            end
-        end
-        d.x, d.y = x, y
         f:ClearAllPoints()
-        f:SetPoint("CENTER", UIParent, "CENTER", x, y)
+        f:SetPoint(d.point or "CENTER", UIParent, d.relPoint or "CENTER", tonumber(d.x) or 0, tonumber(d.y) or 0)
     end
 
-    -- Save as a CENTER offset in the map's own scale so rescaling keeps it
-    -- centered. left/top are the map's top-left in its own units; the live
-    -- rect is read when they are not given. skipPlace leaves a live TOPLEFT
-    -- drag/grip where it is, so release cannot jump.
-    local function savePos(left, top, skipPlace)
-        local f = WorldMapFrame
-        if not left or not top then left, top = f:GetLeft(), f:GetTop() end
-        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
-        local ux, uy = UIParent:GetCenter()
-        if not left or not top or not ux then return end
-        local k = 1 / unitRatio()
+    local function saveAnchor()
+        local p, rel, rp, x, y = getAnchor(WorldMapFrame)
+        if not p then return end
         local d = db()
-        d.point = "CENTER"
-        d.relPoint = "CENTER"
-        d.x = round2(left + w / 2 - ux * k)
-        d.y = round2(top - h / 2 - uy * k)
-        if not skipPlace then place() end
+        d.point, d.relPoint = p, rp or p
+        d.x, d.y = round2(x), round2(y)
     end
 
-    -- Drag is cursor pixels, not StartMoving: this client's StopMovingOrSizing
-    -- re-anchors a frame scaled apart from its parent at the wrong spot.
-    -- One space only: screen pixels. GetLeft*es and cursor are pixels; chrome
-    -- and layout*es are the visual size. Convert once at SetPoint with /es
-    -- (1.12 offsets * the moving frame's effective scale = pixels). Dividing
-    -- by UIParent scale here made the allowed 'screen' shrink with the map.
-    local drag = {}
-
-    local function scales()
+    -- Measured pixel edges. No GetWidth, no saved scale.
+    local function nudgeTitle()
         local f = WorldMapFrame
+        if f._ichaMoving then return false end
         local es = f:GetEffectiveScale() or 1
         if es <= 0 then es = 1 end
         local us = UIParent:GetEffectiveScale() or 1
         if us <= 0 then us = 1 end
-        return es, us
+        local sl = (UIParent:GetLeft() or 0) * us
+        local sr = UIParent:GetRight() and UIParent:GetRight() * us
+        local stop = UIParent:GetTop() and UIParent:GetTop() * us
+        local sb = (UIParent:GetBottom() or 0) * us
+        if not sr then sr = (UIParent:GetWidth() or 0) * us end
+        if not stop then stop = (UIParent:GetHeight() or 0) * us end
+        local fl = f:GetLeft()
+        local fr = f:GetRight()
+        local ft = f:GetTop()
+        if not fl or not ft then return false end
+        fl, ft = fl * es, ft * es
+        if fr then fr = fr * es else fr = fl end
+        local tt = ft
+        local title = WorldMapFrameTitle
+        if title and title.GetTop and title:GetTop() then
+            local tes = es
+            if title.GetEffectiveScale then tes = title:GetEffectiveScale() or es end
+            tt = title:GetTop() * tes
+        end
+        local dx, dy = 0, 0
+        local visL, visR = fl, fr
+        if visL < sl then visL = sl end
+        if visR > sr then visR = sr end
+        if visR - visL < TITLE_KEEP then
+            if fr < sl + TITLE_KEEP then
+                dx = (sl + TITLE_KEEP) - fr
+            else
+                dx = (sr - TITLE_KEEP) - fl
+            end
+        end
+        if tt > stop then dy = stop - tt end
+        if tt < sb then dy = sb - tt end
+        if dx == 0 and dy == 0 then return false end
+        local p, rel, rp, x, y = getAnchor(f)
+        if not p then return false end
+        f:ClearAllPoints()
+        f:SetPoint(p, UIParent, rp, x + dx / es, y + dy / es)
+        return true
     end
 
-    -- True until we know the button is up. Missing API (stock 1.12) keeps
-    -- OnMouseUp as the only release path.
+    -- Follow the cursor with no walls. 0-delta keeps the live GetPoint, so
+    -- press cannot jump. Release ends via IsMouseButtonDown even over children.
+    local drag = {}
+
     local function leftHeld()
         if not IsMouseButtonDown then return true end
         local down = true
@@ -234,72 +207,14 @@ local function installIchaUIWorldMap()
         return down
     end
 
-    -- Pixel rect of the map frame. GetRight/GetBottom when the client has them,
-    -- otherwise left+width / top-height in the same units.
-    local function framePx()
-        local f = WorldMapFrame
-        local es, us = scales()
-        local l, t = f:GetLeft(), f:GetTop()
-        if not l or not t then return nil end
-        local r, b = f:GetRight(), f:GetBottom()
-        if not r then r = l + (f:GetWidth() or 0) end
-        if not b then b = t - (f:GetHeight() or 0) end
-        return l * es, t * es, r * es, b * es, es, us
-    end
-
-    local function clampPx(leftPx, topPx)
-        local f = WorldMapFrame
-        local es, us = scales()
-        local visW = (f:GetWidth() or 0) * es
-        local visH = (f:GetHeight() or 0) * es
-        local sw = (UIParent:GetWidth() or 0) * us
-        local sh = (UIParent:GetHeight() or 0) * us
-        local pad = SCREEN_PAD
-        local cL, cR = CHROME_SIDE * es, CHROME_SIDE * es
-        local cT, cB = CHROME_TOP * es, CHROME_BOT * es
-        if sw > 0 then
-            if visW + cL + cR >= sw - pad * 2 then
-                leftPx = pad + cL
-            else
-                if leftPx - cL < pad then leftPx = pad + cL end
-                if leftPx + visW + cR > sw - pad then leftPx = sw - pad - cR - visW end
-            end
-        end
-        if sh > 0 then
-            if visH + cT + cB >= sh - pad * 2 then
-                topPx = sh - pad - cT
-            else
-                if topPx + cT > sh - pad then topPx = sh - pad - cT end
-                if topPx - visH - cB < pad then topPx = pad + visH + cB end
-            end
-        end
-        return leftPx, topPx
-    end
-
-    local function setTopLeftPx(leftPx, topPx)
-        local f = WorldMapFrame
-        local es = scales()
-        leftPx, topPx = clampPx(leftPx, topPx)
-        f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", leftPx / es, topPx / es)
-        return leftPx, topPx
-    end
-
-    local function dragPos()
-        local cx, cy = GetCursorPosition()
-        return clampPx(drag.lpx + (cx - drag.cx), drag.tpx + (cy - drag.cy))
-    end
-
     local function dragStop(keep)
         local f = WorldMapFrame
         if not f._ichaMoving then return end
         if drag.ticker then drag.ticker:SetScript("OnUpdate", nil) end
-        local l, t = dragPos()
         f._ichaMoving = nil
         if keep then
-            l, t = setTopLeftPx(l, t)
-            local es = scales()
-            savePos(l / es, t / es, true)
+            nudgeTitle()
+            saveAnchor()
         end
     end
 
@@ -308,17 +223,24 @@ local function installIchaUIWorldMap()
             dragStop(true)
             return
         end
-        local l, t = dragPos()
-        setTopLeftPx(l, t)
+        local f = WorldMapFrame
+        local es = drag.es or 1
+        local cx, cy = GetCursorPosition()
+        f:ClearAllPoints()
+        f:SetPoint(drag.point, UIParent, drag.rp,
+            drag.x + (cx - drag.cx) / es, drag.y + (cy - drag.cy) / es)
     end
 
     local function dragStart()
         if not st.active then return end
         local f = WorldMapFrame
-        local lpx, tpx = framePx()
-        if not lpx then return end
-        drag.lpx, drag.tpx = lpx, tpx
+        local p, rel, rp, x, y = getAnchor(f)
+        if not p then return end
+        drag.point, drag.rp, drag.x, drag.y = p, rp, x, y
         drag.cx, drag.cy = GetCursorPosition()
+        local es = f:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        drag.es = es
         f._ichaMoving = true
         if f.SetClampedToScreen then f:SetClampedToScreen(false) end
         if not drag.ticker then drag.ticker = CreateFrame("Frame") end
@@ -360,7 +282,7 @@ local function installIchaUIWorldMap()
         local g = st.grip
         local f = WorldMapFrame
         local cx, cy = GetCursorPosition()
-        local es = scales()
+        local es = f:GetEffectiveScale() or 1
         local ps = es / (f:GetScale() or 1)
         local w = (f:GetWidth() or 0) * ps
         local h = (f:GetHeight() or 0) * ps
@@ -371,7 +293,10 @@ local function installIchaUIWorldMap()
         s = scaleFor(s)
         db().scale = s
         f:SetScale(s)
-        setTopLeftPx(g._left, g._top)
+        local nes = f:GetEffectiveScale() or 1
+        if nes <= 0 then nes = 1 end
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", g._left / nes, g._top / nes)
     end
 
     local function gripStop()
@@ -379,9 +304,8 @@ local function installIchaUIWorldMap()
         if not g or not g._sizing then return end
         g._sizing = nil
         g:SetScript("OnUpdate", nil)
-        local es = scales()
-        if es <= 0 then es = 1 end
-        savePos(g._left / es, g._top / es, true)
+        nudgeTitle()
+        saveAnchor()
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
 
@@ -827,7 +751,8 @@ local function installIchaUIWorldMap()
         d.scale = scaleFor(d.scale)
         f:SetScale(d.scale)
         f:SetAlpha(clamp(d.alpha, ALPHA_LO, ALPHA_HI))
-        place()
+        applyAnchor()
+        if nudgeTitle() then saveAnchor() end
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
         hookWheels()
@@ -841,7 +766,7 @@ local function installIchaUIWorldMap()
     end
 
     -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; size the
-    -- window first so the on-screen check in place() uses the real size.
+    -- window first, then applyAnchor + a measured title nudge.
     local function applyFull()
         if not st.active then return end
         local f = WorldMapFrame
@@ -1046,14 +971,11 @@ local function installIchaUIWorldMap()
             d.border = value and true or false
             paintBorder()
         elseif key == "scale" then
-            local old = scaleFor(d.scale)
-            local new = scaleFor(value)
-            if d.point == "CENTER" and d.relPoint == "CENTER" and new > 0 then
-                d.x = (tonumber(d.x) or 0) * old / new
-                d.y = (tonumber(d.y) or 0) * old / new
+            d.scale = scaleFor(value)
+            if st.active and WorldMapFrame then
+                WorldMapFrame:SetScale(d.scale)
+                if nudgeTitle() then saveAnchor() end
             end
-            d.scale = new
-            applyLight()
         elseif key == "alpha" then
             d.alpha = clamp(value, ALPHA_LO, ALPHA_HI)
             applyLight()
@@ -1076,6 +998,52 @@ local function installIchaUIWorldMap()
     function IchaUI_WorldMap_Reload()
         if st.ready then sync() end
         if IchaUI_MapLevels_Refresh then IchaUI_MapLevels_Refresh() end
+    end
+
+    function IchaUI_WorldMap_Debug()
+        local function n(v)
+            if v == nil then return "nil" end
+            local num = tonumber(v)
+            if not num then return tostring(v) end
+            return string.format("%.2f", num)
+        end
+        local f = WorldMapFrame
+        local d = db()
+        local sw, sh
+        if GetScreenWidth then sw = GetScreenWidth() end
+        if GetScreenHeight then sh = GetScreenHeight() end
+        chat("mapdebug screen " .. n(sw) .. "x" .. n(sh))
+        if UIParent then
+            chat("mapdebug UIParent scale=" .. n(UIParent:GetEffectiveScale and UIParent:GetEffectiveScale())
+                .. " w=" .. n(UIParent:GetWidth()) .. " h=" .. n(UIParent:GetHeight())
+                .. " L=" .. n(UIParent:GetLeft()) .. " R=" .. n(UIParent:GetRight())
+                .. " T=" .. n(UIParent:GetTop()) .. " B=" .. n(UIParent:GetBottom()))
+        end
+        if f then
+            local p, rel, rp, x, y = getAnchor(f)
+            local relName = "?"
+            if rel then
+                if rel.GetName then relName = rel:GetName() or "?" end
+            else
+                relName = "nil"
+            end
+            chat("mapdebug map scale=" .. n(f:GetScale()) .. " es=" .. n(f:GetEffectiveScale())
+                .. " w=" .. n(f:GetWidth()) .. " h=" .. n(f:GetHeight()))
+            chat("mapdebug map L=" .. n(f:GetLeft()) .. " R=" .. n(f:GetRight())
+                .. " T=" .. n(f:GetTop()) .. " B=" .. n(f:GetBottom()))
+            chat("mapdebug GetPoint " .. tostring(p) .. " " .. tostring(relName) .. " " .. tostring(rp)
+                .. " x=" .. n(x) .. " y=" .. n(y))
+        else
+            chat("mapdebug WorldMapFrame missing")
+        end
+        chat("mapdebug saved point=" .. tostring(d.point) .. " rel=" .. tostring(d.relPoint)
+            .. " x=" .. n(d.x) .. " y=" .. n(d.y) .. " scale=" .. n(d.scale))
+        local mag = "no"
+        if Magnify_ResetZoom or WorldMapFrameScrollFrame then mag = "yes" end
+        local win = "nil"
+        if WORLDMAP_WINDOWED ~= nil then win = tostring(WORLDMAP_WINDOWED) end
+        chat("mapdebug Magnify=" .. mag .. " WORLDMAP_WINDOWED=" .. win
+            .. " maximized=" .. tostring(maximized()))
     end
 
     -- Options > Map section. Helpers come from Options.lua; returns the next y.

@@ -678,6 +678,26 @@ end
 ------------------------------------------------------------------------
 IchaUI_CHOICE_ROWS = 14
 IchaUI_CHOICE_ROW_H = 16
+IchaUI_CHOICE_LEVEL = 300
+
+-- 1.12 does not carry a parent's new frame level to its children, so every
+-- open puts the catcher, list and rows back above the owner.
+function IchaUI_ChoiceMenuLevels(m, anchor)
+    local lv = IchaUI_CHOICE_LEVEL
+    if anchor and anchor.GetFrameStrata and anchor:GetFrameStrata() == "TOOLTIP" then
+        local al = (anchor:GetFrameLevel() or 0) + 20
+        if al > lv then lv = al end
+    end
+    IchaUIChoiceMenuCatch:SetFrameStrata("TOOLTIP")
+    IchaUIChoiceMenuCatch:SetFrameLevel(lv - 10)
+    m:SetFrameStrata("TOOLTIP")
+    m:SetFrameLevel(lv)
+    local i
+    for i = 1, table.getn(m.rows) do
+        m.rows[i]:SetFrameStrata("TOOLTIP")
+        m.rows[i]:SetFrameLevel(lv + 2)
+    end
+end
 
 function IchaUI_ChoiceMenuPaint()
     local m = IchaUIChoiceMenu
@@ -745,18 +765,20 @@ end
 function IchaUI_ChoiceMenuBuild()
     if IchaUIChoiceMenu then return IchaUIChoiceMenu end
     -- click-away catcher: any click outside the list closes it
+    -- TOOLTIP strata: the config panel and its widgets (FULLSCREEN_DIALOG
+    -- 200+) and edit-mode popups (TOOLTIP 220+) all sit below the list.
     local c = CreateFrame("Button", "IchaUIChoiceMenuCatch", UIParent)
     c:SetAllPoints(UIParent)
-    c:SetFrameStrata("FULLSCREEN_DIALOG")
-    c:SetFrameLevel(90)
+    c:SetFrameStrata("TOOLTIP")
+    c:SetFrameLevel(IchaUI_CHOICE_LEVEL - 10)
     c:EnableMouse(true)
     c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     c:SetScript("OnClick", function() IchaUIChoiceMenu:Hide() end)
     c:Hide()
 
     local m = CreateFrame("Frame", "IchaUIChoiceMenu", UIParent)
-    m:SetFrameStrata("FULLSCREEN_DIALOG")
-    m:SetFrameLevel(100)
+    m:SetFrameStrata("TOOLTIP")
+    m:SetFrameLevel(IchaUI_CHOICE_LEVEL)
     m:EnableMouse(true)
     m:EnableMouseWheel(true)
     m:SetClampedToScreen(true)
@@ -767,6 +789,12 @@ function IchaUI_ChoiceMenuBuild()
         insets = { left = 2, right = 2, top = 2, bottom = 2 },
     })
     m:SetBackdropColor(0.06, 0.06, 0.07, 0.97)
+    -- opaque under the rows whatever the theme fill alpha is
+    local solid = m:CreateTexture(nil, "BACKGROUND")
+    solid:SetPoint("TOPLEFT", m, "TOPLEFT", 3, -3)
+    solid:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT", -3, 3)
+    solid:SetTexture(0.06, 0.06, 0.07, 1)
+    m.solid = solid
     m.rows = {}
     m.offset = 0
     m:Hide()
@@ -872,9 +900,13 @@ function IchaUI_ChoiceMenu(anchor, opts, cur, onPick, fontPreview)
     m:ClearAllPoints()
     m:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -1)
     IchaUI_PaintGoldBorder(m, 0.95)
+    if IchaUI_Fill then
+        local r, g, b = IchaUI_Fill()
+        m.solid:SetTexture(r or 0.06, g or 0.06, b or 0.07, 1)
+    end
+    IchaUI_ChoiceMenuLevels(m, anchor)
     IchaUIChoiceMenuCatch:Show()
     m:Show()
-    m:Raise()
     IchaUI_ChoiceMenuPaint()
 end
 

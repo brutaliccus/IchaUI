@@ -149,6 +149,121 @@ local function installIchaUIWorldMap()
         return b
     end
 
+    -- The map art has a fixed size, so resizing changes the scale. The top-left
+    -- corner stays put while dragging; the spot is saved as CENTER on release.
+    local function gripUpdate()
+        local g = st.grip
+        local f = WorldMapFrame
+        local cx, cy = GetCursorPosition()
+        local ps = UIParent:GetEffectiveScale() or 1
+        local w = (f:GetWidth() or 0) * ps
+        local h = (f:GetHeight() or 0) * ps
+        if w <= 0 or h <= 0 then return end
+        local s = (cx - g._left) / w
+        local sh = (g._top - cy) / h
+        if sh > s then s = sh end
+        s = clamp(s, SCALE_LO, SCALE_HI)
+        db().scale = s
+        f:SetScale(s)
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", g._left / (s * ps), g._top / (s * ps))
+    end
+
+    local function gripStop()
+        local g = st.grip
+        if not g or not g._sizing then return end
+        g._sizing = nil
+        g:SetScript("OnUpdate", nil)
+        savePos()
+        if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
+    end
+
+    local function ensureGrip()
+        if st.grip then return st.grip end
+        local g = CreateFrame("Button", "IchaUIWorldMapGrip", WorldMapFrame)
+        g:SetWidth(16)
+        g:SetHeight(16)
+        g:SetPoint("BOTTOMRIGHT", WorldMapFrame, "BOTTOMRIGHT", -2, 2)
+        g:SetFrameLevel((WorldMapFrame:GetFrameLevel() or 1) + 12)
+        g:EnableMouse(true)
+        g:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+        g:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+        g:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight", "ADD")
+        local texs = { g:GetNormalTexture(), g:GetPushedTexture() }
+        local ti
+        for ti = 1, 2 do
+            local t = texs[ti]
+            if t and IchaUI_PaintGoldVertex then
+                IchaUI_PaintGoldVertex(t, 0.93, 0.78, 0.35, 1, true)
+            elseif t and t.SetVertexColor then
+                t:SetVertexColor(0.93, 0.78, 0.35, 1)
+            end
+        end
+        g:SetScript("OnMouseDown", function()
+            if not st.active then return end
+            local f = WorldMapFrame
+            local es = f:GetEffectiveScale() or 1
+            local left, top = f:GetLeft(), f:GetTop()
+            if not left or not top then return end
+            this._left = left * es
+            this._top = top * es
+            this._sizing = true
+            this:SetScript("OnUpdate", gripUpdate)
+        end)
+        g:SetScript("OnMouseUp", gripStop)
+        g:SetScript("OnHide", gripStop)
+        g:SetScript("OnEnter", function()
+            GameTooltip:SetOwner(this, "ANCHOR_TOPLEFT")
+            GameTooltip:SetText("Drag to resize the map")
+            GameTooltip:Show()
+        end)
+        g:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        st.grip = g
+        return g
+    end
+
+    -- Ctrl + wheel scales, Shift + wheel fades. Returns true when it used the event.
+    local function wheelStep()
+        if not st.active then return false end
+        local d = db()
+        local step = (arg1 or 0) / 10
+        if IsShiftKeyDown() then
+            IchaUI_WorldMap_Set("alpha", (tonumber(d.alpha) or 1) + step)
+            return true
+        elseif IsControlKeyDown() then
+            IchaUI_WorldMap_Set("scale", (tonumber(d.scale) or 1) + step)
+            return true
+        end
+        return false
+    end
+
+    -- The wheel goes to the top frame under the cursor that takes it, which over the
+    -- map is Magnify's scroll frame (or WorldMapButton), not WorldMapFrame. Chain each
+    -- one: modified wheel is ours, plain wheel runs the previous script (Magnify zoom).
+    local wheelWrap = {}
+    local function wrapWheel(f, enable)
+        if not f or not f.GetScript then return end
+        local cur = f:GetScript("OnMouseWheel")
+        if cur and cur == wheelWrap[f] then return end
+        local prev = cur
+        local w = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            if wheelStep() then return end
+            if prev then prev(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
+        end
+        wheelWrap[f] = w
+        f:SetScript("OnMouseWheel", w)
+        if enable and f.EnableMouseWheel then f:EnableMouseWheel(1) end
+    end
+
+    local function hookWheels()
+        wrapWheel(WorldMapFrame, true)
+        if WorldMapFrameScrollFrame then
+            wrapWheel(WorldMapFrameScrollFrame, false)
+        else
+            wrapWheel(WorldMapButton, true)
+        end
+    end
+
     -- Scale, opacity and position only: safe on every show.
     local function applyLight()
         if not st.active then return end
@@ -163,6 +278,8 @@ local function installIchaUIWorldMap()
         place()
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
+        hookWheels()
+        ensureGrip():Show()
     end
 
     -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; resize after it.
@@ -236,16 +353,7 @@ local function installIchaUIWorldMap()
         hookScript(f, "OnShow", function()
             applyLight()
         end)
-        hookScript(f, "OnMouseWheel", function()
-            if not st.active then return end
-            local d = db()
-            local step = (arg1 or 0) / 10
-            if IsShiftKeyDown() then
-                IchaUI_WorldMap_Set("alpha", (tonumber(d.alpha) or 1) + step)
-            elseif IsControlKeyDown() then
-                IchaUI_WorldMap_Set("scale", (tonumber(d.scale) or 1) + step)
-            end
-        end)
+        hookWheels()
         hookScript(f, "OnMouseDown", function()
             if not st.active then return end
             WorldMapFrame:StartMoving()
@@ -308,6 +416,7 @@ local function installIchaUIWorldMap()
         f:SetAllPoints(UIParent)
         if BlackoutWorld then BlackoutWorld:Show() end
         paintBorder()
+        if st.grip then st.grip:Hide() end
         if maximized() and type(WorldMapFrame_Maximize) == "function" then
             WorldMapFrame_Maximize()
         end
@@ -468,7 +577,7 @@ local function installIchaUIWorldMap()
             elseif b == "addon" then
                 note:SetText("Another map addon (Cartographer / MetaMap) owns the world map, so this one is idle.")
             else
-                note:SetText("Windowed map. Drag the edge to move, Ctrl + wheel to scale, Shift + wheel for opacity, Esc closes.")
+                note:SetText("Drag the edge to move, the corner grip to resize. Ctrl + wheel scales, Shift + wheel fades, Esc closes.")
             end
             local j
             for j = 1, table.getn(LV) do

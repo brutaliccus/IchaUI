@@ -5,6 +5,10 @@ A full interface replacement: action bars, hero bars and drawers, unit frames wi
 ![Version](https://img.shields.io/badge/version-3.3.0-blue)
 ![Interface](https://img.shields.io/badge/interface-11200-lightgrey)
 
+![IchaUI in game: the full layout](docs/screenshots/overview.jpg)
+
+*IchaUI in game: the full layout. Minimap top right, player frame center, totem bar with paging arrows above the action bars, the Hero bar, skinned chat bottom left, and Caw DPS / TW Threatmeter bottom right.*
+
 > **About the images:** anything named `preview-*.png` is an **offline preview render** built from the addon's real textures (`tools/render_previews.py`). It is not an in-game screenshot. Every other image is an in-game capture.
 
 ![Button and drawer shapes](docs/screenshots/preview-button-shapes.png)

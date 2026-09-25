@@ -39,6 +39,18 @@ local function applyBackdrop(f, alpha, edge)
     IchaUI_PaintGoldBorder(f, 1)
 end
 
+-- Remember the skin a frame wants so host-addon restyles can be undone
+local function markSkin(f, alpha, edge)
+    if not f then return end
+    f._ichaSkinA = alpha
+    f._ichaSkinE = edge
+end
+
+local function reskin(f)
+    if not enabled or not f or not f._ichaSkinA then return end
+    applyBackdrop(f, f._ichaSkinA, f._ichaSkinE)
+end
+
 local function nukeTexture(t)
     if not t then return end
     if t.SetTexture then
@@ -98,6 +110,7 @@ local BLIZZ_BORDER_SUFFIXES = {
 local function skinFrame(frame, alpha)
     if not frame then return end
     local a = alpha or BG[4]
+    markSkin(frame, a, edgeSize)
     pcall(function()
         hideNamedSuffixes(frame, BLIZZ_BORDER_SUFFIXES)
         hideBorderRegions(frame)
@@ -132,6 +145,35 @@ local TWTHREAT_NAMES = {
     "TWThreatDisplayTargetPFUI",
 }
 
+-- TWThreat creates bar N the first time N threat rows are needed (in combat)
+local function skinTWThreatBars(onlyNew)
+    local n = 1
+    while true do
+        local bar = getglobal("TWThreat" .. n)
+        if not bar then break end
+        if not onlyNew or not bar._ichaSkinHooked then
+            skinFrame(bar, 0.40)
+        end
+        n = n + 1
+    end
+end
+
+-- Child of TWTMain: OnUpdate only runs while the meter is visible
+local twtWatch
+local function ensureTWThreatWatch()
+    if twtWatch then return end
+    local main = getglobal("TWTMain")
+    if not main then return end
+    twtWatch = CreateFrame("Frame", nil, main)
+    twtWatch._t = 0
+    twtWatch:SetScript("OnUpdate", function()
+        this._t = this._t + arg1
+        if this._t < 1 then return end
+        this._t = 0
+        if enabled then skinTWThreatBars(true) end
+    end)
+end
+
 local function skinTWThreat()
     local i
     for i = 1, table.getn(TWTHREAT_NAMES) do
@@ -140,13 +182,9 @@ local function skinTWThreat()
             skinFrame(f, 0.65)
         end
     end
+    skinTWThreatBars(false)
+    ensureTWThreatWatch()
     local n
-    for n = 1, 12 do
-        local bar = getglobal("TWThreat" .. n)
-        if bar then
-            skinFrame(bar, 0.40)
-        end
-    end
     for n = 1, 5 do
         local tm = getglobal("TMEF" .. n)
         if tm then
@@ -169,6 +207,7 @@ local CAW_NAMES = {
 -- Compact gold chrome for Caw popup menus (anonymous frames marked cawDropdown)
 local function skinCawDropdown(f)
     if not f then return end
+    markSkin(f, 0.92, 10)
     pcall(function()
         applyBackdrop(f, 0.92, 10)
         f._ichaCawDropSkinned = true
@@ -226,6 +265,7 @@ local function skinCawViewMenus(v)
                 skinCawDropdown(f)
             else
                 -- selector buttons that open the menus
+                markSkin(f, 0.95, 8)
                 pcall(function() applyBackdrop(f, 0.95, 8) end)
             end
         end
@@ -274,6 +314,7 @@ end
 local function hookCawViewFrame(v)
     if not v or not v.frame then return end
     local f = v.frame
+    markSkin(f, 0.72, edgeSize)
     if f._ichaCawViewHooked then
         walkCawDropdowns(f, 0)
         return
@@ -299,6 +340,52 @@ local function hookCawViewFrame(v)
     end)
 end
 
+-- Caw re-themes through CAW_DPS_METER.ui* on every dropdown open/refresh,
+-- selector hover and layout, resetting its gray border; re-apply ours after.
+local function postHookCaw(D, key, after)
+    local orig = D[key]
+    if type(orig) ~= "function" then return end
+    D[key] = function(a1, a2, a3, a4, a5, a6)
+        local r1, r2, r3 = orig(a1, a2, a3, a4, a5, a6)
+        if enabled then pcall(after, a1, a2, a3, r1) end
+        return r1, r2, r3
+    end
+end
+
+local function installCawHooks(D)
+    if D._ichaSkinHooks then return end
+    D._ichaSkinHooks = true
+    -- Swaps the backdrop for Caw's flat 1px one
+    postHookCaw(D, "uiPanel", function(f)
+        reskin(f)
+    end)
+    -- Hover/select repaint: keep Caw's fill feedback, restore gold edge
+    postHookCaw(D, "uiPaintMeterButton", function(b)
+        if b and b._ichaSkinA then
+            local r, g, bl = IchaUI_Gold()
+            b:SetBackdropBorderColor(r, g, bl, 1)
+        end
+    end)
+    -- Mode / segment / report / overflow menus (open, scroll, select)
+    postHookCaw(D, "uiStyleMeterMenu", function(v, menu)
+        skinCawDropdown(menu)
+    end)
+    -- Window shell (layout, lock toggle, settings changes, new windows)
+    postHookCaw(D, "uiStyleMeterShell", function(v)
+        if not v or not v.frame then return end
+        hookCawViewFrame(v)
+        applyBackdrop(v.frame, 0.72, edgeSize)
+        skinCawViewMenus(v)
+    end)
+    -- Options / breakdown / compare / reset / whisper dialogs are lazy
+    postHookCaw(D, "uiDialog", function(name, title, w, f)
+        if not f then return end
+        skinFrame(f, 0.72)
+        hookCawSizeReskin(f, true)
+        scheduleCawReskin()
+    end)
+end
+
 skinCawDPS = function()
     local i
     for i = 1, table.getn(CAW_NAMES) do
@@ -313,6 +400,7 @@ skinCawDPS = function()
     -- Multi-window views + menus live on CAW_DPS_METER (anonymous parents)
     local D = CAW_DPS_METER
     if type(D) == "table" then
+        installCawHooks(D)
         if D.mainView then
             skinCawViewMenus(D.mainView)
             hookCawViewFrame(D.mainView)

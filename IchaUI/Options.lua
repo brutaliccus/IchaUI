@@ -266,8 +266,23 @@ function IchaUI_BuildTotemSetsBlock(page, x, y, sectionHeader, makeButton, makeE
         b.icon = ic
         b.el = el
         b:SetScript("OnClick", function()
-            S.CyclePick(S.Page(), this.el, (arg1 == "RightButton") and -1 or 1)
-            local onEnter = this:GetScript("OnEnter")
+            local btn = this
+            if arg1 ~= "RightButton" and S.PickOpts and IchaUI_ChoiceMenu then
+                if GameTooltip then GameTooltip:Hide() end
+                local opts = S.PickOpts(btn.el)
+                local cur = S.Pick(S.Table(nil), btn.el) or "__none__"
+                local sel = 0
+                local k
+                for k = 1, table.getn(opts) do
+                    if opts[k][1] == cur then sel = k end
+                end
+                IchaUI_ChoiceMenu(btn, opts, sel, function(k)
+                    S.SetPick(S.Page(), btn.el, opts[k][1])
+                end)
+                return
+            end
+            S.CyclePick(S.Page(), btn.el, (arg1 == "RightButton") and -1 or 1)
+            local onEnter = btn:GetScript("OnEnter")
             if onEnter then onEnter() end
         end)
         b:SetScript("OnEnter", function()
@@ -276,7 +291,7 @@ function IchaUI_BuildTotemSetsBlock(page, x, y, sectionHeader, makeButton, makeE
             GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
             local t = S.Table(nil)
             GameTooltip:SetText(S.Pick(t, this.el) or "(none)", 1, 1, 1)
-            GameTooltip:AddLine("Left: next  Right: previous", 1, 1, 1)
+            GameTooltip:AddLine("Click: choose  Right: previous", 1, 1, 1)
             GameTooltip:Show()
         end)
         b:SetScript("OnLeave", function()
@@ -655,6 +670,214 @@ local function makeButton(parent, text, w, h, onClick)
     return b
 end
 
+------------------------------------------------------------------------
+-- Dropdown list under a choice button.
+-- opts = { { value, label [, fontPath] }, ... }; cur = selected index;
+-- onPick(i) runs when a row is clicked. fontPreview draws each label in
+-- opts[i][3] (or opts[i][1] when it is a font path).
+------------------------------------------------------------------------
+IchaUI_CHOICE_ROWS = 14
+IchaUI_CHOICE_ROW_H = 16
+
+function IchaUI_ChoiceMenuPaint()
+    local m = IchaUIChoiceMenu
+    if not m or not m.opts then return end
+    local n = table.getn(m.opts)
+    local i
+    for i = 1, IchaUI_CHOICE_ROWS do
+        local row = m.rows[i]
+        local idx = i + m.offset
+        if row and idx <= n then
+            local o = m.opts[idx]
+            row.idx = idx
+            row.fs:SetFontObject(GameFontHighlightSmall)
+            IchaUI_DyeFs(row.fs, 1, 1, 1)
+            if m.fontPreview then
+                local path = o[3] or o[1]
+                if type(path) == "string" and string.find(string.lower(path), "%.ttf$") then
+                    local _, sz = row.fs:GetFont()
+                    pcall(row.fs.SetFont, row.fs, path, (sz or 11) + 1, "")
+                end
+            end
+            row.fs:ClearAllPoints()
+            row.fs:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+            if o[4] then
+                row.icon:SetTexture(o[4])
+                row.icon:Show()
+                row.fs:SetPoint("LEFT", row, "LEFT", IchaUI_CHOICE_ROW_H + 6, 0)
+            else
+                row.icon:Hide()
+                row.fs:SetPoint("LEFT", row, "LEFT", 6, 0)
+            end
+            row.fs:SetText(o[2] or tostring(o[1]))
+            if idx == m.cur then
+                row.fs:SetTextColor(0.93, 0.78, 0.35)
+                row.sel:Show()
+            else
+                row.fs:SetTextColor(1, 1, 1)
+                row.sel:Hide()
+            end
+            row:Show()
+        elseif row then
+            row:Hide()
+        end
+    end
+    if m.up then
+        if m.offset > 0 then m.up:Show() else m.up:Hide() end
+        if m.offset + IchaUI_CHOICE_ROWS < n then m.down:Show() else m.down:Hide() end
+    end
+end
+
+function IchaUI_ChoiceMenuScroll(delta)
+    local m = IchaUIChoiceMenu
+    if not m or not m.opts then return end
+    local maxOff = table.getn(m.opts) - IchaUI_CHOICE_ROWS
+    if maxOff < 0 then maxOff = 0 end
+    local o = m.offset + delta
+    if o < 0 then o = 0 end
+    if o > maxOff then o = maxOff end
+    if o ~= m.offset then
+        m.offset = o
+        IchaUI_ChoiceMenuPaint()
+    end
+end
+
+function IchaUI_ChoiceMenuBuild()
+    if IchaUIChoiceMenu then return IchaUIChoiceMenu end
+    -- click-away catcher: any click outside the list closes it
+    local c = CreateFrame("Button", "IchaUIChoiceMenuCatch", UIParent)
+    c:SetAllPoints(UIParent)
+    c:SetFrameStrata("FULLSCREEN_DIALOG")
+    c:SetFrameLevel(90)
+    c:EnableMouse(true)
+    c:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    c:SetScript("OnClick", function() IchaUIChoiceMenu:Hide() end)
+    c:Hide()
+
+    local m = CreateFrame("Frame", "IchaUIChoiceMenu", UIParent)
+    m:SetFrameStrata("FULLSCREEN_DIALOG")
+    m:SetFrameLevel(100)
+    m:EnableMouse(true)
+    m:EnableMouseWheel(true)
+    m:SetClampedToScreen(true)
+    m:SetBackdrop({
+        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    })
+    m:SetBackdropColor(0.06, 0.06, 0.07, 0.97)
+    m.rows = {}
+    m.offset = 0
+    m:Hide()
+    m:SetScript("OnMouseWheel", function() IchaUI_ChoiceMenuScroll(-arg1) end)
+    m:SetScript("OnUpdate", function()
+        if not this.anchor or not this.anchor:IsVisible() then this:Hide() end
+    end)
+    m:SetScript("OnHide", function()
+        IchaUIChoiceMenuCatch:Hide()
+        this.anchor = nil
+        this.onPick = nil
+    end)
+    local i
+    for i = 1, IchaUI_CHOICE_ROWS do
+        local row = CreateFrame("Button", nil, m)
+        row:SetHeight(IchaUI_CHOICE_ROW_H)
+        row:SetPoint("TOPLEFT", m, "TOPLEFT", 4, -4 - (i - 1) * IchaUI_CHOICE_ROW_H)
+        row:SetPoint("TOPRIGHT", m, "TOPRIGHT", -4, -4 - (i - 1) * IchaUI_CHOICE_ROW_H)
+        row:SetFrameLevel(m:GetFrameLevel() + 2)
+        local sel = row:CreateTexture(nil, "BACKGROUND")
+        sel:SetAllPoints(row)
+        sel:SetTexture(0.93, 0.78, 0.35, 0.14)
+        sel:Hide()
+        row.sel = sel
+        local hl = row:CreateTexture(nil, "HIGHLIGHT")
+        hl:SetAllPoints(row)
+        hl:SetTexture(1, 0.9, 0.5, 0.18)
+        local ic = row:CreateTexture(nil, "ARTWORK")
+        ic:SetWidth(IchaUI_CHOICE_ROW_H - 2)
+        ic:SetHeight(IchaUI_CHOICE_ROW_H - 2)
+        ic:SetPoint("LEFT", row, "LEFT", 4, 0)
+        ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        ic:Hide()
+        row.icon = ic
+        local fs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("LEFT", row, "LEFT", 6, 0)
+        fs:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+        fs:SetJustifyH("LEFT")
+        row.fs = fs
+        row:SetScript("OnClick", function()
+            local menu = IchaUIChoiceMenu
+            local pick, idx = menu.onPick, this.idx
+            menu:Hide()
+            if pick and idx then pick(idx) end
+        end)
+        m.rows[i] = row
+    end
+    local up = m:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    up:SetPoint("TOPRIGHT", m, "TOPRIGHT", -6, -3)
+    up:SetText("^")
+    up:SetTextColor(0.93, 0.78, 0.35)
+    m.up = up
+    local down = m:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    down:SetPoint("BOTTOMRIGHT", m, "BOTTOMRIGHT", -6, 3)
+    down:SetText("v")
+    down:SetTextColor(0.93, 0.78, 0.35)
+    m.down = down
+    if UISpecialFrames then table.insert(UISpecialFrames, "IchaUIChoiceMenu") end
+    return m
+end
+
+-- Dropdown arrow on a choice button; the label keeps clear of it.
+function IchaUI_ChoiceArrow(b)
+    if not b or b._choiceArrow then return end
+    local a = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    a:SetPoint("RIGHT", b, "RIGHT", -6, 0)
+    a:SetText("v")
+    a:SetTextColor(0.93, 0.78, 0.35)
+    b._choiceArrow = a
+    local fs = b._label or b.label
+    if fs and fs.ClearAllPoints then
+        fs:ClearAllPoints()
+        fs:SetPoint("LEFT", b, "LEFT", 6, 0)
+        fs:SetPoint("RIGHT", b, "RIGHT", -16, 0)
+    end
+end
+
+function IchaUI_ChoiceMenu(anchor, opts, cur, onPick, fontPreview)
+    if not anchor or type(opts) ~= "table" then return end
+    local m = IchaUI_ChoiceMenuBuild()
+    if m:IsShown() and m.anchor == anchor then
+        m:Hide()
+        return
+    end
+    local n = table.getn(opts)
+    if n == 0 then return end
+    m.opts = opts
+    m.cur = tonumber(cur) or 0
+    m.fontPreview = fontPreview and true or false
+    m.anchor = anchor
+    m.onPick = onPick
+    local shown = n
+    if shown > IchaUI_CHOICE_ROWS then shown = IchaUI_CHOICE_ROWS end
+    -- open scrolled so the selected row is visible
+    m.offset = 0
+    if m.cur > shown then m.offset = m.cur - shown end
+    if m.offset > n - shown then m.offset = n - shown end
+    local w = anchor:GetWidth() or 120
+    if w < 120 then w = 120 end
+    m:SetScale(anchor:GetEffectiveScale() / UIParent:GetEffectiveScale())
+    m:SetWidth(w)
+    m:SetHeight(shown * IchaUI_CHOICE_ROW_H + 8)
+    m:ClearAllPoints()
+    m:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -1)
+    IchaUI_PaintGoldBorder(m, 0.95)
+    IchaUIChoiceMenuCatch:Show()
+    m:Show()
+    m:Raise()
+    IchaUI_ChoiceMenuPaint()
+end
+
 local function makeEdit(parent, w, h)
     local e = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
     e:SetWidth(w)
@@ -722,7 +945,7 @@ local function makeSliderRow(parent, title, x, y, width, lo, hi, step, get, onCh
         ed:SetText(string.format(step < 1 and "%.2f" or "%.0f", v))
     end
 
-    return { refresh = refresh, height = 26 }
+    return { refresh = refresh, height = 26, slider = sl }
 end
 
 local STRATA_LABELS = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
@@ -804,6 +1027,90 @@ local function smIconCoords(tex, idx)
     local left = math.mod(i, 4) * 0.25
     local top = math.floor(i / 4) * 0.25
     tex:SetTexCoord(left, left + 0.25, top, top + 0.25)
+end
+
+-- Skin tab: Live apply toggle (x, y) and theme preview box (px, y). The box
+-- paints from the picker's pending color, so dragging never repaints the UI.
+function IchaUI_BuildThemePreview(pg, x, px, y, makeGoldToggle, paintGoldToggle)
+    local liveBtn = makeGoldToggle(pg, "Live apply: Off", 104, 18)
+    liveBtn:SetPoint("TOPLEFT", pg, "TOPLEFT", x, y + 3)
+    local function paintLive()
+        local on = IchaUI_ThemeLiveApplyOn and IchaUI_ThemeLiveApplyOn()
+        liveBtn._label:SetText(on and "Live apply: On" or "Live apply: Off")
+        paintGoldToggle(liveBtn, on)
+    end
+    liveBtn:SetScript("OnClick", function()
+        if not IchaUI_SetThemeLiveApply then return end
+        IchaUI_SetThemeLiveApply(not IchaUI_ThemeLiveApplyOn())
+        paintLive()
+    end)
+    paintLive()
+
+    local bd = {
+        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    }
+    local bdBtn = {
+        bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+        tile = true, tileSize = 8, edgeSize = 10,
+        insets = { left = 2, right = 2, top = 2, bottom = 2 },
+    }
+    local pv = CreateFrame("Frame", nil, pg)
+    pv:SetWidth(196)
+    pv:SetHeight(48)
+    pv:SetPoint("TOPLEFT", pg, "TOPLEFT", px, y + 2)
+    local title = pv:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    title:SetPoint("TOPLEFT", pv, "TOPLEFT", 8, -8)
+    title:SetText("Preview")
+    local body = pv:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    body:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -5)
+    body:SetText("Sample text")
+    IchaUI_DyeFs(body, 1, 1, 1)
+    local btn = CreateFrame("Frame", nil, pv)
+    btn:SetWidth(56)
+    btn:SetHeight(18)
+    btn:SetPoint("RIGHT", pv, "RIGHT", -44, 0)
+    local btnFs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    btnFs:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    btnFs:SetText("Button")
+    IchaUI_DyeFs(btnFs, 1, 1, 1)
+    local ringHost = CreateFrame("Frame", nil, pv)
+    ringHost:SetWidth(26)
+    ringHost:SetHeight(26)
+    ringHost:SetPoint("RIGHT", pv, "RIGHT", -10, 0)
+    local icon = ringHost:CreateTexture(nil, "ARTWORK")
+    icon:SetWidth(15)
+    icon:SetHeight(15)
+    icon:SetPoint("CENTER", ringHost, "CENTER", 0, 0)
+    icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    local ring = ringHost:CreateTexture(nil, "OVERLAY")
+    ring:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    ring:SetWidth(46)
+    ring:SetHeight(46)
+    ring:SetPoint("CENTER", ringHost, "CENTER", 9, -9)
+    if ring.SetDesaturated then pcall(ring.SetDesaturated, ring, 1) end
+
+    local function paint()
+        if not IchaUI_ThemeLiveGold then return end
+        local gr, gg, gb = IchaUI_ThemeLiveGold()
+        local lr, lg, lb = IchaUI_ThemeLiveGoldLight()
+        local fr, fg, fb = IchaUI_ThemeLiveFill()
+        local fa = IchaUI_ThemeFillAlpha()
+        pv:SetBackdrop(bd)
+        pv:SetBackdropColor(fr, fg, fb, 0.94 * fa)
+        pv:SetBackdropBorderColor(gr, gg, gb, 1)
+        btn:SetBackdrop(bdBtn)
+        btn:SetBackdropColor(fr, fg, fb, 0.92 * fa)
+        btn:SetBackdropBorderColor(gr, gg, gb, 0.85)
+        IchaUI_DyeFs(title, lr, lg, lb)
+        ring:SetVertexColor(gr, gg, gb, 1)
+    end
+    IchaUI_ThemePreviewPaint = paint
+    paint()
 end
 
 local function buildSmartMarkPage(pg, makeGoldToggle, paintGoldToggle)
@@ -932,6 +1239,38 @@ local function buildSmartMarkPage(pg, makeGoldToggle, paintGoldToggle)
     return refreshAll
 end
 
+-- Chat tab: IchaUI_Chat builds it; without that addon only the chat skin controls show.
+function IchaUI_OptChatTab(pg, h)
+    if IchaUIChat_BuildOptions then return IchaUIChat_BuildOptions(pg, h) end
+    h.sectionHeader(pg, "Chat skin", 10, -4)
+    local b = h.makeButton(pg, "Border: On", 90, 20, function()
+        if not IchaUIChatSkin_Set then return end
+        local g = IchaUIChatSkin_Get and IchaUIChatSkin_Get()
+        local on = not (g and g.enabled)
+        IchaUIChatSkin_Set("enabled", on)
+        this:SetText(on and "Border: On" or "Border: Off")
+    end)
+    b:SetPoint("TOPLEFT", pg, "TOPLEFT", 10, -24)
+    h.makeSliderRow(pg, "Bg alpha", 10, -52, 160, 0.2, 1.0, 0.05,
+        function()
+            local g = IchaUIChatSkin_Get and IchaUIChatSkin_Get()
+            return (g and g.alpha) or 0.75
+        end,
+        function(v) if IchaUIChatSkin_Set then IchaUIChatSkin_Set("alpha", v) end end,
+        1, 1, 1)
+    h.tip(pg, "Enable the IchaUI_Chat addon (full game restart) for the other chat options.", 10, -90, 460)
+    return function()
+        local g = IchaUIChatSkin_Get and IchaUIChatSkin_Get()
+        b:SetText((g and g.enabled) and "Border: On" or "Border: Off")
+    end
+end
+
+-- Plates tab: IchaUI_Plates builds it (the tab is dropped when that addon is off).
+function IchaUI_OptPlatesTab(pg, h)
+    if IchaPlates_BuildOptions then return IchaPlates_BuildOptions(pg, h) end
+    return nil
+end
+
 local function build()
     if panel then return panel end
 
@@ -1039,7 +1378,7 @@ local function build()
     ------------------------------------------------------------------
     -- Left tab column (pages sit to the right; profile bar sits below)
     ------------------------------------------------------------------
-    local TAB_NAMES = { "Bars", "Hero", "Buffs", "Frames", "Drawers", "Map", "Combat", "Mark", "Skin" }
+    local TAB_NAMES = { "Bars", "Hero", "Buffs", "Frames", "Plates", "Drawers", "Map", "Combat", "Mark", "Chat", "Skin" }
     local tabBtns = {}
     local pages = {}
     local activeTab = nil
@@ -1103,6 +1442,12 @@ local function build()
         if panel then IchaUI_DyeConfigTree(panel, 0) end
         if name == "Mark" and pages._markRefresh then
             pages._markRefresh()
+        end
+        if name == "Chat" and pages._chatRefresh then
+            pages._chatRefresh()
+        end
+        if name == "Plates" and pages._platesRefresh then
+            pages._platesRefresh()
         end
     end
     panel._repaintTabs = function()
@@ -1379,6 +1724,19 @@ local function build()
         this:SetText("Bar " .. p)
         if pageBars._formRefresh then pageBars._formRefresh() end
     end)
+    IchaUI_ChoiceArrow(barFormBtn)
+    barFormBtn:SetScript("OnClick", function()
+        local btn = this
+        local n = IchaUI_ActionBarCount and IchaUI_ActionBarCount() or 6
+        local opts = {}
+        local k
+        for k = 1, n do table.insert(opts, { k, "Bar " .. k }) end
+        IchaUI_ChoiceMenu(btn, opts, IchaUI_BarFormPick or 1, function(k)
+            IchaUI_BarFormPick = k
+            btn:SetText("Bar " .. k)
+            if pageBars._formRefresh then pageBars._formRefresh() end
+        end)
+    end)
     barFormBtn:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y1)
     local shapeBtn = makeButton(pageBars, "Shape: Rectangle", 140, 20, function()
         local id = IchaUI_BarFormPick or 1
@@ -1389,6 +1747,12 @@ local function build()
         if pageBars._formRefresh then pageBars._formRefresh() end
     end)
     shapeBtn:SetPoint("LEFT", barFormBtn, "RIGHT", 4, 0)
+    if IchaUI_ShapeDropdown then
+        IchaUI_ShapeDropdown(shapeBtn, function()
+            if not IchaUI_ActionBarForm then return "rect" end
+            return (IchaUI_ActionBarForm(IchaUI_BarFormPick or 1))
+        end)
+    end
     y1 = y1 - 24
     local layBtn = makeButton(pageBars, "Layout: Grid", 120, 20, function()
         local id = IchaUI_BarFormPick or 1
@@ -1399,6 +1763,18 @@ local function build()
         if pageBars._formRefresh then pageBars._formRefresh() end
     end)
     layBtn:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y1)
+    local function cdNumLabel()
+        local on = true
+        if IchaUI_CooldownNumbersOn then on = IchaUI_CooldownNumbersOn() end
+        return on and "Cooldown numbers: On" or "Cooldown numbers: Off"
+    end
+    local cdNumBtn = makeButton(pageBars, cdNumLabel(), 150, 20, function()
+        local on = true
+        if IchaUI_CooldownNumbersOn then on = IchaUI_CooldownNumbersOn() end
+        if IchaUI_CooldownNumbersSet then IchaUI_CooldownNumbersSet(not on) end
+        this:SetText(cdNumLabel())
+    end)
+    cdNumBtn:SetPoint("LEFT", layBtn, "RIGHT", 4, 0)
     y1 = y1 - ROW
     makeSliderRow(pageBars, "Spread", PAD, y1, SLW, 10, 360, 1,
         function()
@@ -1450,6 +1826,7 @@ local function build()
         if IchaUI_FormShapeLabel then lab = IchaUI_FormShapeLabel(shape) end
         shapeBtn:SetText("Shape: " .. lab)
         if layout == "radial" then layBtn:SetText("Layout: Radial") else layBtn:SetText("Layout: Grid") end
+        cdNumBtn:SetText(cdNumLabel())
     end
     pageBars._formRefresh()
 
@@ -1650,6 +2027,12 @@ local function build()
         this:SetText("Shape: " .. lab)
     end)
     heroShape:SetPoint("TOPLEFT", pageHero, "TOPLEFT", PAD, y1)
+    if IchaUI_ShapeDropdown then
+        IchaUI_ShapeDropdown(heroShape, function()
+            if not IchaUI_HeroBarForm then return "square" end
+            return (IchaUI_HeroBarForm(IchaUI_HeroPick or 1))
+        end)
+    end
     local heroLay = makeButton(pageHero, "Layout: Grid", 120, 20, function()
         local id = IchaUI_HeroPick or 1
         local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
@@ -1816,6 +2199,19 @@ local function build()
                 setDir(n)
                 this:SetText("Open: " .. prettyDir(n))
             end)
+            IchaUI_ChoiceArrow(btn)
+            btn:SetScript("OnClick", function()
+                local opts = IchaUI_DIR_OPTS or {}
+                local cur, sel = getDir(), 0
+                local k
+                for k = 1, table.getn(opts) do
+                    if opts[k][1] == cur then sel = k end
+                end
+                IchaUI_ChoiceMenu(btn, opts, sel, function(k)
+                    setDir(opts[k][1])
+                    btn:SetText("Open: " .. prettyDir(opts[k][1]))
+                end)
+            end)
             btn:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
             table.insert(dirRefresh, function()
                 btn:SetText("Open: " .. prettyDir(getDir()))
@@ -1925,10 +2321,19 @@ local function build()
             function(key)
                 if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
             end)
-        local totThrow = makeButton(page, "Throw now", 80, 20, function()
+        local nextSetBind = makeKeyBindRow(page, "Next set", PAD + 240, yL,
+            function()
+                if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
+                return ""
+            end,
+            function(key)
+                if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
+            end)
+        table.insert(slotRows, nextSetBind)
+        local totThrow = makeButton(page, "Throw now", 72, 20, function()
             if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
         end)
-        totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 230, yL + 3)
+        totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 464, yL + 3)
         yL = yL - 26
         if IchaUI_BuildTotemSetsBlock then
             yL = IchaUI_BuildTotemSetsBlock(page, PAD, yL, sectionHeader, makeButton, makeEdit, makeKeyBindRow, slotRows)
@@ -2371,6 +2776,22 @@ local function build()
             local d = nextDir((g and g.drawerDir) or "down")
             if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerDir", d) end
             this:SetText("Open: " .. pretty(d))
+        end)
+        IchaUI_ChoiceArrow(dirBtn)
+        dirBtn:SetScript("OnClick", function()
+            local btn = this
+            local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
+            local cur = (g and g.drawerDir) or "down"
+            local opts = IchaUI_DIR_OPTS or {}
+            local sel, k = 0, nil
+            for k = 1, table.getn(opts) do
+                if opts[k][1] == cur then sel = k end
+            end
+            IchaUI_ChoiceMenu(btn, opts, sel, function(k)
+                if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerDir", opts[k][1]) end
+                btn:SetText("Open: " .. pretty(opts[k][1]))
+                if pages._mapRefresh then pages._mapRefresh() end
+            end)
         end)
         dirBtn:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, y)
         y = y - 24
@@ -2853,6 +3274,18 @@ local function build()
     -- TAB: Mark (Smart Mark icon order + binds)
     pages._markRefresh = buildSmartMarkPage(makePage("Mark", 320), makeGoldToggle, paintGoldToggle)
 
+    -- TAB: Chat (IchaUI_Chat options + chat skin border/alpha)
+    pages._chatRefresh = IchaUI_OptChatTab(makePage("Chat", 320), {
+        sectionHeader = sectionHeader, tip = tip, makeButton = makeButton, makeEdit = makeEdit,
+        makeSliderRow = makeSliderRow, makeGoldToggle = makeGoldToggle, paintGoldToggle = paintGoldToggle,
+    })
+
+    -- TAB: Plates (IchaUI_Plates nameplate options)
+    pages._platesRefresh = IchaUI_OptPlatesTab(makePage("Plates", 320), {
+        sectionHeader = sectionHeader, tip = tip, makeButton = makeButton, makeEdit = makeEdit,
+        makeSliderRow = makeSliderRow, makeGoldToggle = makeGoldToggle, paintGoldToggle = paintGoldToggle,
+    })
+
     ------------------------------------------------------------------
     -- TAB 8: Skin
     ------------------------------------------------------------------
@@ -2860,22 +3293,7 @@ local function build()
     local ySk = -4
 
     sectionHeader(pageSkin, "Chat skin", PAD, ySk); ySk = ySk - 20
-    local chatOn = makeButton(pageSkin, "Border: On", 90, 20, function()
-        if IchaUIChatSkin_Set then
-            local g = IchaUIChatSkin_Get and IchaUIChatSkin_Get()
-            local on = not (g and g.enabled)
-            IchaUIChatSkin_Set("enabled", on)
-            this:SetText(on and "Border: On" or "Border: Off")
-        end
-    end)
-    chatOn:SetPoint("TOPLEFT", pageSkin, "TOPLEFT", PAD, ySk)
-    ySk = ySk - ROW
-    local chatAlpha = makeSliderRow(pageSkin, "Alpha", PAD, ySk, SLW, 0.2, 1.0, 0.05,
-        function()
-            local g = IchaUIChatSkin_Get and IchaUIChatSkin_Get()
-            return (g and g.alpha) or 0.72
-        end,
-        function(v) if IchaUIChatSkin_Set then IchaUIChatSkin_Set("alpha", v) end end)
+    tip(pageSkin, "Chat border and background alpha are on the Chat tab.", PAD, ySk, 420)
     ySk = ySk - ROW
 
     ySk = ySk - 12
@@ -2932,27 +3350,15 @@ local function build()
     goldTex:SetTexture(1, 1, 1, 1)
     local function paintGoldSwatch()
         local r, g, b = 0.75, 0.52, 0.04
-        if IchaUI_Gold then r, g, b = IchaUI_Gold() end
+        if IchaUI_ThemeLiveGold then r, g, b = IchaUI_ThemeLiveGold() end
         goldTex:SetVertexColor(r, g, b, 1)
     end
     paintGoldSwatch()
     IchaUI_GoldSwatchPaint = paintGoldSwatch
     goldBtn:SetScript("OnClick", function()
-        if not IchaUI_OpenColorPicker then return end
-        local was = false
-        if IchaUI_ThemeGoldOn and IchaUI_ThemeGoldOn() then was = true end
-        local r, g, b = 0.75, 0.52, 0.04
-        if was and IchaUI_Gold then r, g, b = IchaUI_Gold() end
-        IchaUI_OpenColorPicker(r, g, b, function(nr, ng, nb)
-            if IchaUI_SetGold then IchaUI_SetGold(nr, ng, nb) end
-        end, function()
-            if was then
-                if IchaUI_SetGold then IchaUI_SetGold(r, g, b) end
-            elseif IchaUI_ClearGold then
-                IchaUI_ClearGold()
-            end
-        end)
+        if IchaUI_ThemePickColor then IchaUI_ThemePickColor("gold") end
     end)
+    IchaUI_BuildThemePreview(pageSkin, PAD + 160, PAD + 340, ySk, makeGoldToggle, paintGoldToggle)
     ySk = ySk - 28
     local fillLabel = pageSkin:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     fillLabel:SetPoint("TOPLEFT", pageSkin, "TOPLEFT", PAD, ySk)
@@ -2976,23 +3382,29 @@ local function build()
     fillTex:SetTexture(1, 1, 1, 1)
     local function paintFillSwatch()
         local r, g, b = 0.07, 0.07, 0.08
-        if IchaUI_Fill then r, g, b = IchaUI_Fill() end
+        if IchaUI_ThemeLiveFill then r, g, b = IchaUI_ThemeLiveFill() end
         fillTex:SetVertexColor(r, g, b, 1)
     end
     paintFillSwatch()
     IchaUI_FillSwatchPaint = paintFillSwatch
     fillBtn:SetScript("OnClick", function()
-        if not IchaUI_OpenColorPicker then return end
-        local r, g, b = 0.07, 0.07, 0.08
-        if IchaUI_Fill then r, g, b = IchaUI_Fill() end
-        IchaUI_OpenColorPicker(r, g, b, function(nr, ng, nb)
-            if IchaUI_SetFill then IchaUI_SetFill(nr, ng, nb) end
-        end, function()
-            if IchaUI_SetFill then IchaUI_SetFill(r, g, b) end
-        end)
+        if IchaUI_ThemePickColor then IchaUI_ThemePickColor("fill") end
     end)
+    local fillAlphaRow = makeSliderRow(pageSkin, "Opacity", PAD + 110, ySk + 2, 110, 0, 100, 5,
+        function()
+            local a = 1
+            if IchaUI_ThemeFillAlpha then a = IchaUI_ThemeFillAlpha() end
+            return math.floor(a * 100 + 0.5)
+        end,
+        function(v) if IchaUI_ThemeFillAlphaInput then IchaUI_ThemeFillAlphaInput(v / 100) end end,
+        1, 1, 1)
+    if fillAlphaRow and fillAlphaRow.slider then
+        fillAlphaRow.slider:SetScript("OnMouseUp", function()
+            if IchaUI_ThemeFillAlphaFlush then IchaUI_ThemeFillAlphaFlush() end
+        end)
+    end
     ySk = ySk - 28
-    tip(pageSkin, "Borders, rings, and chrome use this gold. Fill is the dark panel behind the gold edge. Brighter gold text follows the border. Both stay as they are until you pick a color.", PAD, ySk, PANEL_W - 40)
+    tip(pageSkin, "Borders, rings, and chrome use this gold. Fill is the dark panel behind the gold edge; Opacity scales every fill (chat, tooltips, panels, TWThreat/Caw), 100 = as designed. Brighter gold text follows the border. Both stay as they are until you pick a color.", PAD, ySk, PANEL_W - 40)
     ySk = ySk - 36
 
     ySk = -4
@@ -3101,10 +3513,8 @@ local function build()
             local g = (IchaUI_TooltipSkin_Get and IchaUI_TooltipSkin_Get()) or IchaUITooltipSkin_Get()
             tipSkinBtn:SetText((g and g.enabled) and "Tooltips: On" or "Tooltips: Off")
         end
-        if IchaUIChatSkin_Get and chatOn then
-            local g = IchaUIChatSkin_Get()
-            chatOn:SetText((g and g.enabled) and "Border: On" or "Border: Off")
-        end
+        if pages._chatRefresh then pages._chatRefresh() end
+        if pages._platesRefresh then pages._platesRefresh() end
         if IchaUI_HeroPickRefresh then IchaUI_HeroPickRefresh() end
         if IchaUI_ActionAddRefresh then IchaUI_ActionAddRefresh() end
         if pages._drawersRefresh then pages._drawersRefresh() end
@@ -3391,6 +3801,7 @@ local function build()
             if name == "Hero" then return IchaUI_HeroGrid and true or false end
             if name == "Buffs" then return IchaUIBuffBars_Set and true or false end
             if name == "Frames" then return IchaUIUF_Get and true or false end
+            if name == "Plates" then return IchaPlates_BuildOptions and true or false end
             if name == "Map" then return IchaUIMinimap_Set and true or false end
             if name == "Mark" then return IchaUI_SmartMark_GetOrder and true or false end
             if name == "Bars" then

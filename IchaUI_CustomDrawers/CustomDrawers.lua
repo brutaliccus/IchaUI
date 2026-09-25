@@ -1282,6 +1282,20 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     end
                     refreshLive(rid)
                 end)
+                if IchaUI_ShapeDropdown then
+                    IchaUI_ShapeDropdown(row.shape, function()
+                        return shapeOf(findRec(rid))
+                    end)
+                end
+                if IchaUI_StepDropdown then
+                    IchaUI_StepDropdown(row.open, IchaUI_DIR_OPTS, function()
+                        local live = findRec(rid)
+                        return live and normDir(live.dir)
+                    end, function(v)
+                        local live = findRec(rid)
+                        if live then live.dir = v end
+                    end)
+                end
                 row.title:SetScript("OnClick", function()
                     local live = findRec(rid)
                     if not live then return end

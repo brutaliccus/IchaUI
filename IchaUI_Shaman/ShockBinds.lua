@@ -341,6 +341,9 @@ local function fireIchaBindingAction(action)
     if action == "ICHA_THROWTOTEMS" and IchaUITotems_ThrowSet then
         IchaUITotems_ThrowSet(); return true
     end
+    if action == "ICHA_TOTEMSETNEXT" and IchaUITotems_NextSet then
+        IchaUITotems_NextSet(); return true
+    end
     if string.find(action, "ICHA_THROWTOTEMSET", 1, true) == 1 then
         local n = tonumber(string.sub(action, 19))
         if n and IchaUITotems_ThrowSetN then IchaUITotems_ThrowSetN(n); return true end

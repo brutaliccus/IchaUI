@@ -58,8 +58,27 @@ local function slider(label, lo, hi, step, get, set, show)
     return { kind = "slider", label = label, lo = lo, hi = hi, step = step, get = get, set = set, show = show }
 end
 
-local function cycle(text, click, show)
-    return { kind = "cycle", text = text, click = click, show = show }
+-- choice (optional): function() -> opts, selected index, pick(i); makes the
+-- row a dropdown instead of stepping through values.
+local function cycle(text, click, show, choice)
+    return { kind = "cycle", text = text, click = click, show = show, choice = choice }
+end
+
+local DIRS = { { "up", "Up" }, { "right", "Right" }, { "down", "Down" }, { "left", "Left" }, { "radial", "Radial" } }
+
+local function idxOf(opts, v)
+    local i
+    for i = 1, table.getn(opts) do
+        if opts[i][1] == v then return i end
+    end
+    return 0
+end
+
+local function shapeChoice(get, set)
+    return function()
+        local opts = IchaUI_FormShapeOpts and IchaUI_FormShapeOpts() or {}
+        return opts, idxOf(opts, get() or "circle"), function(i) set(opts[i][1]) end
+    end
 end
 
 -- Checkbox: a third of a row wide, so three sit side by side.
@@ -73,6 +92,8 @@ local function addDir(list, getDir, setDir, getS, setS, getA, setA, getR, setR)
         return "Open: " .. prettyDir(getDir())
     end, function()
         setDir(cycleDir(getDir()))
+    end, nil, function()
+        return DIRS, idxOf(DIRS, getDir()), function(i) setDir(DIRS[i][1]) end
     end))
     local function radial() return getDir() == "radial" end
     table.insert(list, slider("Spread", 10, 360, 1, getS, setS, radial))
@@ -87,6 +108,11 @@ local function addStyle(list, id, skipText, skipShape)
         return "Strata: " .. tostring(IchaUI_DrawerStyleValue(id, "strata"))
     end, function()
         IchaUI_DrawerStyleWrite(id, "strataNext")
+    end, nil, function()
+        local opts = IchaUI_DrawerStrataOpts and IchaUI_DrawerStrataOpts() or {}
+        return opts, idxOf(opts, IchaUI_DrawerStyleValue(id, "strata")), function(i)
+            IchaUI_DrawerStyleWrite(id, "strata", opts[i][1])
+        end
     end))
     if not skipText then
         table.insert(list, slider("Text size", 6, 28, 1, function()
@@ -116,7 +142,11 @@ local function addStyle(list, id, skipText, skipShape)
             local cur = IchaUI_DrawerStyleValue(id, "shape") or "circle"
             if IchaUI_FormShapeNext then cur = IchaUI_FormShapeNext(cur) else cur = "circle" end
             IchaUI_DrawerStyleWrite(id, "shape", cur)
-        end))
+        end, nil, shapeChoice(function()
+            return IchaUI_DrawerStyleValue(id, "shape")
+        end, function(v)
+            IchaUI_DrawerStyleWrite(id, "shape", v)
+        end)))
     end
     local meta = IchaUI_DrawerStyleMeta and IchaUI_DrawerStyleMeta(id)
     if meta and meta.grid then
@@ -162,6 +192,12 @@ local function totemsList()
             idx = (tonumber(idx) or 4) + 1
             if idx > 5 then idx = 1 end
             IchaUI_SetTotemTextStrata(idx)
+        end, nil, function()
+            local opts = {}
+            local i
+            for i = 1, table.getn(TEXT_STRATA) do table.insert(opts, { i, TEXT_STRATA[i] }) end
+            local _, idx = IchaUI_GetTotemTextStrata()
+            return opts, tonumber(idx) or 4, function(k) IchaUI_SetTotemTextStrata(k) end
         end))
     end
     table.insert(list, cycle(function()
@@ -363,7 +399,10 @@ local function customList(sid)
         if IchaUI_FormShapeNext then
             put("shape", IchaUI_FormShapeNext(rec.shape or "circle"))
         end
-    end))
+    end, nil, shapeChoice(function()
+        local rec = live()
+        return rec and rec.shape
+    end, function(v) put("shape", v) end)))
     addDir(list, dir, function(d) put("dir", d) end,
         function()
             local rec = live()
@@ -550,10 +589,22 @@ local function makeCycle(pane, spec)
     paintBox(b, 0.9)
     local fs = whiteFs(b)
     fs:SetPoint("CENTER", b, "CENTER", 0, 0)
-    b:SetScript("OnClick", function()
-        spec.click()
-        repaint(nil)
-    end)
+    if spec.choice and IchaUI_ChoiceMenu then
+        b._label = fs
+        if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(b) end
+        b:SetScript("OnClick", function()
+            local opts, cur, pick = spec.choice()
+            IchaUI_ChoiceMenu(this, opts, cur, function(i)
+                pick(i)
+                repaint(nil)
+            end)
+        end)
+    else
+        b:SetScript("OnClick", function()
+            spec.click()
+            repaint(nil)
+        end)
+    end
     b.paint = function()
         fs:SetText(spec.text())
     end

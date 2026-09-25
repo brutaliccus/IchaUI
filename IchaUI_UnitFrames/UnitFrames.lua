@@ -534,21 +534,19 @@ end
 
 
 -- Debuff/buff remaining time: same approach as ShaguPlatesX —
--- SuperWoW UnitDebuff returns spellID; duration comes from Shagu's locale table
--- (or SpellInfo name lookup). We cache start time when an aura first appears.
+-- SuperWoW UnitDebuff returns spellID; duration comes from IchaUI_DebuffDurations
+-- (IchaUI_Plates, localized) or a SpellInfo name lookup. We cache start time when an
+-- aura first appears.
 local auraTimeCache = {} -- [unitToken .. "::" .. key] = { start=, duration=, spellId= }
 
 local function shaguDebuffDurationDB()
+    if type(IchaUI_DebuffDurations) == "table" then
+        return IchaUI_DebuffDurations
+    end
+    -- IchaUI_Plates off: use ShaguPlatesX's table if that addon happens to be loaded.
     local loc = GetLocale and GetLocale() or "enUS"
     if ShaguPlatesX_locale and ShaguPlatesX_locale[loc] and ShaguPlatesX_locale[loc]["debuffs"] then
         return ShaguPlatesX_locale[loc]["debuffs"]
-    end
-    if ShaguPlates_locale and ShaguPlates_locale[loc] and ShaguPlates_locale[loc]["debuffs"] then
-        return ShaguPlates_locale[loc]["debuffs"]
-    end
-    -- fallback enUS
-    if ShaguPlatesX_locale and ShaguPlatesX_locale["enUS"] and ShaguPlatesX_locale["enUS"]["debuffs"] then
-        return ShaguPlatesX_locale["enUS"]["debuffs"]
     end
     return nil
 end
@@ -660,6 +658,9 @@ local function trackAuraTime(unit, spellId, texture, name, seenSet, stacks)
         -- Recast / refresh: stacks went up, or explicit refresh flagged
         if stacks > (e.stacks or 1) then
             e.start = now
+            e.applied = now
+            local base = lookupDebuffDuration(name or e.name, spellId or e.spellId)
+            if base and base > 0 then e.duration = base end
         end
         e.stacks = stacks
         if spellId and not e.spellId then e.spellId = spellId end
@@ -681,19 +682,14 @@ local function refreshAuraTimersForSpell(spellId, spellName)
     if not spellId and (not spellName or spellName == "") then return end
     local now = GetTime and GetTime() or 0
     local lname = spellName and string.lower(spellName) or nil
-    -- Combat-log periodic just fired for this name: this CAST is a tick, not an apply.
-    do
-        local tickAt = IchaUI_PeriodicTickAt
-        local tickName = IchaUI_PeriodicTickName
-        if tickAt and tickName and (now - tickAt) < 0.4 then
-            if lname and lname == tickName then return end
-        end
-    end
+    -- Callers decide apply vs tick (UNIT_CASTEVENT CAST gate / SPELLCAST_STOP after
+    -- a START); a DoT tick landing just before a real recast must not veto it.
     local prefixes = {}
+    -- Scoped to the mob the cast hit when known, so recasting on another mob
+    -- does not reset the current target's copy of that DoT.
     if IchaUI_RefreshAuraGuid and IchaUI_RefreshAuraGuid ~= "" then
         table.insert(prefixes, IchaUI_RefreshAuraGuid)
-    end
-    do
+    else
         local tid = unitIdentity("target")
         if tid then table.insert(prefixes, tid .. "::") end
         local oid = unitIdentity("targettarget")
@@ -720,9 +716,9 @@ local function refreshAuraTimersForSpell(spellId, spellName)
             if match then
                 e.start = now
                 e.applied = now
-                if not e.duration then
-                    e.duration = lookupDebuffDuration(spellName or e.name, spellId or e.spellId)
-                end
+                -- Back to the base duration: Molten Blast may have extended it.
+                local base = lookupDebuffDuration(spellName or e.name, spellId or e.spellId)
+                if base and base > 0 then e.duration = base end
             end
         end
     end
@@ -736,23 +732,32 @@ local function isMoltenBlastName(name)
     return string.find(l, "molten blast", 1, true) and true or false
 end
 
-local function restoreFlameShockTicksFromMoltenBlast()
+-- scope: "id::" cache prefix of the Molten Blast target (nil = current target).
+local function restoreFlameShockTicksFromMoltenBlast(scope)
     local now = GetTime and GetTime() or 0
     local period = FLAMESHOCK_TICK
+    if not scope or scope == "" then
+        local tid = unitIdentity("target")
+        if not tid then return false end
+        scope = tid .. "::"
+    end
     local k, e
     local any = false
     for k, e in pairs(auraTimeCache) do
-        if e and isFlameShockName(e.name) and e.start and e.duration and e.duration > 0 then
+        if e and string.sub(k, 1, string.len(scope)) == scope
+            and (isFlameShockName(e.name) or string.find(k, "spell_fire_flameshock", 1, true))
+            and e.start then
             local elapsed = now - e.start
             if elapsed < 0 then elapsed = 0 end
-            -- Correct Turtle baseline if cache still has vanilla 12s
-            if e.duration < FLAMESHOCK_DURATION then
-                e.duration = FLAMESHOCK_DURATION
-            end
+            -- Always from the full Turtle duration (idempotent: a second MB or a
+            -- duplicate CAST/SPELLCAST_STOP cannot stack extensions).
+            -- Keep start so the tick phase is preserved.
             local spentTicks = math.floor(elapsed / period)
-            if spentTicks > 0 then
-                -- Extend duration only — do NOT touch start (preserves tick phase)
-                e.duration = e.duration + (spentTicks * period)
+            local d = FLAMESHOCK_DURATION + (spentTicks * period)
+            local expired = e.duration and e.duration > 0 and elapsed >= e.duration
+            if (not expired) and e.duration ~= d then
+                e.duration = d
+                e.applied = now
                 any = true
             end
         end
@@ -1135,7 +1140,7 @@ function IchaUIUF_SetMarkSetting(kind, field, value)
     end
 end
 
-function IchaUIUF_CycleMarkAnchor(kind)
+function IchaUIUF_CycleMarkAnchor(kind, pick)
     local s = IchaUIUF_GetMarkSettings(kind)
     local cur = s.markAnchor or "CENTER"
     local list = IchaUI_MARK_ANCHORS
@@ -1149,6 +1154,7 @@ function IchaUIUF_CycleMarkAnchor(kind)
     end
     idx = idx + 1
     if idx > table.getn(list) then idx = 1 end
+    if pick and list[pick] then idx = pick end
     IchaUIUF_SetMarkSetting(kind, "markAnchor", list[idx])
     return list[idx]
 end
@@ -1426,7 +1432,7 @@ function IchaUIUF_SetRoleIconSetting(kind, which, field, value)
     end
 end
 
-function IchaUIUF_CycleRoleAnchor(kind, which)
+function IchaUIUF_CycleRoleAnchor(kind, which, pick)
     local s = IchaUIUF_GetRoleIconSettings(kind, which)
     local cur = s.anchor or "TOPLEFT"
     local list = IchaUI_MARK_ANCHORS
@@ -1440,6 +1446,7 @@ function IchaUIUF_CycleRoleAnchor(kind, which)
     end
     idx = idx + 1
     if idx > table.getn(list) then idx = 1 end
+    if pick and list[pick] then idx = pick end
     IchaUIUF_SetRoleIconSetting(kind, which, "anchor", list[idx])
     return list[idx]
 end
@@ -2239,6 +2246,7 @@ function IchaUI_Swing_Update(fr)
 end
 
 function IchaUI_Swing_Guid(unit)
+    if IchaUI_LEAVING then return nil end
     if not unit or type(UnitExists) ~= "function" then return nil end
     if unit == "" or unit == "none" then return nil end
     if string.sub(unit, 1, 6) == "IchaUI" then return nil end
@@ -2721,9 +2729,16 @@ function IchaUIUF_ToggleLevelPortrait(key)
     IchaUI_RefreshLevelShow()
 end
 
-function IchaUIUF_CycleLevelBar(key)
+-- pick: "auto" / "on" / "off" (dropdown); nil steps Auto -> On -> Off.
+function IchaUIUF_CycleLevelBar(key, pick)
     local row = IchaUI_LevelRow(key)
-    if row.bar == nil then
+    if pick == "auto" then
+        row.bar = nil
+    elseif pick == "on" then
+        row.bar = true
+    elseif pick == "off" then
+        row.bar = false
+    elseif row.bar == nil then
         row.bar = true
     elseif row.bar == true then
         row.bar = false
@@ -4295,7 +4310,7 @@ local function getCastInfo(unit)
         if ok and info then return info end
     end
 
-    -- 2) Global UnitCastingInfo / UnitChannelInfo (ShaguTweaks libcast, etc.)
+    -- 2) Client-provided global UnitCastingInfo / UnitChannelInfo, if any
     if type(UnitCastingInfo) == "function" then
         local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitCastingInfo, unit)
         if ok and r1 then
@@ -6203,7 +6218,8 @@ local function createUnitFrame(key, unit, defaults, opts)
         if auraKind == "debuff" and auraUnit then
             local ck = auraCacheKey(auraUnit, nil, tex, nil)
             local e = ck and auraTimeCache[ck]
-            if e then applyStart = e.start end
+            -- applied also moves on Molten Blast (duration change, same start)
+            if e then applyStart = e.applied or e.start end
         end
         if auraKind == "debuff" then
             local sameApply = same and icon._auraApplied and applyStart and icon._auraApplied == applyStart
@@ -6892,8 +6908,9 @@ local function createUnitFrame(key, unit, defaults, opts)
                         local left = peekDebuffTimeLeft(icon.auraUnit, icon.auraIndex, nil, icon._auraTex, nil)
                         local ck = auraCacheKey(icon.auraUnit, nil, icon._auraTex, nil)
                         local e = ck and auraTimeCache[ck]
-                        if e and e.start and icon._auraApplied ~= e.start then
-                            icon._auraApplied = e.start
+                        local stamp = e and (e.applied or e.start)
+                        if stamp and icon._auraApplied ~= stamp then
+                            icon._auraApplied = stamp
                             left = tonumber(left)
                             if left and left > 0 then
                                 icon.expires = nowSkip + left
@@ -8578,7 +8595,8 @@ function IchaUIUF_BarFillName(kind, which)
     return "Blizzard"
 end
 
-function IchaUIUF_CycleBarFill(kind, which)
+-- pick: index into IchaUI_BAR_FILLS (dropdown); nil steps to the next fill.
+function IchaUIUF_CycleBarFill(kind, which, pick)
     kind = IchaUIUF_BarKind(kind)
     local cur = IchaUIUF_BarFillKey(kind, which)
     local idx = 1
@@ -8588,6 +8606,7 @@ function IchaUIUF_CycleBarFill(kind, which)
     end
     idx = idx + 1
     if idx > table.getn(IchaUI_BAR_FILLS) then idx = 1 end
+    if pick and IchaUI_BAR_FILLS[pick] then idx = pick end
     if not IchaUIDB then IchaUIDB = {} end
     if not IchaUIDB.uf then IchaUIDB.uf = {} end
     if not IchaUIDB.uf.barFill then IchaUIDB.uf.barFill = {} end
@@ -9345,6 +9364,7 @@ local tankTicker = CreateFrame("Frame")
 local tankElapsed = 0
 local lastTankTw, lastTankTh, lastTankOpen = nil, nil, nil
 tankTicker:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     tankElapsed = tankElapsed + arg1
     -- Poll ~10Hz while open (or minimal strip) so resists track live
     local enabled = IchaUIUF_tankDrawerEnabled()
@@ -10229,7 +10249,7 @@ function IchaUIUF_SyncShownAuraTimers()
                         -- Restart only when cache apply-start is new (recast of this DoT).
                         local ck = auraCacheKey(icon.auraUnit, nil, icon._auraTex, nil)
                         local e = ck and auraTimeCache[ck]
-                        local applyStart = e and e.start
+                        local applyStart = e and (e.applied or e.start)
                         if applyStart and icon._auraApplied ~= applyStart then
                             icon._auraApplied = applyStart
                             if left and left > 0 then
@@ -11509,6 +11529,7 @@ pcall(function() ev:RegisterEvent("CHAT_MSG_COMBAT_HOSTILEPLAYER_VS_SELF_HITS") 
 pcall(function() ev:RegisterEvent("CHAT_MSG_COMBAT_HOSTILEPLAYER_VS_SELF_MISSES") end)
 ev:RegisterEvent("UNIT_COMBAT")
 ev:SetScript("OnEvent", function()
+    if IchaUI_LEAVING and event ~= "PLAYER_LOGOUT" and event ~= "PLAYER_ENTERING_WORLD" then return end
     if event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "PLAYER_ENTERING_WORLD" then
         if IchaUIUF_MySpellbook then IchaUIUF_MySpellbook.dirty = true end
         if event ~= "PLAYER_ENTERING_WORLD" then return end
@@ -11621,6 +11642,7 @@ ev:SetScript("OnEvent", function()
         if frames.focus then saveFrame("focus", frames.focus) end
         savePartyDb()
         if saveRaidDb then saveRaidDb() end
+        return
     end
     if event == "PARTY_MEMBERS_CHANGED" or event == "PARTY_MEMBER_ENABLE"
         or event == "PARTY_MEMBER_DISABLE" then
@@ -11855,11 +11877,21 @@ ev:SetScript("OnEvent", function()
             end
         elseif isPlayerCaster and castEvent == "CAST" then
             local sname = spellNameFromId(spellID) or pendingCastName
+            -- Cache prefix of the unit this cast landed on (SuperWoW arg2 = target GUID).
+            -- Instant DoTs (Flame Shock, SW:P, Serpent Sting...) have no START, so a
+            -- CAST on a known unit is the apply; refreshAuraTimersForSpell still only
+            -- touches that unit's aura of the same spell.
+            local castScope = nil
+            if type(a2) == "string" and string.find(a2, "^0[xX]%x+$")
+                and not string.find(a2, "^0[xX]0+$") then
+                local cid = unitIdentity(a2)
+                if cid then castScope = cid .. "::" end
+            end
             if isMoltenBlastName(sname) then
-                restoreFlameShockTicksFromMoltenBlast()
+                restoreFlameShockTicksFromMoltenBlast(castScope)
             else
-                -- Apply only: pending START match, or this spell's own CD just started
-                -- (shocks ~6s). GCD-only (1.5s) or periodic CAST must not reset DoTs.
+                -- Apply: CAST on a known unit, pending START match, or this spell's own
+                -- CD just started (shocks ~6s). Periodic CAST must not reset DoTs.
                 local isTick = false
                 do
                     local tickAt = IchaUI_PeriodicTickAt
@@ -11876,7 +11908,8 @@ ev:SetScript("OnEvent", function()
                     pendingMatch = true
                 end
                 local cdDur = 0
-                if (not isTick) and sname and type(GetSpellCooldown) == "function" then
+                if (not isTick) and (not castScope) and (not pendingMatch) and sname
+                    and type(GetSpellCooldown) == "function" then
                     local nowt = GetTime and GetTime() or 0
                     if spellID then
                         local okCd, st, du = pcall(GetSpellCooldown, spellID)
@@ -11908,12 +11941,11 @@ ev:SetScript("OnEvent", function()
                         end
                     end
                 end
-                local apply = (not isTick) and (pendingMatch or cdDur > 2.0)
+                -- Ticks are SMSG_PERIODICAURALOG, never a SuperWoW CAST with a target
+                -- GUID, so a tick landing just before a recast must not veto it.
+                local apply = castScope or ((not isTick) and (pendingMatch or cdDur > 2.0))
                 if apply then
-                    IchaUI_RefreshAuraGuid = nil
-                    if a2 and tostring(a2) ~= "" and not string.find(string.upper(tostring(a2)), "HAND", 1, true) then
-                        IchaUI_RefreshAuraGuid = "guid:" .. tostring(a2) .. "::"
-                    end
+                    IchaUI_RefreshAuraGuid = castScope
                     refreshAuraTimersForSpell(spellID, sname)
                     IchaUI_RefreshAuraGuid = nil
                 end
@@ -12246,6 +12278,7 @@ end
 local totWatchId = nil
 local totWatchAccum = 0
 castTicker:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     IchaUIUF_PollRoleFades(arg1)
     if player then updateManaTicker(player) end
     if player then IchaUI_Swing_Update(player) end

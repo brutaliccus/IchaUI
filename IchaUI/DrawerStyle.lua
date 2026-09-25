@@ -375,6 +375,16 @@ function IchaUI_DrawerStyleControls(parent, id, x, y, skipText)
         if this.label then this.label:SetText("Strata: " .. STRATA[idx]) end
     end)
     strataBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    if IchaUI_ChoiceMenu then
+        if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(strataBtn) end
+        strataBtn:SetScript("OnClick", function()
+            local b = this
+            IchaUI_ChoiceMenu(b, IchaUI_DrawerStrataOpts(), strataIndex(currentStrata(sid), 3), function(i)
+                writeStrata(sid, STRATA[i])
+                if b.label then b.label:SetText("Strata: " .. STRATA[i]) end
+            end)
+        end)
+    end
     local sbtn = strataBtn
     table.insert(refreshers, function()
         if sbtn and sbtn.label then
@@ -429,6 +439,10 @@ function IchaUI_DrawerStyleControls(parent, id, x, y, skipText)
             shapeBtn.label:SetTextColor(1, 1, 1)
         end
     end
+    IchaUI_ShapeDropdown(shapeBtn, function()
+        local row = IchaUI_DrawerStyleRow(sid)
+        return (row and row.shape) or "circle"
+    end)
     table.insert(refreshers, function()
         local row = IchaUI_DrawerStyleRow(sid)
         local cur = (row and row.shape) or "circle"
@@ -696,6 +710,109 @@ function IchaUI_FormShapeNext(v)
         end
     end
     return "square"
+end
+
+function IchaUI_FormShapeOpts()
+    local out = {}
+    local i
+    for i = 1, table.getn(FORM_SHAPES) do
+        table.insert(out, { FORM_SHAPES[i], IchaUI_FormShapeLabel(FORM_SHAPES[i]) })
+    end
+    return out
+end
+
+function IchaUI_DrawerStrataOpts()
+    local out = {}
+    local i
+    for i = 1, table.getn(STRATA) do table.insert(out, { STRATA[i], STRATA[i] }) end
+    return out
+end
+
+-- Dropdown for a button whose click steps the shape with IchaUI_FormShapeNext:
+-- picking a row runs that click once with IchaUI_FormShapeNext returning the
+-- picked shape, so the button's own save / repaint code does the rest.
+-- get() returns the current shape (for the highlight); may be nil.
+-- Safe to call again after something re-sets the button's OnClick.
+function IchaUI_ShapeDropdown(btn, get)
+    if not btn or not IchaUI_ChoiceMenu then return end
+    if get then btn._shapeGet = get end
+    local cur = btn:GetScript("OnClick")
+    if cur and cur == btn._shapeWrap then return end
+    btn._shapeOrig = cur
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(btn) end
+    if not btn._shapeWrap then
+        btn._shapeWrap = function()
+            local b = this
+            local opts = IchaUI_FormShapeOpts()
+            local sel = 0
+            if b._shapeGet then
+                local ok, v = pcall(b._shapeGet)
+                if ok then
+                    local s = IchaUI_FormShapeNorm(v)
+                    local i
+                    for i = 1, table.getn(opts) do
+                        if opts[i][1] == s then sel = i end
+                    end
+                end
+            end
+            IchaUI_ChoiceMenu(b, opts, sel, function(i)
+                local orig = b._shapeOrig
+                if not orig then return end
+                local pick = opts[i][1]
+                local saved = IchaUI_FormShapeNext
+                local oldThis, oldArg = this, arg1
+                IchaUI_FormShapeNext = function() return pick end
+                this = b
+                arg1 = "LeftButton"
+                pcall(orig)
+                IchaUI_FormShapeNext = saved
+                this = oldThis
+                arg1 = oldArg
+            end)
+        end
+    end
+    btn:SetScript("OnClick", btn._shapeWrap)
+end
+
+-- Open directions in the order the drawer "Open:" buttons step through them.
+IchaUI_DIR_OPTS = { { "up", "Up" }, { "right", "Right" }, { "down", "Down" }, { "left", "Left" }, { "radial", "Radial" } }
+
+-- Dropdown for a button whose click steps once through opts (in that order):
+-- picking row i stores the value before it with setRaw, then runs the click,
+-- which steps onto the pick and does the button's own save / repaint.
+function IchaUI_StepDropdown(btn, opts, get, setRaw)
+    if not btn or not IchaUI_ChoiceMenu or type(opts) ~= "table" then return end
+    btn._stepOpts, btn._stepGet, btn._stepSet = opts, get, setRaw
+    local cur = btn:GetScript("OnClick")
+    if cur and cur == btn._stepWrap then return end
+    btn._stepOrig = cur
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(btn) end
+    if not btn._stepWrap then
+        btn._stepWrap = function()
+            local b = this
+            local list = b._stepOpts
+            local n = table.getn(list)
+            local sel = 0
+            local v = b._stepGet and b._stepGet()
+            local i
+            for i = 1, n do
+                if list[i][1] == v then sel = i end
+            end
+            IchaUI_ChoiceMenu(b, list, sel, function(k)
+                if not b._stepOrig or k == sel then return end
+                local prev = k - 1
+                if prev < 1 then prev = n end
+                b._stepSet(list[prev][1])
+                local oldThis, oldArg = this, arg1
+                this = b
+                arg1 = "LeftButton"
+                pcall(b._stepOrig)
+                this = oldThis
+                arg1 = oldArg
+            end)
+        end
+    end
+    btn:SetScript("OnClick", btn._stepWrap)
 end
 
 function IchaUI_FormIsSquare(v)
@@ -1204,22 +1321,22 @@ local function sweepProgress(sw, p)
     end
 end
 
--- Cooldown numbers: the square buttons' text is ShaguTweaks "Cooldown
--- Numbers", which lives on the Blizzard model. With the model hidden, the
--- same text is drawn here: same font, size rule, formatting, colors, update
--- rate, and the same rule of no text under 2 seconds (no GCD text).
+-- Cooldown numbers (IchaUIDB.cooldownNumbers): countdown text over the sweep.
+-- Font, size rule, colors, 0.1s update rate, and no text under 2 seconds (no
+-- GCD text) match the classic cooldown-count look.
 local TIMER_WRAP = (2 ^ 32) / 1000
 
+function IchaUI_CooldownNumbersOn()
+    return not (IchaUIDB and IchaUIDB.cooldownNumbers == false)
+end
+
 local function timerWanted(b)
-    if b.cooldown and (b.cooldown.noCooldownCount or b.cooldown.pfCooldownType) then return false end
-    if not ShaguTweaks or not ShaguTweaks_config then return false end
-    local key = "Cooldown Numbers"
-    if ShaguTweaks.T and ShaguTweaks.T[key] then key = ShaguTweaks.T[key] end
-    return ShaguTweaks_config[key] == 1
+    local cd = b.cooldown
+    if cd and ((cd.noCooldownCount and not cd._ichaNoCC) or cd.pfCooldownType) then return false end
+    return IchaUI_CooldownNumbersOn()
 end
 
 local function timerText(remaining)
-    if ShaguTweaks and ShaguTweaks.TimeConvert then return ShaguTweaks.TimeConvert(remaining) end
     local color = "|cffffffff"
     if remaining < 5 then
         color = "|cffff5555"
@@ -1259,21 +1376,28 @@ local function timerHide(b)
     end
 end
 
--- One shared driver runs every frame while any sweep is active; its script is
--- cleared when the last one stops.
+-- One shared driver runs every frame while any sweep or model-button text is
+-- active; its script is cleared when the last one stops.
 local sweepActive = {}
 local sweepActiveN = 0
+local modelActive = {}
+local modelActiveN = 0
+local modelButtons = {}
 local sweepDriver = CreateFrame("Frame")
+
+local function driverIdle()
+    if sweepActiveN <= 0 and modelActiveN <= 0 then
+        sweepDriver:SetScript("OnUpdate", nil)
+    end
+end
 
 local function sweepStop(sw)
     if sw._ticking then
         sw._ticking = nil
         sweepActive[sw] = nil
         sweepActiveN = sweepActiveN - 1
-        if sweepActiveN <= 0 then
-            sweepActiveN = 0
-            sweepDriver:SetScript("OnUpdate", nil)
-        end
+        if sweepActiveN <= 0 then sweepActiveN = 0 end
+        driverIdle()
     end
     sw:Hide()
     sw._cell = nil
@@ -1306,12 +1430,90 @@ local function sweepTick(sw, dt, now)
     end
 end
 
+-- Text-only timer for buttons that fall back to the Blizzard cooldown model.
+local function releaseNoCC(cd)
+    if cd and cd._ichaNoCC then
+        cd.noCooldownCount = nil
+        cd._ichaNoCC = nil
+    end
+end
+
+local function modelTextStop(b)
+    if b._modelText then
+        b._modelText = nil
+        modelActive[b] = nil
+        modelActiveN = modelActiveN - 1
+        if modelActiveN <= 0 then modelActiveN = 0 end
+        driverIdle()
+    end
+    timerHide(b)
+end
+
+local function modelTextTick(b, dt, now)
+    local elapsed = now - (b._mtStart or 0)
+    if elapsed < 0 then elapsed = elapsed + TIMER_WRAP end
+    local remaining = (b._mtDur or 0) - elapsed
+    if remaining <= 0 or not b.cdText then
+        modelTextStop(b)
+        releaseNoCC(b.cooldown)
+        return
+    end
+    b._mtElapsed = (b._mtElapsed or 0) + (dt or 0)
+    if b._mtElapsed >= 0.1 or not b.cdText._last then
+        b._mtElapsed = 0
+        local t = timerText(remaining)
+        if b.cdText._last ~= t then
+            b.cdText._last = t
+            b.cdText:SetText(t)
+        end
+    end
+end
+
 local function sweepDrive()
     local dt = arg1 or 0
     local now = GetTime()
     for sw in pairs(sweepActive) do
         sweepTick(sw, dt, now)
     end
+    for b in pairs(modelActive) do
+        modelTextTick(b, dt, now)
+    end
+end
+
+local function modelTextSet(b, start, duration, enable)
+    modelButtons[b] = true
+    b._mtStart = start or 0
+    b._mtDur = duration or 0
+    b._mtEnable = enable
+    local cd = b.cooldown
+    local st = b._mtStart
+    local dur = b._mtDur
+    local now = GetTime()
+    if enable == 0 or dur < 2 or st <= 0 or st + dur <= now or not timerWanted(b) then
+        modelTextStop(b)
+        releaseNoCC(cd)
+        return
+    end
+    -- IchaUI draws this text; cooldown-count addons that honor
+    -- noCooldownCount skip the model instead of doubling it.
+    if cd then
+        if not cd.noCooldownCount then
+            cd.noCooldownCount = true
+            cd._ichaNoCC = true
+        end
+        if cd.cooldowntext then cd.cooldowntext:Hide() end
+    end
+    local fs = timerFont(b)
+    fs._last = nil
+    fs:Show()
+    b._mtElapsed = 0
+    if not b._modelText then
+        b._modelText = true
+        modelActive[b] = true
+        modelActiveN = modelActiveN + 1
+        if sweepActiveN + modelActiveN == 1 then sweepDriver:SetScript("OnUpdate", sweepDrive) end
+    end
+    modelTextTick(b, 0, now)
 end
 
 -- Returns true when the custom sweep owns this button's cooldown; the caller
@@ -1332,13 +1534,28 @@ function IchaUI_SetButtonSweep(b, start, duration, enable)
         b.sweep = f
     end
     local sw = b.sweep
+    local cd = b.cooldown
     if not key or not sweepLoad(sw, key) then
         b._sweepOn = nil
         if sw then sweepStop(sw) end
+        modelTextSet(b, start, duration, enable)
         return false
     end
     b._sweepOn = true
-    if b.cooldown then b.cooldown._ichaSweepOwner = b end
+    if modelButtons[b] then
+        modelButtons[b] = nil
+        modelTextStop(b)
+    end
+    -- The sweep draws its own text; cooldown-count addons that honor
+    -- noCooldownCount then skip the hidden model instead of doubling it.
+    if cd then
+        cd._ichaSweepOwner = b
+        if not cd.noCooldownCount then
+            cd.noCooldownCount = true
+            cd._ichaNoCC = true
+        end
+        if cd.cooldowntext then cd.cooldowntext:Hide() end
+    end
     sw:ClearAllPoints()
     if key == "round" then
         local sz = b._hole or 36
@@ -1374,11 +1591,32 @@ function IchaUI_SetButtonSweep(b, start, duration, enable)
         sw._ticking = true
         sweepActive[sw] = true
         sweepActiveN = sweepActiveN + 1
-        if sweepActiveN == 1 then sweepDriver:SetScript("OnUpdate", sweepDrive) end
+        if sweepActiveN + modelActiveN == 1 then sweepDriver:SetScript("OnUpdate", sweepDrive) end
     end
     sweepTick(sw, 0, now)
     if sw._ticking then sw:Show() end
     return true
+end
+
+function IchaUI_CooldownNumbersSet(on)
+    if not IchaUIDB then IchaUIDB = {} end
+    IchaUIDB.cooldownNumbers = on and true or false
+    for sw in pairs(sweepActive) do
+        local b = sw._owner
+        if b then
+            sw._timer = (sw._dur or 0) >= 2 and timerWanted(b)
+            if sw._timer then
+                local fs = timerFont(b)
+                fs._last = nil
+                fs:Show()
+            else
+                timerHide(b)
+            end
+        end
+    end
+    for b in pairs(modelButtons) do
+        modelTextSet(b, b._mtStart, b._mtDur, b._mtEnable)
+    end
 end
 
 function IchaUI_SweepDebug(b)

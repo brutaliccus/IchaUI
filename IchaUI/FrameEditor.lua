@@ -1202,6 +1202,63 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         return b
     end
 
+    -- Dropdown button: optsFn(kind) -> { { value, label }, ... }, curFn(kind) -> index,
+    -- pickFn(kind, i) applies row i; refreshFn paints the label as before.
+    local function addChoice(text, w, optsFn, curFn, pickFn, showFn, refreshFn)
+        local b = addButton(text, w, function() end, showFn, refreshFn)
+        if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(b) end
+        b:SetScript("OnClick", function()
+            local kind = ed.kind
+            local btn = this
+            IchaUI_ChoiceMenu(btn, optsFn(kind), curFn(kind), function(i)
+                pickFn(kind, i)
+                if refreshFn then refreshFn(kind, btn) end
+                paintPreview()
+            end)
+        end)
+        return b
+    end
+    local function idxOf(list, v, field)
+        local i
+        for i = 1, table.getn(list) do
+            local e = list[i]
+            if field then e = e and e[field] end
+            if e == v then return i end
+        end
+        return 0
+    end
+    local function pairsOf(list, labels)
+        local out = {}
+        local i
+        for i = 1, table.getn(list) do
+            table.insert(out, { list[i], (labels and labels[list[i]]) or list[i] })
+        end
+        return out
+    end
+    local ANCHOR_LABELS = {
+        TOPLEFT = "Top Left", TOP = "Top", TOPRIGHT = "Top Right", LEFT = "Left", CENTER = "Center",
+        RIGHT = "Right", BOTTOMLEFT = "Bottom Left", BOTTOM = "Bottom", BOTTOMRIGHT = "Bottom Right",
+    }
+    local function fillOpts()
+        local out = {}
+        local list = IchaUI_BAR_FILLS or {}
+        local i
+        for i = 1, table.getn(list) do table.insert(out, { list[i].key, list[i].name }) end
+        return out
+    end
+    local function fillChoice(text, which, prefix, showFn)
+        return addChoice(text, 200, fillOpts, function(kind)
+            local key = IchaUIUF_BarFillKey and IchaUIUF_BarFillKey(kind, which)
+            return idxOf(IchaUI_BAR_FILLS or {}, key, "key")
+        end, function(kind, i)
+            if IchaUIUF_CycleBarFill then IchaUIUF_CycleBarFill(kind, which, i) end
+        end, showFn, function(kind, b)
+            local name = "Blizzard"
+            if IchaUIUF_BarFillName then name = IchaUIUF_BarFillName(kind, which) or name end
+            b.label:SetText(prefix .. ": " .. name)
+        end)
+    end
+
     local function always() return true end
     local function portOnly(kind) return hasPortrait(kind) end
     local function notRaid(kind) return kind ~= "raid" end
@@ -1315,19 +1372,15 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end, function(kind, v) setField(kind, "rows", v) end, function(kind)
         return kind == "raid" or kind == "combat"
     end)
-    addButton("Growth", 200, function(kind, b)
-        local order = { "center", "left", "right", "up", "down", "grid" }
+    local GROWTH = {
+        { "center", "center" }, { "left", "left" }, { "right", "right" },
+        { "up", "up" }, { "down", "down" }, { "grid", "grid" },
+    }
+    addChoice("Growth", 200, function() return GROWTH end, function(kind)
         local m = metric(kind)
-        local cur = (m and m.growth) or "center"
-        local idx = 1
-        local i
-        for i = 1, table.getn(order) do
-            if order[i] == cur then idx = i end
-        end
-        idx = idx + 1
-        if idx > table.getn(order) then idx = 1 end
-        setField(kind, "growth", order[idx])
-        b.label:SetText("Growth: " .. order[idx])
+        return idxOf(GROWTH, (m and m.growth) or "center", 1)
+    end, function(kind, i)
+        setField(kind, "growth", GROWTH[i][1])
     end, partyOnly, function(kind, b)
         local m = metric(kind)
         b.label:SetText("Growth: " .. ((m and m.growth) or "center"))
@@ -1358,24 +1411,8 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end, function(kind, v)
         if IchaUIUF_SetBarPower then IchaUIUF_SetBarPower(kind, v) end
     end, always)
-    addButton("Health texture", 200, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_CycleBarFill then name = IchaUIUF_CycleBarFill(kind, "health") or name end
-        b.label:SetText("Health: " .. name)
-    end, always, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_BarFillName then name = IchaUIUF_BarFillName(kind, "health") or name end
-        b.label:SetText("Health: " .. name)
-    end)
-    addButton("Power texture", 200, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_CycleBarFill then name = IchaUIUF_CycleBarFill(kind, "power") or name end
-        b.label:SetText("Power: " .. name)
-    end, always, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_BarFillName then name = IchaUIUF_BarFillName(kind, "power") or name end
-        b.label:SetText("Power: " .. name)
-    end)
+    fillChoice("Health texture", "health", "Health", always)
+    fillChoice("Power texture", "power", "Power", always)
 
     addHeader("Portrait", portOnly, 2)
     addButton("Portrait", 120, function(kind, b)
@@ -1462,9 +1499,14 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local on = IchaUI_LevelPortraitOn and IchaUI_LevelPortraitOn(kind)
         b.label:SetText(on and "Port badge: On" or "Port badge: Off")
     end)
-    addButton("Level on bar", 140, function(kind, b)
-        if IchaUIUF_CycleLevelBar then IchaUIUF_CycleLevelBar(kind) end
-        if IchaUI_LevelBarLabel then b.label:SetText(IchaUI_LevelBarLabel(kind)) end
+    local LEVELBAR = { { "auto", "Auto" }, { "on", "On" }, { "off", "Off" } }
+    addChoice("Level on bar", 140, function() return LEVELBAR end, function(kind)
+        local row = IchaUI_LevelRow and IchaUI_LevelRow(kind)
+        if not row or row.bar == nil then return 1 end
+        if row.bar == true then return 2 end
+        return 3
+    end, function(kind, i)
+        if IchaUIUF_CycleLevelBar then IchaUIUF_CycleLevelBar(kind, LEVELBAR[i][1]) end
     end, always, function(kind, b)
         if IchaUI_LevelBarLabel then b.label:SetText(IchaUI_LevelBarLabel(kind)) end
     end)
@@ -1550,24 +1592,18 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         return fallback
     end
     local AURA_ANCHORS = { "TOPLEFT", "TOP", "TOPRIGHT", "LEFT", "RIGHT", "BOTTOMLEFT", "BOTTOM", "BOTTOMRIGHT" }
-    local function cycleAuraAnchor(kind, field)
-        local cur = auraGet(kind, field, "TOPLEFT")
-        local idx = 1
-        local i
-        for i = 1, table.getn(AURA_ANCHORS) do
-            if AURA_ANCHORS[i] == cur then idx = i end
-        end
-        idx = idx + 1
-        if idx > table.getn(AURA_ANCHORS) then idx = 1 end
-        if IchaUIUF_SetTextSetting then IchaUIUF_SetTextSetting(kind, field, AURA_ANCHORS[idx]) end
-        return AURA_ANCHORS[idx]
+    local AURA_ANCHOR_OPTS = pairsOf(AURA_ANCHORS, ANCHOR_LABELS)
+    local function auraAnchorChoice(text, field, fallback)
+        addChoice(text, 180, function() return AURA_ANCHOR_OPTS end, function(kind)
+            return idxOf(AURA_ANCHORS, auraGet(kind, field, fallback))
+        end, function(kind, i)
+            if IchaUIUF_SetTextSetting then IchaUIUF_SetTextSetting(kind, field, AURA_ANCHORS[i]) end
+        end, always, function(kind, b)
+            local v = auraGet(kind, field, fallback)
+            b.label:SetText(text .. ": " .. (ANCHOR_LABELS[v] or tostring(v)))
+        end)
     end
-    addButton("Buff anchor", 180, function(kind, b)
-        local a = cycleAuraAnchor(kind, "buffAnchor")
-        b.label:SetText("Buff anchor: " .. a)
-    end, always, function(kind, b)
-        b.label:SetText("Buff anchor: " .. auraGet(kind, "buffAnchor", "TOPLEFT"))
-    end)
+    auraAnchorChoice("Buff anchor", "buffAnchor", "TOPLEFT")
     addSlider("Buff scale", 0.4, 3, 0.05, 2, function(kind)
         local t = IchaUIUF_GetTextSettings and IchaUIUF_GetTextSettings(kind)
         return (t and t.buffScale) or 1
@@ -1594,12 +1630,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end, function(kind, v)
         if IchaUIUF_SetTextSetting then IchaUIUF_SetTextSetting(kind, "buffPerRow", v) end
     end, always)
-    addButton("Debuff anchor", 180, function(kind, b)
-        local a = cycleAuraAnchor(kind, "debuffAnchor")
-        b.label:SetText("Debuff anchor: " .. a)
-    end, always, function(kind, b)
-        b.label:SetText("Debuff anchor: " .. auraGet(kind, "debuffAnchor", "BOTTOMLEFT"))
-    end)
+    auraAnchorChoice("Debuff anchor", "debuffAnchor", "BOTTOMLEFT")
     addSlider("Debuff scale", 0.4, 3, 0.05, 2, function(kind)
         local t = IchaUIUF_GetTextSettings and IchaUIUF_GetTextSettings(kind)
         return (t and t.debuffScale) or 1
@@ -1659,7 +1690,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         return "Buffs: " .. name
     end
     local AURA_FILTER_MODES = { "all", "mine", "whitelist", "none" }
-    local function cycleAuraFilter(kind, which)
+    local function cycleAuraFilter(kind, which, pick)
         local cur = auraFilterMode(kind, which)
         local idx = 1
         local i
@@ -1668,6 +1699,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         end
         idx = idx + 1
         if idx > table.getn(AURA_FILTER_MODES) then idx = 1 end
+        if pick and AURA_FILTER_MODES[pick] then idx = pick end
         local mode = AURA_FILTER_MODES[idx]
         if IchaUIUF_GetAuraFilters then
             local f = IchaUIUF_GetAuraFilters(kind)
@@ -1684,18 +1716,21 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         if IchaUIUF_refreshTextKind then IchaUIUF_refreshTextKind(kind) end
         return mode
     end
-    addButton("Buffs", 180, function(kind, b)
-        cycleAuraFilter(kind, "buff")
-        b.label:SetText(auraFilterLabel(kind, "buff"))
-    end, always, function(kind, b)
-        b.label:SetText(auraFilterLabel(kind, "buff"))
-    end)
-    addButton("Debuffs", 180, function(kind, b)
-        cycleAuraFilter(kind, "debuff")
-        b.label:SetText(auraFilterLabel(kind, "debuff"))
-    end, always, function(kind, b)
-        b.label:SetText(auraFilterLabel(kind, "debuff"))
-    end)
+    local function auraFilterChoice(text, which)
+        addChoice(text, 180, function(kind)
+            local none = "None"
+            if which == "debuff" and kind == "raid" then none = "Dispel" end
+            return { { "all", "All" }, { "mine", "My" }, { "whitelist", "Whitelist" }, { "none", none } }
+        end, function(kind)
+            return idxOf(AURA_FILTER_MODES, auraFilterMode(kind, which))
+        end, function(kind, i)
+            cycleAuraFilter(kind, which, i)
+        end, always, function(kind, b)
+            b.label:SetText(auraFilterLabel(kind, which))
+        end)
+    end
+    auraFilterChoice("Buffs", "buff")
+    auraFilterChoice("Debuffs", "debuff")
     local function addAuraList(label, which)
         local f = CreateFrame("Frame", nil, page)
         f:SetWidth(340)
@@ -1777,15 +1812,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end, function(kind, v)
         if IchaUIUF_SetCastSetting then IchaUIUF_SetCastSetting(kind, "castOffsetY", v) end
     end, notRaid)
-    addButton("Cast texture", 200, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_CycleBarFill then name = IchaUIUF_CycleBarFill(kind, "cast") or name end
-        b.label:SetText("Cast: " .. name)
-    end, notRaid, function(kind, b)
-        local name = "Blizzard"
-        if IchaUIUF_BarFillName then name = IchaUIUF_BarFillName(kind, "cast") or name end
-        b.label:SetText("Cast: " .. name)
-    end)
+    fillChoice("Cast texture", "cast", "Cast", notRaid)
 
     addHeader("Icons", always, 2)
     addButton("Leader", 120, function(kind, b)
@@ -1798,14 +1825,22 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local on = (not s) or (s.show ~= false)
         b.label:SetText(on and "Leader: On" or "Leader: Off")
     end)
-    addButton("Leader anchor", 160, function(kind, b)
-        local a = "CENTER"
-        if IchaUIUF_CycleRoleAnchor then a = IchaUIUF_CycleRoleAnchor(kind, "leader") or a end
-        b.label:SetText("Leader anchor: " .. a)
-    end, always, function(kind, b)
-        local s = IchaUIUF_GetRoleIconSettings and IchaUIUF_GetRoleIconSettings(kind, "leader")
-        b.label:SetText("Leader anchor: " .. ((s and s.anchor) or "CENTER"))
-    end)
+    local function markOpts() return pairsOf(IchaUI_MARK_ANCHORS or {}, ANCHOR_LABELS) end
+    local function roleAnchorChoice(text, which)
+        local function cur(kind)
+            local s = IchaUIUF_GetRoleIconSettings and IchaUIUF_GetRoleIconSettings(kind, which)
+            return (s and s.anchor) or "CENTER"
+        end
+        addChoice(text, 160, markOpts, function(kind)
+            return idxOf(IchaUI_MARK_ANCHORS or {}, cur(kind))
+        end, function(kind, i)
+            if IchaUIUF_CycleRoleAnchor then IchaUIUF_CycleRoleAnchor(kind, which, i) end
+        end, always, function(kind, b)
+            local v = cur(kind)
+            b.label:SetText(text .. ": " .. (ANCHOR_LABELS[v] or v))
+        end)
+    end
+    roleAnchorChoice("Leader anchor", "leader")
     addButton("Leader on", 160, function(kind, b)
         local s = IchaUIUF_GetRoleIconSettings and IchaUIUF_GetRoleIconSettings(kind, "leader")
         local cur = (s and s.host) or "portrait"
@@ -1840,14 +1875,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local on = (not s) or (s.show ~= false)
         b.label:SetText(on and "Loot: On" or "Loot: Off")
     end)
-    addButton("Loot anchor", 160, function(kind, b)
-        local a = "CENTER"
-        if IchaUIUF_CycleRoleAnchor then a = IchaUIUF_CycleRoleAnchor(kind, "loot") or a end
-        b.label:SetText("Loot anchor: " .. a)
-    end, always, function(kind, b)
-        local s = IchaUIUF_GetRoleIconSettings and IchaUIUF_GetRoleIconSettings(kind, "loot")
-        b.label:SetText("Loot anchor: " .. ((s and s.anchor) or "CENTER"))
-    end)
+    roleAnchorChoice("Loot anchor", "loot")
     addButton("Loot on", 160, function(kind, b)
         local s = IchaUIUF_GetRoleIconSettings and IchaUIUF_GetRoleIconSettings(kind, "loot")
         local cur = (s and s.host) or "portrait"
@@ -1902,13 +1930,17 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local on = (not s) or (s.markShow ~= false)
         b.label:SetText(on and "Mark: On" or "Mark: Off")
     end)
-    addButton("Mark anchor", 160, function(kind, b)
-        local a = "CENTER"
-        if IchaUIUF_CycleMarkAnchor then a = IchaUIUF_CycleMarkAnchor(kind) or a end
-        b.label:SetText("Mark anchor: " .. a)
-    end, always, function(kind, b)
+    local function markCur(kind)
         local s = IchaUIUF_GetMarkSettings and IchaUIUF_GetMarkSettings(kind)
-        b.label:SetText("Mark anchor: " .. ((s and s.markAnchor) or "CENTER"))
+        return (s and s.markAnchor) or "CENTER"
+    end
+    addChoice("Mark anchor", 160, markOpts, function(kind)
+        return idxOf(IchaUI_MARK_ANCHORS or {}, markCur(kind))
+    end, function(kind, i)
+        if IchaUIUF_CycleMarkAnchor then IchaUIUF_CycleMarkAnchor(kind, i) end
+    end, always, function(kind, b)
+        local v = markCur(kind)
+        b.label:SetText("Mark anchor: " .. (ANCHOR_LABELS[v] or v))
     end)
     addButton("Mark on", 160, function(kind, b)
         local s = IchaUIUF_GetMarkSettings and IchaUIUF_GetMarkSettings(kind)

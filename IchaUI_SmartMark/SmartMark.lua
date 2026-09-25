@@ -330,6 +330,10 @@ f:SetScript("OnEvent", function()
     if active then markUnit("mouseover") end
 end)
 f:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then
+        active = false
+        return
+    end
     if not active then return end
     if not smartMarkOn() or not modDown() then
         active = false

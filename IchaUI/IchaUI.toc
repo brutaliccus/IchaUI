@@ -6,6 +6,7 @@
 ## OptionalDeps: Bongos_ActionBar, WeakestAuras, ClassicAPI, SuperWoW
 ## SavedVariables: IchaUIDB, IchaUIProfiles
 
+Leaving.lua
 Defaults.lua
 Gold.lua
 CombatAssist.lua

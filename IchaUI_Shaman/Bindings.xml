@@ -2,6 +2,9 @@
 	<Binding name="ICHA_THROWTOTEMS" header="ICHA">
 		IchaUITotems_ThrowSet();
 	</Binding>
+	<Binding name="ICHA_TOTEMSETNEXT">
+		IchaUITotems_NextSet();
+	</Binding>
 	<Binding name="ICHA_THROWTOTEMSET1">
 		IchaUITotems_ThrowSetN(1);
 	</Binding>

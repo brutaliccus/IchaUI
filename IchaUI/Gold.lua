@@ -86,6 +86,14 @@ function IchaUI_SetFill(r, g, b)
     if IchaUI_RefreshGoldTheme then IchaUI_RefreshGoldTheme() end
 end
 
+-- Fill opacity: scales every fill's own alpha (1 = each panel's designed alpha).
+function IchaUI_ThemeFillAlpha()
+    local v = IchaUIDB and tonumber(IchaUIDB.fillAlpha)
+    if not v then return 1 end
+    return clamp01(v)
+end
+
+-- f._ichaFillA is the panel's base alpha; the backdrop shows base * scale.
 function IchaUI_PaintFill(f, a)
     if not f or not f.SetBackdropColor then return end
     a = tonumber(a) or 0.94
@@ -94,8 +102,26 @@ function IchaUI_PaintFill(f, a)
         table.insert(fills, f)
     end
     f._ichaFillA = a
+    f._ichaFillShown = a * IchaUI_ThemeFillAlpha()
     local r, g, b = IchaUI_Fill()
-    f:SetBackdropColor(r, g, b, a)
+    f:SetBackdropColor(r, g, b, f._ichaFillShown)
+end
+
+local function repaintFills()
+    local i
+    for i = 1, table.getn(fills) do
+        local f = fills[i]
+        if f and f.SetBackdropColor then
+            IchaUI_PaintFill(f, f._ichaFillA or 0.94)
+        end
+    end
+end
+
+function IchaUI_SetFillAlpha(v)
+    if not IchaUIDB then IchaUIDB = {} end
+    IchaUIDB.fillAlpha = clamp01(v)
+    repaintFills()
+    if type(IchaUIChatSkin_RefreshFill) == "function" then pcall(IchaUIChatSkin_RefreshFill) end
 end
 
 local function backdropIsDark(f)
@@ -115,7 +141,14 @@ function IchaUI_PaintGoldBorder(f, a)
     f:SetBackdropBorderColor(r, g, b, a)
     if backdropIsDark(f) then
         local _, _, _, ba = f:GetBackdropColor()
-        IchaUI_PaintFill(f, ba or 0.94)
+        ba = ba or 0.94
+        -- Still showing our scaled alpha: keep the base or it compounds.
+        if f._ichaFillA and f._ichaFillShown then
+            local d = ba - f._ichaFillShown
+            if d < 0 then d = -d end
+            if d < 0.0025 then ba = f._ichaFillA end
+        end
+        IchaUI_PaintFill(f, ba)
     end
 end
 
@@ -202,7 +235,7 @@ local function flashBorder(f, r, g, b, a)
     f:SetBackdropBorderColor(r, g, b, a or 1)
 end
 
-local function repaintTracked()
+local function repaintBorders()
     local i
     for i = 1, table.getn(borders) do
         local f = borders[i]
@@ -218,6 +251,11 @@ local function repaintTracked()
             pcall(flashBorder, f, r, g, b, f._ichaGoldLA or 1)
         end
     end
+end
+
+local function repaintTracked()
+    local i
+    repaintBorders()
     for i = 1, table.getn(fonts) do
         local fs = fonts[i]
         if fs and fs.SetTextColor and not fs._gSkip then
@@ -286,6 +324,7 @@ function IchaUI_RefreshGoldTheme()
     callRefresh(IchaUIBuffBars_Reload)
     callRefresh(IchaUIXP_Reload)
     callRefresh(IchaUI_DrawerExtrasRefresh)
+    callRefresh(IchaPlates_ThemeRefresh)
     if type(IchaUI_DrawerApply) == "function" then
         pcall(IchaUI_DrawerApply, "totems")
         pcall(IchaUI_DrawerApply, "recall")
@@ -303,7 +342,246 @@ function IchaUI_RefreshGoldTheme()
     end
     callRefresh(IchaUI_GoldSwatchPaint)
     callRefresh(IchaUI_FillSwatchPaint)
+    callRefresh(IchaUI_ThemePreviewPaint)
     -- Borders again after tab/config paint, which can SetBackdrop.
-    callRefresh(repaintTracked)
+    callRefresh(repaintBorders)
     goldBusy = false
+end
+
+------------------------------------------------------------------------
+-- Picker preview. While ColorPickerFrame is open the picked color lives in
+-- themeSess only: swatches, the Skin preview box and the options window
+-- chrome follow it. The saved theme and the full repaint wait for Okay.
+------------------------------------------------------------------------
+local THROTTLE = 0.25
+local themeSess = nil
+local pendingHide = nil
+local okDepth = 0
+local jobs = {}
+local timer = CreateFrame("Frame")
+timer:Hide()
+
+local function runJob(j)
+    j.due = nil
+    j.last = GetTime()
+    pcall(j.fn)
+end
+
+-- Leading run, then at most one trailing run per THROTTLE window.
+local function throttle(key, fn)
+    local j = jobs[key]
+    if not j then
+        j = { last = -100 }
+        jobs[key] = j
+    end
+    j.fn = fn
+    if not j.due and GetTime() - j.last >= THROTTLE then
+        runJob(j)
+        return
+    end
+    if not j.due then j.due = j.last + THROTTLE end
+    timer:Show()
+end
+
+local function flushJob(key)
+    local j = jobs[key]
+    if j and j.due then runJob(j) end
+end
+
+local function dropJob(key)
+    local j = jobs[key]
+    if j then j.due = nil end
+end
+
+function IchaUI_ThemeLiveApplyOn()
+    if IchaUIDB and IchaUIDB.themeLiveApply then return true end
+    return false
+end
+
+function IchaUI_SetThemeLiveApply(on)
+    if not IchaUIDB then IchaUIDB = {} end
+    if on then IchaUIDB.themeLiveApply = true else IchaUIDB.themeLiveApply = nil end
+end
+
+function IchaUI_ThemeLiveGold()
+    local s = themeSess
+    if s and s.kind == "gold" then return s.cr, s.cg, s.cb end
+    return IchaUI_Gold()
+end
+
+function IchaUI_ThemeLiveGoldLight()
+    local r, g, b = IchaUI_ThemeLiveGold()
+    return lift(r, DARK_R, LIGHT_R), lift(g, DARK_G, LIGHT_G), lift(b, DARK_B, LIGHT_B)
+end
+
+function IchaUI_ThemeLiveFill()
+    local s = themeSess
+    if s and s.kind == "fill" then return s.cr, s.cg, s.cb end
+    return IchaUI_Fill()
+end
+
+local function paintConfigChrome()
+    local panel = getglobal("IchaUIOptions")
+    if not panel or not panel.SetBackdropBorderColor then return end
+    local r, g, b = IchaUI_ThemeLiveGold()
+    flashBorder(panel, r, g, b, panel._ichaGoldA or 1)
+    if panel._ichaFillA then
+        local fr, fg, fb = IchaUI_ThemeLiveFill()
+        panel._ichaFillShown = panel._ichaFillA * IchaUI_ThemeFillAlpha()
+        panel:SetBackdropColor(fr, fg, fb, panel._ichaFillShown)
+    end
+end
+
+-- Cheap: two swatches, the preview box and one window border.
+function IchaUI_ThemePreview()
+    callRefresh(IchaUI_GoldSwatchPaint)
+    callRefresh(IchaUI_FillSwatchPaint)
+    callRefresh(IchaUI_ThemePreviewPaint)
+    callRefresh(paintConfigChrome)
+end
+
+local function rgbCopy(t)
+    if type(t) ~= "table" or not tonumber(t.r) or not tonumber(t.g) or not tonumber(t.b) then return nil end
+    return { r = clamp01(t.r), g = clamp01(t.g), b = clamp01(t.b) }
+end
+
+local function writeSess(s, t)
+    if not IchaUIDB then IchaUIDB = {} end
+    IchaUIDB[s.kind] = t
+end
+
+local function endSess(s)
+    if themeSess == s then themeSess = nil end
+    dropJob("theme")
+end
+
+local function commitSess(s)
+    if themeSess ~= s then return end
+    endSess(s)
+    writeSess(s, { r = s.cr, g = s.cg, b = s.cb })
+    IchaUI_RefreshGoldTheme()
+end
+
+local function cancelSess(s, prev)
+    if themeSess ~= s then return end
+    endSess(s)
+    if not s.applied then
+        IchaUI_ThemePreview()
+        return
+    end
+    -- Live apply already saved a color: put the old one back and repaint once.
+    local t = nil
+    if s.orig then t = rgbCopy(prev) or s.orig end
+    writeSess(s, t)
+    IchaUI_RefreshGoldTheme()
+end
+
+local function dragSess(s, r, g, b)
+    s.cr, s.cg, s.cb = clamp01(r), clamp01(g), clamp01(b)
+    IchaUI_ThemePreview()
+    if not IchaUI_ThemeLiveApplyOn() then return end
+    throttle("theme", function()
+        if themeSess ~= s then return end
+        s.applied = true
+        writeSess(s, { r = s.cr, g = s.cg, b = s.cb })
+        IchaUI_RefreshGoldTheme()
+    end)
+end
+
+local pickerHooked = false
+local function hookPicker()
+    if pickerHooked or not ColorPickerFrame or not ColorPickerFrame.GetScript then return end
+    pickerHooked = true
+    local okBtn = getglobal("ColorPickerOkayButton")
+    if okBtn and okBtn.GetScript then
+        local oldOk = okBtn:GetScript("OnClick")
+        okBtn:SetScript("OnClick", function()
+            local s = themeSess
+            okDepth = okDepth + 1
+            if oldOk then pcall(oldOk) end
+            okDepth = okDepth - 1
+            if s and themeSess == s then
+                s.cr, s.cg, s.cb = ColorPickerFrame:GetColorRGB()
+                commitSess(s)
+            end
+        end)
+    end
+    local oldHide = ColorPickerFrame:GetScript("OnHide")
+    ColorPickerFrame:SetScript("OnHide", function()
+        if oldHide then oldHide() end
+        -- Escape / another picker user: decide next frame, after any Okay func.
+        if themeSess and okDepth == 0 then
+            pendingHide = themeSess
+            timer:Show()
+        end
+    end)
+end
+
+timer:SetScript("OnUpdate", function()
+    local now = GetTime()
+    local busy = false
+    local k, j
+    for k, j in pairs(jobs) do
+        if j.due then
+            if now >= j.due then runJob(j) else busy = true end
+        end
+    end
+    local s = pendingHide
+    pendingHide = nil
+    if s and themeSess == s then
+        if not ColorPickerFrame:IsShown() or ColorPickerFrame.func ~= s.func then
+            cancelSess(s, nil)
+        end
+    end
+    if not busy then this:Hide() end
+end)
+
+-- kind: "gold" or "fill" (the IchaUIDB key).
+function IchaUI_ThemePickColor(kind)
+    if not IchaUI_OpenColorPicker or not ColorPickerFrame then return end
+    if themeSess then cancelSess(themeSess, nil) end
+    local s = { kind = kind }
+    local r, g, b
+    if kind == "gold" then
+        if IchaUI_ThemeGoldOn() then s.orig = rgbCopy(IchaUIDB.gold) end
+        r, g, b = IchaUI_Gold()
+    else
+        s.orig = rgbCopy(IchaUIDB and IchaUIDB.fill)
+        r, g, b = IchaUI_Fill()
+    end
+    s.cr, s.cg, s.cb = r, g, b
+    IchaUI_OpenColorPicker(r, g, b, function(nr, ng, nb)
+        if themeSess ~= s then return end
+        -- Okay hides the frame (or runs inside our Okay hook) before func.
+        if okDepth > 0 or not ColorPickerFrame:IsShown() then
+            s.cr, s.cg, s.cb = clamp01(nr), clamp01(ng), clamp01(nb)
+            commitSess(s)
+        else
+            dragSess(s, nr, ng, nb)
+        end
+    end, function(prev)
+        cancelSess(s, prev)
+    end)
+    s.func = ColorPickerFrame.func
+    hookPicker()
+    themeSess = s
+    IchaUI_ThemePreview()
+end
+
+-- Opacity slider: save at once, preview at once, repaint fills throttled.
+function IchaUI_ThemeFillAlphaInput(v)
+    v = clamp01(v)
+    local d = v - IchaUI_ThemeFillAlpha()
+    if d < 0 then d = -d end
+    if d < 0.001 then return end
+    if not IchaUIDB then IchaUIDB = {} end
+    IchaUIDB.fillAlpha = v
+    IchaUI_ThemePreview()
+    throttle("fillAlpha", function()
+        IchaUI_SetFillAlpha(IchaUI_ThemeFillAlpha())
+    end)
+end
+
+function IchaUI_ThemeFillAlphaFlush()
+    flushJob("fillAlpha")
 end

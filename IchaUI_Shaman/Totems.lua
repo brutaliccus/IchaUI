@@ -236,6 +236,7 @@ local EMPTY_ICONS = {
 -- Keybind header / name (1.12 Bindings.xml)
 BINDING_HEADER_ICHA = "IchaUI"
 BINDING_NAME_ICHA_THROWTOTEMS = "Throw Current Totem Set"
+BINDING_NAME_ICHA_TOTEMSETNEXT = "Next Totem Set"
 BINDING_NAME_ICHA_TOTEMBIND_EARTH = "Totem Slot: Earth"
 BINDING_NAME_ICHA_TOTEMBIND_FIRE = "Totem Slot: Fire"
 BINDING_NAME_ICHA_TOTEMBIND_WATER = "Totem Slot: Water"
@@ -2431,7 +2432,7 @@ end
 
 local lastGuidScan = 0
 local function refreshTotemGuids(force)
-    if not hasSuperWow() then return end
+    if IchaUI_LEAVING or not hasSuperWow() then return end
     if type(WorldFrame) ~= "table" or type(WorldFrame.GetChildren) ~= "function" then return end
     local now = GetTime and GetTime() or 0
     -- Full WorldFrame scan is expensive; once per quarter-second is enough for range
@@ -4267,6 +4268,26 @@ function IchaUITotemSets.CyclePick(idx, element, dir)
     IchaUITotemSets.SetPick(idx, element, opts[at])
 end
 
+-- Dropdown rows for the config picker, same list as CyclePick:
+-- { base, label, nil, icon }; "__none__" clears the slot.
+function IchaUITotemSets.PickOpts(element)
+    local out = { { "__none__", "(none)", nil, emptyIcon(element) } }
+    local list = CATALOG[element]
+    if not list then return out end
+    ensureKnown()
+    local anyKnown = false
+    local i
+    for i = 1, table.getn(list) do
+        if knownCache[list[i]] then anyKnown = true end
+    end
+    for i = 1, table.getn(list) do
+        if knownCache[list[i]] or not anyKnown then
+            table.insert(out, { list[i], list[i], nil, iconFor(list[i]) })
+        end
+    end
+    return out
+end
+
 function IchaUITotemSets.Icon(base, element)
     if not base then return emptyIcon(element) end
     return iconFor(base)
@@ -4277,8 +4298,20 @@ end
 IchaUITotemSets.MAX_BINDS = 10
 IchaUITotemSets.chords = {}
 
+-- Next-set key: same paging as the right arrow; never casts.
+function IchaUITotems_NextSet()
+    if IchaUITotemSets.Count() < 2 then
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: only one totem set — add more in /iui → Drawers.")
+        end
+        return
+    end
+    IchaUITotemSets.Step(1)
+end
+
 function IchaUITotemSets.BindCmd(which)
     if which == "current" then return "ICHA_THROWTOTEMS" end
+    if which == "next" then return "ICHA_TOTEMSETNEXT" end
     local n = tonumber(which)
     if n and n >= 1 and n <= IchaUITotemSets.MAX_BINDS then
         return "ICHA_THROWTOTEMSET" .. n
@@ -4289,6 +4322,8 @@ end
 function IchaUITotemSets.FireCmd(cmd)
     if cmd == "ICHA_THROWTOTEMS" then
         IchaUITotems_ThrowSet()
+    elseif cmd == "ICHA_TOTEMSETNEXT" then
+        IchaUITotems_NextSet()
     elseif cmd and string.find(cmd, "ICHA_THROWTOTEMSET", 1, true) == 1 then
         IchaUITotems_ThrowSetN(tonumber(string.sub(cmd, 19)))
     end
@@ -4346,6 +4381,7 @@ function IchaUITotemSets.ApplyBindings()
         pcall(saveThrowBindSet)
     end
     local n
+    IchaUITotems_ApplySetBindKey("next", IchaUITotems_GetSetBindKey("next"))
     for n = 1, IchaUITotemSets.MAX_BINDS do
         IchaUITotems_ApplySetBindKey(n, IchaUITotems_GetSetBindKey(n))
     end
@@ -4874,6 +4910,7 @@ end)
 
 -- Visuals only on root (may be hidden); throw processing lives on always-shown ticker
 root:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     local now = GetTime and GetTime() or 0
     -- Cast spark/trail every frame for smooth motion
     pcall(updateCastRingsFast)
@@ -4913,8 +4950,10 @@ pcall(function() evt:RegisterEvent("CHAT_MSG_COMBAT_CREATURE_VS_SELF_HITS") end)
 pcall(function() evt:RegisterEvent("CHAT_MSG_SPELL_CREATURE_VS_SELF_DAMAGE") end)
 pcall(function() evt:RegisterEvent("CHAT_MSG_SPELL_HOSTILEPLAYER_DAMAGE") end)
 pcall(function() evt:RegisterEvent("CHAT_MSG_SPELL_PERIODIC_CREATURE_DAMAGE") end)
+evt:RegisterEvent("PLAYER_LEAVING_WORLD")
 
 evt:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     local now = GetTime and GetTime() or 0
     tickBindPushes(now)
     if IchaUITotems_TickFireTwist then
@@ -5008,6 +5047,11 @@ local function parseUnitCastEvent()
 end
 
 evt:SetScript("OnEvent", function()
+    if event == "PLAYER_LEAVING_WORLD" then
+        liveGuid = {}
+        return
+    end
+    if IchaUI_LEAVING and event ~= "PLAYER_ENTERING_WORLD" then return end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         loadCfg()
         restorePos()

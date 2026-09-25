@@ -1,0 +1,23 @@
+## Interface: 11200
+## Title: IchaUI - Plates
+## Notes: IchaPlates nameplates. Requires SuperWoW. /iui > Plates.
+## X-Credits: Based on ShaguPlatesX by Eric Mauser (Shagu), adapted by Ehawne. MIT, see LICENSE-ShaguPlates.txt.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+Core.lua
+api\api.lua
+api\config.lua
+compat\vanilla.lua
+locales\locales_enUS.lua
+locales\locales_deDE.lua
+locales\locales_esES.lua
+locales\locales_frFR.lua
+locales\locales_koKR.lua
+locales\locales_ruRU.lua
+locales\locales_zhCN.lua
+locales\durations.lua
+modules\cooldown.lua
+modules\nameplates.lua
+modules\superwow.lua
+PlatesOptions.lua

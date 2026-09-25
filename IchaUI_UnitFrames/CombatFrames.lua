@@ -309,6 +309,7 @@ local function makeSlots(count)
 end
 
 local function unitGuid(unit)
+    if IchaUI_LEAVING then return nil end
     if IchaUI_Swing_Guid then
         local g = IchaUI_Swing_Guid(unit)
         if g and g ~= "" then return g end
@@ -323,12 +324,14 @@ local function unitGuid(unit)
 end
 
 local function unitOk(unit)
+    if IchaUI_LEAVING then return false end
     if not unit or unit == "" or unit == "none" or not UnitExists then return false end
     local ok, exists = pcall(UnitExists, unit)
     return (ok and exists) and true or false
 end
 
 local function safeName(unit)
+    if IchaUI_LEAVING then return nil end
     if not unit or unit == "" or unit == "none" or not UnitName then return nil end
     local ok, name = pcall(UnitName, unit)
     if not ok then return nil end
@@ -405,7 +408,7 @@ end
 
 -- 1-8 if this hostile has a raid mark; nil otherwise. Unknown tokens throw.
 local function raidMark(unit)
-    if not GetRaidTargetIndex then return nil end
+    if IchaUI_LEAVING or not GetRaidTargetIndex then return nil end
     if not unit or unit == "" or unit == "none" then return nil end
     local ok, idx = pcall(GetRaidTargetIndex, unit)
     if not ok then return nil end
@@ -416,6 +419,7 @@ end
 
 -- Player only (not pet). Used by combat-plate HP color (red on you / yellow off you).
 local function targetsPlayer(unit)
+    if IchaUI_LEAVING then return false end
     if not unit or unit == "" or unit == "none" or not UnitExists or not UnitIsUnit or not UnitName then return false end
     local tot
     if string.find(unit, "^nameplate") or string.find(unit, "^0[xX]") then
@@ -442,6 +446,7 @@ IchaUI_CombatTargetsPlayer = targetsPlayer
 -- "other" (someone outside the group), "none" (no target), nil = cannot tell.
 -- Does not check hostility or combat.
 local function groupAggro(unit)
+    if IchaUI_LEAVING then return nil end
     if not unit or unit == "" or unit == "none" or type(unit) ~= "string" then return nil end
     if string.sub(unit, 1, 6) == "IchaUI" then return nil end
     if not UnitExists or not UnitIsUnit then return nil end
@@ -517,6 +522,7 @@ local function shapedToken(unit)
 end
 
 local function targetOfPlayer(unit)
+    if IchaUI_LEAVING then return nil end
     if not shapedToken(unit) then return nil end
     if not UnitExists or not UnitIsUnit then return nil end
     local unitLive = false
@@ -665,6 +671,7 @@ end
 
 -- SuperWoW GUID token still resolves, or throws when the plate is gone.
 local function guidLive(guid)
+    if IchaUI_LEAVING then return false end
     if not guid or type(guid) ~= "string" then return false end
     if not string.find(guid, "^0[xX]%x+$") then return false end
     if type(UnitExists) ~= "function" then return false end
@@ -719,6 +726,7 @@ local function tabTokenForGuid(g)
 end
 
 local function tabLife(token)
+    if IchaUI_LEAVING then return nil end
     if not shapedToken(token) then return nil end
     local state = nil
     local ok = pcall(function()
@@ -780,6 +788,7 @@ end
 
 function IchaUI_CombatTabRows()
     local rows = {}
+    if IchaUI_LEAVING then return rows end
     local n = 0
     local i
     for i = 1, table.getn(order) do
@@ -794,6 +803,7 @@ function IchaUI_CombatTabRows()
 end
 
 function IchaUI_CombatRefresh()
+    if IchaUI_LEAVING then return {} end
     makeSlots()
     local inCombat = UnitAffectingCombat and UnitAffectingCombat("player")
     if not inCombat then
@@ -977,7 +987,27 @@ function IchaUI_CombatRefresh()
     return seen
 end
 
+local function parkSlots()
+    local i
+    for i = 1, MAX_CAP do
+        local fr = slots[i]
+        if fr then
+            fr._holdMissing = false
+            fr._forcePreview = false
+            if fr.SetUnit then fr:SetUnit("none") end
+            if fr.root then fr.root:Hide() end
+            if fr.portraitFrame then fr.portraitFrame:Hide() end
+            if fr.portraitRingFrame then fr.portraitRingFrame:Hide() end
+        end
+    end
+    root:Hide()
+end
+
 function IchaUI_CombatLayout()
+    if IchaUI_LEAVING then
+        parkSlots()
+        return
+    end
     local cols, rows, cap = gridLimits()
     makeSlots(cap)
     local g = IchaUI_CombatProfile()
@@ -1298,6 +1328,7 @@ scan:RegisterEvent("UNIT_AURA")
 scan:RegisterEvent("PLAYER_AURAS_CHANGED")
 pcall(function() scan:RegisterEvent("PLAYER_AURA") end)
 scan:SetScript("OnEvent", function()
+    if IchaUI_LEAVING then return end
     if event == "UNIT_AURA" or event == "PLAYER_AURAS_CHANGED" or event == "PLAYER_AURA" then
         local who = arg1
         if event ~= "UNIT_AURA" or not who or who == "" then
@@ -1360,6 +1391,7 @@ scan:SetScript("OnEvent", function()
     end
 end)
 scan:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     this.elapsed = (this.elapsed or 0) + (arg1 or 0)
     if this.elapsed < 0.2 then return end
     this.elapsed = 0
@@ -1392,6 +1424,27 @@ scan:SetScript("OnUpdate", function()
         end
     end
 end)
+
+if IchaUI_OnLeaving then
+    IchaUI_OnLeaving(function(on)
+        if on then
+            order = {}
+            touchAt = {}
+            firstSeen = {}
+            markOf = {}
+            markedKeep = {}
+            combatHold = {}
+            combatOnMe = {}
+            raidSweep.guids = {}
+            raidSweep.at = 0
+            parkSlots()
+            scan:Hide()
+        else
+            scan.elapsed = 0
+            scan:Show()
+        end
+    end)
+end
 
 IchaUI_CombatPlaceRoot()
 makeSlots()

@@ -1,0 +1,15 @@
+## Interface: 11200
+## Title: IchaUI - Chat
+## Notes: Chat: edit box, timestamps, names, channel tags, URLs, link tooltips, name clicks, scrolling, history, copy, tabs, fonts, meter dock.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+Core.lua
+Pipeline.lua
+CopyBox.lua
+Links.lua
+EditBox.lua
+Scroll.lua
+Tabs.lua
+Dock.lua
+ChatOptions.lua

@@ -34,6 +34,7 @@ local function tokenShape(unit)
 end
 
 local function unitLive(unit)
+    if IchaUI_LEAVING then return false end
     if not tokenShape(unit) then return false end
     if type(UnitExists) ~= "function" then return false end
     local exists = false
@@ -128,7 +129,7 @@ local function sameGuid(unit, guid)
 end
 
 local function resolveGuid(guid)
-    if not guidString(guid) then return nil end
+    if IchaUI_LEAVING or not guidString(guid) then return nil end
     -- Group tokens first so a party/raid focus keeps the party-frame offline path
     -- and does not follow "target".
     if sameGuid("player", guid) then return "player" end
@@ -481,6 +482,7 @@ pcall(function() pulse:RegisterEvent("CHAT_MSG_COMBAT_PET_DEATH") end)
 pcall(function() pulse:RegisterEvent("PLAYER_FOCUS_CHANGED") end)
 pulse.t = 0
 pulse:SetScript("OnEvent", function()
+    if IchaUI_LEAVING and event ~= "PLAYER_ENTERING_WORLD" then return end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         registerSlash()
         hookTargetSlash()
@@ -518,6 +520,7 @@ pulse:SetScript("OnEvent", function()
     end
 end)
 pulse:SetScript("OnUpdate", function()
+    if IchaUI_LEAVING then return end
     if not focusFr or not focusFr._focusActive or focusFr.moving then return end
     local dt = arg1 or 0
     this.t = (this.t or 0) + dt

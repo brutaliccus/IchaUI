@@ -151,6 +151,41 @@ IchaUI_BakedDefaults = {
         scale = 0.9000000357627869,
         text = 8,
     },
+    -- IchaUI_Chat. Everything that changes the look starts off; the edit box
+    -- matches the old ChatSkin placement (above the border, 2px gap, width of chat).
+    chat = {
+        editbox = {
+            position = "TOP", widthMode = "match", width = 400, offX = 0, gap = 2, height = 0,
+            locked = true, arrowKeys = true, sticky = false, maNotice = true,
+            freePoint = "BOTTOMLEFT", freeRelPoint = "BOTTOMLEFT", freeX = 30, freeY = 220,
+        },
+        timestamps = {
+            on = false, format = "%H:%M", server = false,
+            color = { r = 0.6, g = 0.6, b = 0.6 },
+            windows = { true, false, true, true, true, true, true },
+        },
+        names = { on = false, brackets = "square", level = false, group = false, cacheMax = 2000 },
+        channels = { on = false, space = true, colon = true, tags = {}, chan = {} },
+        urls = { on = false, brackets = true, color = { r = 0.4, g = 0.8, b = 1 } },
+        links = { tips = true, altInvite = true, ctrlTarget = true, shiftName = true, clink = true, social = false },
+        scroll = {
+            wheel = true, lines = 3, ctrlMult = 3, shiftJump = true, maxLines = 128, reminder = false,
+            stickyOn = true,
+            sticky = {
+                SAY = true, YELL = false, PARTY = true, GUILD = true, OFFICER = true, RAID = true,
+                RAID_WARNING = true, BATTLEGROUND = true, WHISPER = true, CHANNEL = true, EMOTE = false,
+            },
+        },
+        tabs = { on = false, inactiveAlpha = 0.5, flashWhisper = false, loginTab = 0 },
+        history = {
+            on = false, lines = 50, copyLines = 200, copyButton = false,
+            windows = { true, false, false, false, false, false, false },
+        },
+        dock = { on = true, hostId = 0, hostName = "Meters", layout = "auto", inset = 0, backToGeneral = true, frames = {}, snapshots = {} },
+        font = { on = false, windows = {} },
+        fade = { on = false, windows = {} },
+        colors = { on = true, map = {} },
+    },
     chatSkin = {
         alpha = 0.75,
         edge = 12,
@@ -172,6 +207,7 @@ IchaUI_BakedDefaults = {
         totemRecall = true,
         totemRecallDelay = 5,
     },
+    cooldownNumbers = true,
     drawerPopPos = {
         x = 957.3333966143256,
         y = -588.000006291626,
@@ -214,6 +250,7 @@ IchaUI_BakedDefaults = {
         g = 0.07,
         r = 0.07,
     },
+    fillAlpha = 1,
     frameSkin = {
         enabled = true,
     },
@@ -369,6 +406,20 @@ IchaUI_BakedDefaults = {
         drawerRot = 90,
         drawerSpread = 90,
         enabled = true,
+    },
+    -- IchaUI_Plates (ShaguPlatesX port). Only values that differ from the ShaguPlatesX
+    -- defaults; IchaPlates:LoadConfig fills the rest.
+    plates = {
+        icha = {
+            enabled = "1",
+            theme = "0",
+        },
+        nameplates = {
+            combatnothreat = "0.9,0.7,0,1",
+            combatthreat = "1,0.1,0,1",
+            scale = ".8",
+            vertical_offset = "22",
+        },
     },
     scale = 0.94999998807907,
     shamanExtras = {

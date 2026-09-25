@@ -987,6 +987,13 @@ function IchaUI_ShowActionGridPop(kind, index, anchor)
             end
             paintGridPop()
         end)
+        if IchaUI_ShapeDropdown then
+            IchaUI_ShapeDropdown(gridPop.shapeBtn, function()
+                if gridPop.kind == "hero" and IchaUI_HeroBarForm then return (IchaUI_HeroBarForm(gridFor)) end
+                if IchaUI_ActionBarForm then return (IchaUI_ActionBarForm(gridFor)) end
+                return "rect"
+            end)
+        end
         gridPop.layBtn = formButton("Layout: Grid", -316, function()
             local shape, layout, spread, arc, rot = "rect", "grid", 90, 360, 90
             if gridPop.kind == "hero" and IchaUI_HeroBarForm then

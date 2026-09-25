@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="ICHAUICHAT_COPY" header="ICHAUICHAT">
+		IchaUIChat_CopyChat();
+	</Binding>
+</Bindings>

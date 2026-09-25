@@ -22,7 +22,7 @@ local function loadCfg()
     if d.edge ~= nil then edgeSize = tonumber(d.edge) or edgeSize end
     if d.pad ~= nil then PAD = tonumber(d.pad) or PAD end
     if BG[4] < 0.15 then BG[4] = 0.15 end
-    if BG[4] > 0.75 then BG[4] = 0.75 end
+    if BG[4] > 1 then BG[4] = 1 end
     if edgeSize < 8 then edgeSize = 8 end
     if edgeSize > 16 then edgeSize = 16 end
     if PAD < 8 then PAD = 8 end
@@ -47,6 +47,8 @@ local function applyBackdrop(f, alpha, edge)
     })
     f:SetBackdropColor(BG[1], BG[2], BG[3], alpha or BG[4])
     IchaUI_PaintGoldBorder(f, 1)
+    -- Theme fill x this alpha x fill opacity, tracked so Gold.lua repaints it live.
+    if IchaUI_PaintFill then IchaUI_PaintFill(f, alpha or BG[4]) end
 end
 
 local function nukeTexture(t)
@@ -81,6 +83,48 @@ local function hideNamed(frame, suffixes)
     end
 end
 
+-- FCF fades CHAT_FRAME_TEXTURES / tab art back in with Show + SetAlpha, so a
+-- plain hide does not stick. Only for chat + tab art, never the edit box.
+local function lockHidden(t)
+    if not t then return end
+    nukeTexture(t)
+    if t._waDead then return end
+    t._waDead = true
+    t.Show = function() end
+    t.SetAlpha = function() end
+    t.SetVertexColor = function() end
+end
+
+local function lockNamed(frame, suffixes)
+    if not frame then return end
+    local name = frame:GetName()
+    if not name then return end
+    local i
+    for i = 1, table.getn(suffixes) do
+        lockHidden(getglobal(name .. suffixes[i]))
+    end
+end
+
+-- UI-Tooltip-Border: the stroke's inner edge is 5/16 of the tile (Blizzard's
+-- tooltip pairs edgeSize 16 with insets 5), so fills start there.
+local function innerInset(edge)
+    return math.floor((edge or edgeSize) * 5 / 16 + 0.5)
+end
+
+local function glowRGB()
+    if IchaUI_GoldLight then
+        local r, g, b = IchaUI_GoldLight()
+        if r then return r, g, b end
+    end
+    return 1, 0.86, 0.5
+end
+
+local function insetTo(t, rel, ins)
+    t:ClearAllPoints()
+    t:SetPoint("TOPLEFT", rel, "TOPLEFT", ins, -ins)
+    t:SetPoint("BOTTOMRIGHT", rel, "BOTTOMRIGHT", -ins, ins)
+end
+
 local function hideAllTextures(frame)
     if not frame or not frame.GetRegions then return end
     local regions = { frame:GetRegions() }
@@ -101,7 +145,6 @@ end
 local CHAT_ART = {
     "TopTexture", "BottomTexture", "LeftTexture", "RightTexture",
     "TopLeftTexture", "TopRightTexture", "BottomLeftTexture", "BottomRightTexture",
-    "Background",
 }
 local EDIT_ART = {
     "Left", "Mid", "Middle", "Right",
@@ -111,7 +154,11 @@ local TAB_ART = {
     "Left", "Middle", "Right",
     "SelectedLeft", "SelectedMiddle", "SelectedRight",
     "HighlightLeft", "HighlightMiddle", "HighlightRight",
+    "Highlight", "HighlightTexture",
 }
+local TAB_EDGE = 10
+local TAB_HL_A = 0.16
+local TAB_FLASH_A = 0.32
 
 local function destroyLegacyBorders()
     local i
@@ -215,20 +262,55 @@ local function ensureOuterBorder(cf)
     border:ClearAllPoints()
     border:SetPoint("TOPLEFT", cf, "TOPLEFT", -PAD, PAD_TOP)
     border:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", PAD, -PAD)
-    applyBackdrop(border, BG[4], edgeSize)
+    -- _waNoFill: a window whose content brings its own fill (Meters dock)
+    applyBackdrop(border, cf._waNoFill and 0 or BG[4], edgeSize)
     if cf:IsShown() then border:Show() else border:Hide() end
     cf._waChrome = border
     return border
 end
 
+-- The chrome backdrop is the only chat fill. Blizzard's ChatFrameNBackground
+-- (window alpha / hover fades) stays hidden while skinned: drawn over the
+-- chrome it stacked a second dark layer that no IchaUI slider controlled.
+-- Its requested alpha is kept so turning the skin off gives it back.
+local function muteBlizzBackground(cf)
+    local bg = cf and getglobal(cf:GetName() .. "Background")
+    if not bg then return end
+    if not bg._waMute then
+        bg._waMute = true
+        if bg._waReqA == nil and bg.GetAlpha then bg._waReqA = bg:GetAlpha() end
+        local rawShow, rawAlpha = bg.Show, bg.SetAlpha
+        bg._waRawShow, bg._waRawAlpha = rawShow, rawAlpha
+        bg.Show = function(self)
+            if not enabled then rawShow(self) end
+        end
+        bg.SetAlpha = function(self, a)
+            self._waReqA = tonumber(a) or 0
+            if not enabled then rawAlpha(self, self._waReqA) end
+        end
+    end
+    bg:Hide()
+end
+
+local function restoreBlizzBackground(cf)
+    local bg = cf and getglobal(cf:GetName() .. "Background")
+    if not bg or not bg._waMute then return end
+    bg:ClearAllPoints()
+    bg:SetAllPoints(cf)
+    bg._waRawAlpha(bg, bg._waReqA or 0)
+    bg._waRawShow(bg)
+end
+
 local function skinChatFrame(cf)
     if not cf then return end
+    -- also while hidden: docked / new windows get shown by FCF later
+    muteBlizzBackground(cf)
     if not cf:IsShown() then
         if cf._waChrome then cf._waChrome:Hide() end
         if cf.SetBackdrop then cf:SetBackdrop(nil) end
         return
     end
-    hideNamed(cf, CHAT_ART)
+    lockNamed(cf, CHAT_ART)
     if cf.SetBackdrop then cf:SetBackdrop(nil) end
     ensureOuterBorder(cf)
     hideChatButtons(cf)
@@ -250,11 +332,62 @@ local function tabLabelWidth(fs, label)
     return w
 end
 
+local function paintGlow(t, rel, ins, a)
+    t:SetTexture("Interface/Buttons/WHITE8X8")
+    if t.SetBlendMode then t:SetBlendMode("ADD") end
+    local r, g, b = glowRGB()
+    t:SetVertexColor(r, g, b, a)
+    insetTo(t, rel, ins)
+end
+
+-- Blizzard's highlight / flash use their own offsets; replace them with a
+-- gold wash clipped to the inside of the tab stroke.
+local function skinTabGlow(tab)
+    local ins = innerInset(TAB_EDGE)
+    local blizz
+    if tab.GetHighlightTexture then
+        pcall(function() blizz = tab:GetHighlightTexture() end)
+    end
+    if blizz and blizz ~= tab._waHL then lockHidden(blizz) end
+    local regions = { tab:GetRegions() }
+    local i
+    for i = 1, table.getn(regions) do
+        local r = regions[i]
+        if r and r ~= tab._waHL and r.GetObjectType and r:GetObjectType() == "Texture" then
+            local layer
+            if r.GetDrawLayer then
+                pcall(function() layer = r:GetDrawLayer() end)
+            end
+            if layer == "HIGHLIGHT" then lockHidden(r) end
+        end
+    end
+    if not tab._waHL then tab._waHL = tab:CreateTexture(nil, "HIGHLIGHT") end
+    paintGlow(tab._waHL, tab, ins, TAB_HL_A)
+
+    local flash = getglobal(tab:GetName() .. "Flash")
+    if not flash then return end
+    if flash:GetObjectType() == "Texture" then
+        paintGlow(flash, tab, ins, TAB_FLASH_A)
+        return
+    end
+    insetTo(flash, tab, ins)
+    local fr = { flash:GetRegions() }
+    for i = 1, table.getn(fr) do
+        local r = fr[i]
+        if r and r.GetObjectType and r:GetObjectType() == "Texture" then
+            paintGlow(r, flash, 0, TAB_FLASH_A)
+        end
+    end
+end
+
 local function skinTab(tab)
     if not tab then return end
     -- Strip default tab art only — never SetWidth/Height/Points (FCF owns layout)
-    hideNamed(tab, TAB_ART)
-    applyBackdrop(tab, math.min(0.75, BG[4] + 0.12), 10)
+    lockNamed(tab, TAB_ART)
+    local tabA = BG[4] + 0.12
+    if tabA > 0.75 then tabA = math.max(0.75, BG[4]) end
+    applyBackdrop(tab, tabA, TAB_EDGE)
+    skinTabGlow(tab)
 
     local fs = tab:GetName() and getglobal(tab:GetName() .. "Text")
     if fs then
@@ -314,18 +447,13 @@ local function styleEditBox(eb)
     applyBackdrop(eb, 0.40, 12)
 end
 
+-- Edit box position is owned by IchaUI_Chat (IchaUIChat_PlaceEditBox,
+-- IchaUIDB.chat.editbox); this only makes sure the border it anchors to exists.
 local function placeEditBoxAboveChrome(eb)
     local cf = SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME or getglobal("ChatFrame1")
     if not cf or not eb then return end
-    local chrome = cf._waChrome or ensureOuterBorder(cf)
-    if not chrome then return end
-    eb:ClearAllPoints()
-    eb:SetPoint("BOTTOMLEFT", chrome, "TOPLEFT", 0, 2)
-    eb:SetPoint("BOTTOMRIGHT", chrome, "TOPRIGHT", 0, 2)
-    if (eb:GetHeight() or 0) < 28 then
-        eb:SetHeight(30)
-    end
-    eb._waPlaced = true
+    if enabled and not cf._waChrome then ensureOuterBorder(cf) end
+    if IchaUIChat_PlaceEditBox then IchaUIChat_PlaceEditBox(eb) end
 end
 
 local function skinEditBox(forcePlace)
@@ -419,9 +547,11 @@ local function unskinAll()
             if cf.SetBackdrop then cf:SetBackdrop(nil) end
             local chrome = getglobal(cf:GetName() .. "WAChrome")
             if chrome then chrome:Hide() end
+            restoreBlizzBackground(cf)
         end
         local tab = getglobal("ChatFrame" .. i .. "Tab")
         if tab and tab.SetBackdrop then tab:SetBackdrop(nil) end
+        if tab and tab._waHL then tab._waHL:SetVertexColor(0, 0, 0, 0) end
     end
     local eb = ChatFrameEditBox or getglobal("ChatFrameEditBox")
     if eb and eb.SetBackdrop then eb:SetBackdrop(nil) end
@@ -440,7 +570,7 @@ function IchaUIChatSkin_Set(field, value)
     elseif field == "alpha" then
         BG[4] = tonumber(value) or BG[4]
         if BG[4] < 0.15 then BG[4] = 0.15 end
-        if BG[4] > 0.75 then BG[4] = 0.75 end
+        if BG[4] > 1 then BG[4] = 1 end
     elseif field == "edge" then
         edgeSize = tonumber(value) or edgeSize
     elseif field == "pad" then
@@ -471,10 +601,99 @@ function IchaUIChatSkin_Slash(msg)
     end
 end
 
+-- A tab click is what fixed misaligned tabs: FCF_SelectDockFrame ->
+-- FCF_DockUpdate re-anchors every docked tab (and hides the unselected
+-- frames), then the click hook re-skins everything. fullRelayout does exactly
+-- that, one frame after any FCF layout call so bursts coalesce. Paths that
+-- move tabs without an FCF call (tab flash, new tab text width, a window
+-- added by another addon) are caught by the tab geometry check in the tick.
+local relaying = false
+local tabBase = nil
+
+local function round0(v)
+    if not v then return "-" end
+    return math.floor(v + 0.5)
+end
+
+local function tabSig()
+    local parts = {}
+    local i
+    for i = 1, (NUM_CHAT_WINDOWS or 7) do
+        local tab = getglobal("ChatFrame" .. i .. "Tab")
+        if tab and tab:IsShown() then
+            local l = tab:GetLeft()
+            local fs = getglobal(tab:GetName() .. "Text")
+            local fl = fs and fs.GetLeft and fs:GetLeft()
+            local off = nil
+            if fl and l then off = fl - l end
+            table.insert(parts, i .. ":" .. round0(l) .. "," .. round0(tab:GetBottom()) .. ","
+                .. round0(tab:GetWidth()) .. "," .. round0(off))
+        end
+    end
+    return table.concat(parts, ";")
+end
+
+local function fullRelayout()
+    if not enabled then return end
+    relaying = true
+    if type(FCF_DockUpdate) == "function" and type(DOCKED_CHAT_FRAMES) == "table" then
+        pcall(FCF_DockUpdate)
+    end
+    relaying = false
+    skinAll()
+    tabBase = nil
+end
+
+local tabQ = CreateFrame("Frame")
+tabQ:Hide()
+tabQ:SetScript("OnUpdate", function()
+    this:Hide()
+    fullRelayout()
+end)
+
+local function hookTabLayout(fname)
+    local old = getglobal(fname)
+    if type(old) ~= "function" then return end
+    setglobal(fname, function(a1, a2, a3, a4)
+        local r = old(a1, a2, a3, a4)
+        if not relaying then tabQ:Show() end
+        return r
+    end)
+end
+hookTabLayout("FCF_DockUpdate")
+hookTabLayout("FCF_SelectDockFrame")
+hookTabLayout("FCF_SetWindowName")
+hookTabLayout("FCF_SetTabPosition")
+hookTabLayout("FCF_UpdateDockPosition")
+hookTabLayout("FCF_DockFrame")
+hookTabLayout("FCF_UnDockFrame")
+hookTabLayout("FCF_Close")
+
+local function leftButtonDown()
+    if not IsMouseButtonDown then return false end
+    local down = false
+    pcall(function() down = IsMouseButtonDown("LeftButton") and true or false end)
+    return down
+end
+
+-- Runs from the 0.4s tick: re-lay tabs once when their geometry drifts from
+-- the last applied layout (baseline taken one tick after each relayout).
+local function checkTabDrift()
+    if leftButtonDown() then return end
+    local s = tabSig()
+    if tabBase == nil then
+        tabBase = s
+    elseif s ~= tabBase then
+        tabBase = nil
+        tabQ:Show()
+    end
+end
+
 local boot = CreateFrame("Frame")
 boot:RegisterEvent("PLAYER_LOGIN")
 boot:RegisterEvent("PLAYER_ENTERING_WORLD")
 pcall(function() boot:RegisterEvent("UPDATE_FLOATING_CHAT_WINDOWS") end)
+pcall(function() boot:RegisterEvent("UPDATE_CHAT_WINDOWS") end)
 boot:SetScript("OnEvent", function()
     local d = CreateFrame("Frame")
     d.t = 0
@@ -491,7 +710,7 @@ boot:SetScript("OnEvent", function()
             this.t = this.t + (arg1 or 0)
             if this.t < 1.0 then return end
             this:SetScript("OnUpdate", nil)
-            layoutTabs()
+            if enabled then fullRelayout() end
             skinEditBox(true)
         end)
     end)
@@ -516,11 +735,13 @@ tick:SetScript("OnUpdate", function()
                 cf._waChrome:ClearAllPoints()
                 cf._waChrome:SetPoint("TOPLEFT", cf, "TOPLEFT", -PAD, PAD_TOP)
                 cf._waChrome:SetPoint("BOTTOMRIGHT", cf, "BOTTOMRIGHT", PAD, -PAD)
+                muteBlizzBackground(cf)
             end
         end
     end
     -- Chat options button fights back — bury every tick
     buryButton(getglobal("ChatFrameMenuButton"))
+    checkTabDrift()
 end)
 
 if type(FCF_OpenNewWindow) == "function" then
@@ -545,6 +766,18 @@ if type(FCF_Tab_OnClick) == "function" then
     end
 end
 
+local function hookReskin(fname)
+    local old = getglobal(fname)
+    if type(old) ~= "function" then return end
+    setglobal(fname, function(a1, a2, a3, a4)
+        local r = old(a1, a2, a3, a4)
+        if enabled then skinAll() end
+        return r
+    end)
+end
+hookReskin("FCF_DockFrame")
+hookReskin("FCF_UnDockFrame")
+
 if type(ChatEdit_UpdateHeader) == "function" then
     local oldH = ChatEdit_UpdateHeader
     ChatEdit_UpdateHeader = function(editBox)
@@ -561,4 +794,25 @@ end
 function IchaUIChatSkin_Reload()
     loadCfg()
     if enabled then skinAll() else unskinAll() end
+end
+
+-- Fill opacity changed (Gold.lua): repaint the chrome fills.
+function IchaUIChatSkin_RefreshFill()
+    if not enabled or not IchaUI_PaintFill then return end
+    local i
+    for i = 1, (NUM_CHAT_WINDOWS or 7) do
+        local cf = getglobal("ChatFrame" .. i)
+        if cf and cf._waChrome then IchaUI_PaintFill(cf._waChrome, cf._waNoFill and 0 or BG[4]) end
+    end
+end
+
+-- Gold border only (no fill) for a window whose content has its own fill.
+function IchaUIChatSkin_SetNoFill(cf, on)
+    if not cf then return end
+    on = on and true or nil
+    if cf._waNoFill == on then return end
+    cf._waNoFill = on
+    if cf._waChrome and enabled and IchaUI_PaintFill then
+        IchaUI_PaintFill(cf._waChrome, on and 0 or BG[4])
+    end
 end

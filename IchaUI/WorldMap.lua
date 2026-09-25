@@ -114,12 +114,15 @@ local function installIchaUIWorldMap()
     -- grows with scale.
     local function fitScale()
         local f = WorldMapFrame
-        local w = (f:GetWidth() or 0) + (CHROME_SIDE + SCREEN_PAD) * 2
-        local h = (f:GetHeight() or 0) + CHROME_TOP + CHROME_BOT + SCREEN_PAD * 2
+        local w = (f:GetWidth() or 0) + CHROME_SIDE * 2
+        local h = (f:GetHeight() or 0) + CHROME_TOP + CHROME_BOT
         local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
-        if w <= 0 or h <= 0 or sw <= 0 or sh <= 0 then return SCALE_HI end
-        local s = sw / w
-        if sh / h < s then s = sh / h end
+        local us = UIParent:GetEffectiveScale() or 1
+        if us <= 0 then us = 1 end
+        local pad = SCREEN_PAD / us
+        if w <= 0 or h <= 0 or sw <= pad * 2 or sh <= pad * 2 then return SCALE_HI end
+        local s = (sw - pad * 2) / w
+        if (sh - pad * 2) / h < s then s = (sh - pad * 2) / h end
         return s
     end
 
@@ -156,11 +159,13 @@ local function installIchaUIWorldMap()
         end
         local s = unitRatio()
         local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
+        local us = UIParent:GetEffectiveScale() or 1
+        if us <= 0 then us = 1 end
         local hw = (f:GetWidth() or 0) * s / 2
         local hh = (f:GetHeight() or 0) * s / 2
         local x, y = tonumber(d.x) or 0, tonumber(d.y) or 0
         if s > 0 and sw > 0 and sh > 0 and hw > 0 and hh > 0 then
-            local padP = SCREEN_PAD * s
+            local padP = SCREEN_PAD / us
             local sideP = CHROME_SIDE * s
             local topP = CHROME_TOP * s
             local botP = CHROME_BOT * s
@@ -203,9 +208,10 @@ local function installIchaUIWorldMap()
 
     -- Drag is cursor pixels, not StartMoving: this client's StopMovingOrSizing
     -- re-anchors a frame scaled apart from its parent at the wrong spot.
-    -- GetLeft/GetTop are the map's own units (pixels / map effective scale).
-    -- SetPoint offsets relative to UIParent are UIParent units (pixels / UIParent
-    -- effective scale). Mixing those is what slammed the map to the bottom.
+    -- One space only: screen pixels. GetLeft*es and cursor are pixels; chrome
+    -- and layout*es are the visual size. Convert once at SetPoint with /es
+    -- (1.12 offsets * the moving frame's effective scale = pixels). Dividing
+    -- by UIParent scale here made the allowed 'screen' shrink with the map.
     local drag = {}
 
     local function scales()
@@ -272,10 +278,10 @@ local function installIchaUIWorldMap()
 
     local function setTopLeftPx(leftPx, topPx)
         local f = WorldMapFrame
-        local es, us = scales()
+        local es = scales()
         leftPx, topPx = clampPx(leftPx, topPx)
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", leftPx / us, topPx / us)
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", leftPx / es, topPx / es)
         return leftPx, topPx
     end
 

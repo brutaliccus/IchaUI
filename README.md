@@ -458,7 +458,10 @@ IchaUI/ ... IchaUI_XP/     the addon folders (what the release zip contains)
 docs/screenshots/          README images (preview renders and placeholders)
 tools/sync.ps1             re-copy the addon folders from a live AddOns folder
 tools/render_previews.py   rebuild the preview renders (needs Pillow)
+tools/build_release.py     build dist/IchaUI-<version>.zip from the committed addon folders
 ```
+
+The release zip contains only the addon folders; `docs/` and `tools/` are repository-only.
 
 ---
 

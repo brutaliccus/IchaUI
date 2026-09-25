@@ -13,6 +13,8 @@ A full interface replacement: action bars, hero bars and drawers, unit frames wi
 
 ![Button and drawer shapes](docs/screenshots/preview-button-shapes.png)
 
+*Offline preview render of all 13 button shapes, with icons placed as in game: round icons fill each ring's opening, square icons sit inside the edge.*
+
 ---
 
 ## Contents
@@ -155,7 +157,7 @@ The centerpiece: a grid of large buttons where each button holds **several abili
 | pfUI edges | **pfUI Square**, **pfUI Blizz** |
 | Circular frame art | **Metal Plain**, **Metal Eternium**, **Metal Bronze**, **WoWUI**, **Wood Boards**, **Generic Target** |
 
-Round shapes draw the icon as a round portrait so nothing pokes out past the ring. The gold shapes follow the Skin tab's theme color; frame-art shapes keep their natural colors.
+Round shapes draw a circular icon that fills the ring's opening, centered and tucked under the ring art, so no square corners show past the ring. **Circle** keeps the drawer look: the icon at 56% of the slot under a round mask and the gold tracker ring. Square, Rectangle and pfUI shapes crop the icon's baked border and inset it inside the edge (Rectangle also trims top and bottom to keep its proportions). The gold shapes follow the Skin tab's theme color; frame-art shapes keep their natural colors.
 
 **Per-drawer style** (the rows under each drawer on the Drawers and Map tabs, and the edit-mode popup):
 

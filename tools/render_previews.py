@@ -14,7 +14,7 @@ Requires Pillow.
 import math
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -118,11 +118,12 @@ def circle_mask(size, ss=4):
     return m.resize((size, size), Image.LANCZOS)
 
 
-def round_icon(im, size):
-    """SetPortraitToTexture look: whole icon, clipped to a circle."""
-    ic = resized(im, size)
-    a = Image.new("L", ic.size, 0)
-    a.paste(circle_mask(ic.width), (0, 0))
+def round_icon(im, size, u0=0.08, u1=0.92):
+    """Round shapes: the icon cropped past its baked border, clipped to a circle."""
+    x0, x1 = u0 * im.width, u1 * im.width
+    y0, y1 = u0 * im.height, u1 * im.height
+    ic = resized(im.crop((int(x0), int(y0), int(x1), int(y1))), size)
+    a = ImageChops.multiply(ic.split()[3], circle_mask(ic.width))
     ic.putalpha(a)
     return ic
 
@@ -183,6 +184,14 @@ FORM_LABEL = {"rect": "Rectangle", "square": "Square", "circle": "Circle",
               "tooltip": "Tooltip Ring", "portrait": "Portrait"}
 for _k, _v in FORM_DEF.items():
     FORM_LABEL[_k] = _v["label"]
+# DrawerStyle.lua _holeVis fractions for the non-FORM_DEF rings
+HOLE_VIS = {"tooltip": 0.90, "portrait": 0.88}
+# Totems.lua IchaUITotems_CastRim: { radius, center x, center y } of the ring texture
+CAST_RIM = {
+    "circle": (0.2520, 0.2954, 0.2807), "tooltip": (0.4766, 0.5, 0.5), "portrait": (0.4795, 0.4995, 0.4917),
+    "metalplain": (0.3100, 0.5029, 0.5), "eternium": (0.3100, 0.5029, 0.5), "bronze": (0.3086, 0.5, 0.5),
+    "wowui": (0.3178, 0.5, 0.5029), "wood": (0.3086, 0.5, 0.5), "target": (0.4453, 0.5020, 0.5059),
+}
 
 
 def draw_button(canvas, cx, cy, shape, ic, side, width=None):
@@ -209,32 +218,34 @@ def draw_button(canvas, cx, cy, shape, ic, side, width=None):
         paste(canvas, backdrop_edge(W + 2 * o, H + 2 * o, edge, e, rgb), x0 - o, y0 - o)
         geo.update(kind="rect", W=W, H=H, e=e)
         return geo
+    rim, rcx0, rcy0 = CAST_RIM[shape]
     if shape == "circle":
-        bw = S * 64 / 36
-        ring = mul(desat(bliz("MINIMAP", "MiniMap-TrackingBorder")), GOLD)
-        ring = resized(ring, bw)
-        isz = S * 0.62
-        ix, iy = cx - S * 0.010, cy - S * 0.031
-        paste_c(canvas, round_icon(Image.new("RGBA", (8, 8), (10, 10, 12, 255)), isz * 1.02), ix, iy)
+        # Totems.lua applyGoldRing + insetIcon: tracker ring 1.65x anchored
+        # TOPLEFT on the slot, icon 56% of the slot 2 px above center with
+        # the black round mask on it and a dark disc under it.
+        bw = math.floor(side * 1.65 + 0.5) * K
+        isz = math.floor(side * (1 - 2 * 0.22) + 0.5) * K
+        ix, iy = cx, cy - 2 * K
+        paste_c(canvas, round_icon(Image.new("RGBA", (8, 8), (13, 13, 15, 255)), isz), ix, iy)
         paste_c(canvas, round_icon(ic, isz), ix, iy)
-        rx, ry = cx + S * 0.347, cy + S * 0.347
-        paste_c(canvas, ring, rx, ry)
-        tlx, tly = rx - bw / 2, ry - bw / 2
-        geo.update(kind="round", rcx=tlx + 0.2954 * bw, rcy=tly + 0.2807 * bw, r=0.2520 * bw, thk=S * 0.03)
+        tlx, tly = cx - S / 2, cy - S / 2
+        paste(canvas, resized(mul(desat(bliz("MINIMAP", "MiniMap-TrackingBorder")), GOLD), bw), tlx, tly)
+        geo.update(kind="round", rcx=tlx + rcx0 * bw, rcy=tly + rcy0 * bw, r=rim * bw, thk=S * 0.03, icy=iy)
         return geo
+    # DrawerStyle.lua: the icon fills the ring's hole (_holeVis = side * hole),
+    # centered, under the ring art; +1 px tucks its edge under the ring.
+    hole = side * HOLE_VIS.get(shape, d and d.get("hole")) * K + K
+    paste_c(canvas, round_icon(ic, hole), cx, cy)
     if shape in ("tooltip", "portrait"):
-        if shape == "tooltip":
-            ring, frac, rim = shape_tex("tooltip-ring-thick.tga"), 0.96, 0.4766
-        else:
-            ring, frac, rim = shape_tex("x4", "PortraitFrame-thick2.tga"), 0.94, 0.4795
-        paste_c(canvas, round_icon(ic, S * frac), cx, cy)
-        paste_c(canvas, mul(resized(ring, S), GOLD), cx, cy)
-        geo.update(kind="round", rcx=cx, rcy=cy, r=rim * S, thk=S * 0.06)
-        return geo
-    rw = S / d["outer"]
-    paste_c(canvas, round_icon(ic, S * d["hole"] * 1.13), cx, cy)
-    paste_c(canvas, resized(shape_tex("x4", d["ring"]), rw), cx, cy)
-    geo.update(kind="round", rcx=cx, rcy=cy, r=0.31 * rw, thk=S * 0.06)
+        rw = S
+        ring = shape_tex("tooltip-ring-thick.tga") if shape == "tooltip" else shape_tex("x4", "PortraitFrame-thick2.tga")
+        ring = mul(resized(ring, rw), GOLD)
+    else:
+        rw = S / d["outer"]
+        ring = resized(shape_tex("x4", d["ring"]), rw)
+    paste_c(canvas, ring, cx, cy)
+    tlx, tly = cx - rw / 2, cy - rw / 2
+    geo.update(kind="round", rcx=tlx + rcx0 * rw, rcy=tly + rcy0 * rw, r=rim * rw, thk=S * 0.06)
     return geo
 
 
@@ -363,7 +374,7 @@ def render_totems():
             geo = draw_button(im, cx, cy, shape, ic, side)
             if pct is not None:
                 cast_ring(im, geo, pct, rgb)
-            outlined(d, (cx, cy), timer, tf)
+            outlined(d, (cx, geo.get("icy", cy)), timer, tf)
         xr = x0 + 20 + 4 * (side + gap) * K - gap * K + 22 + 20
         paste_c(im, resized(arrowL, 22 * K).transpose(Image.FLIP_LEFT_RIGHT), xr, cy)
     nf = font(14, bold=False)

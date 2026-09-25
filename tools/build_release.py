@@ -16,9 +16,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
 FOLDERS = [
-    "IchaUI", "IchaUI_Bars", "IchaUI_BuffBars", "IchaUI_CustomDrawers", "IchaUI_Hero",
-    "IchaUI_Minimap", "IchaUI_Shaman", "IchaUI_SmartMark", "IchaUI_SmartTab",
-    "IchaUI_UnitFrames", "IchaUI_XP",
+    "IchaUI", "IchaUI_Bars", "IchaUI_BuffBars", "IchaUI_Chat", "IchaUI_CustomDrawers",
+    "IchaUI_Hero", "IchaUI_Minimap", "IchaUI_Plates", "IchaUI_Shaman", "IchaUI_SmartMark",
+    "IchaUI_SmartTab", "IchaUI_UnitFrames", "IchaUI_XP",
 ]
 BLOCKED = re.compile(r"(\.py[co]?$|\.png$|\.bak$|__pycache__|(^|/)_)", re.I)
 

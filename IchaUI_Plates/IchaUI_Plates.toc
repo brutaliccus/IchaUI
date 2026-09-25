@@ -3,7 +3,7 @@
 ## Notes: IchaPlates nameplates. Requires SuperWoW. /iui > Plates.
 ## X-Credits: Based on ShaguPlatesX by Eric Mauser (Shagu), adapted by Ehawne. MIT, see LICENSE-ShaguPlates.txt.
 ## Dependencies: IchaUI
-## Version: 3.3.0
+## Version: 3.4.0
 
 Core.lua
 api\api.lua

@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: IchaUI - Minimap
+## Notes: Minimap skin, zone, clock, and button drawer.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+MinimapSkin.lua
+MinimapButtons.lua

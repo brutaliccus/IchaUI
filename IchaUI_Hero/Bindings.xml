@@ -1,0 +1,290 @@
+<Bindings>
+	<Binding name="ICHA_HEROBIND1" header="ICHA">
+		IchaUI_HeroBindFire(1);
+	</Binding>
+	<Binding name="ICHA_HEROBIND2">
+		IchaUI_HeroBindFire(2);
+	</Binding>
+	<Binding name="ICHA_HEROBIND3">
+		IchaUI_HeroBindFire(3);
+	</Binding>
+	<Binding name="ICHA_HEROBIND4">
+		IchaUI_HeroBindFire(4);
+	</Binding>
+	<Binding name="ICHA_HEROBIND5">
+		IchaUI_HeroBindFire(5);
+	</Binding>
+	<Binding name="ICHA_HEROBIND6">
+		IchaUI_HeroBindFire(6);
+	</Binding>
+	<Binding name="ICHA_HEROBIND7">
+		IchaUI_HeroBindFire(7);
+	</Binding>
+	<Binding name="ICHA_HEROBIND8">
+		IchaUI_HeroBindFire(8);
+	</Binding>
+	<Binding name="ICHA_HEROBIND9">
+		IchaUI_HeroBindFire(9);
+	</Binding>
+	<Binding name="ICHA_HEROBIND10">
+		IchaUI_HeroBindFire(10);
+	</Binding>
+	<Binding name="ICHA_HEROBIND11">
+		IchaUI_HeroBindFire(11);
+	</Binding>
+	<Binding name="ICHA_HEROBIND12">
+		IchaUI_HeroBindFire(12);
+	</Binding>
+	<Binding name="ICHA_HEROBIND13">
+		IchaUI_HeroBindFire(13);
+	</Binding>
+	<Binding name="ICHA_HEROBIND14">
+		IchaUI_HeroBindFire(14);
+	</Binding>
+	<Binding name="ICHA_HEROBIND15">
+		IchaUI_HeroBindFire(15);
+	</Binding>
+	<Binding name="ICHA_HEROBIND16">
+		IchaUI_HeroBindFire(16);
+	</Binding>
+	<Binding name="ICHA_HEROBIND17">
+		IchaUI_HeroBindFire(17);
+	</Binding>
+	<Binding name="ICHA_HEROBIND18">
+		IchaUI_HeroBindFire(18);
+	</Binding>
+	<Binding name="ICHA_HEROBIND19">
+		IchaUI_HeroBindFire(19);
+	</Binding>
+	<Binding name="ICHA_HEROBIND20">
+		IchaUI_HeroBindFire(20);
+	</Binding>
+	<Binding name="ICHA_HEROBIND21">
+		IchaUI_HeroBindFire(21);
+	</Binding>
+	<Binding name="ICHA_HEROBIND22">
+		IchaUI_HeroBindFire(22);
+	</Binding>
+	<Binding name="ICHA_HEROBIND23">
+		IchaUI_HeroBindFire(23);
+	</Binding>
+	<Binding name="ICHA_HEROBIND24">
+		IchaUI_HeroBindFire(24);
+	</Binding>
+	<Binding name="ICHA_HEROBIND25">
+		IchaUI_HeroBindFire(25);
+	</Binding>
+	<Binding name="ICHA_HEROBIND26">
+		IchaUI_HeroBindFire(26);
+	</Binding>
+	<Binding name="ICHA_HEROBIND27">
+		IchaUI_HeroBindFire(27);
+	</Binding>
+	<Binding name="ICHA_HEROBIND28">
+		IchaUI_HeroBindFire(28);
+	</Binding>
+	<Binding name="ICHA_HEROBIND29">
+		IchaUI_HeroBindFire(29);
+	</Binding>
+	<Binding name="ICHA_HEROBIND30">
+		IchaUI_HeroBindFire(30);
+	</Binding>
+	<Binding name="ICHA_HEROBIND31">
+		IchaUI_HeroBindFire(31);
+	</Binding>
+	<Binding name="ICHA_HEROBIND32">
+		IchaUI_HeroBindFire(32);
+	</Binding>
+	<Binding name="ICHA_HEROBIND33">
+		IchaUI_HeroBindFire(33);
+	</Binding>
+	<Binding name="ICHA_HEROBIND34">
+		IchaUI_HeroBindFire(34);
+	</Binding>
+	<Binding name="ICHA_HEROBIND35">
+		IchaUI_HeroBindFire(35);
+	</Binding>
+	<Binding name="ICHA_HEROBIND36">
+		IchaUI_HeroBindFire(36);
+	</Binding>
+	<Binding name="ICHA_HEROBIND37">
+		IchaUI_HeroBindFire(37);
+	</Binding>
+	<Binding name="ICHA_HEROBIND38">
+		IchaUI_HeroBindFire(38);
+	</Binding>
+	<Binding name="ICHA_HEROBIND39">
+		IchaUI_HeroBindFire(39);
+	</Binding>
+	<Binding name="ICHA_HEROBIND40">
+		IchaUI_HeroBindFire(40);
+	</Binding>
+	<Binding name="ICHA_HEROBIND41">
+		IchaUI_HeroBindFire(41);
+	</Binding>
+	<Binding name="ICHA_HEROBIND42">
+		IchaUI_HeroBindFire(42);
+	</Binding>
+	<Binding name="ICHA_HEROBIND43">
+		IchaUI_HeroBindFire(43);
+	</Binding>
+	<Binding name="ICHA_HEROBIND44">
+		IchaUI_HeroBindFire(44);
+	</Binding>
+	<Binding name="ICHA_HEROBIND45">
+		IchaUI_HeroBindFire(45);
+	</Binding>
+	<Binding name="ICHA_HEROBIND46">
+		IchaUI_HeroBindFire(46);
+	</Binding>
+	<Binding name="ICHA_HEROBIND47">
+		IchaUI_HeroBindFire(47);
+	</Binding>
+	<Binding name="ICHA_HEROBIND48">
+		IchaUI_HeroBindFire(48);
+	</Binding>
+	<Binding name="ICHA_HEROBIND49">
+		IchaUI_HeroBindFire(49);
+	</Binding>
+	<Binding name="ICHA_HEROBIND50">
+		IchaUI_HeroBindFire(50);
+	</Binding>
+	<Binding name="ICHA_HEROBIND51">
+		IchaUI_HeroBindFire(51);
+	</Binding>
+	<Binding name="ICHA_HEROBIND52">
+		IchaUI_HeroBindFire(52);
+	</Binding>
+	<Binding name="ICHA_HEROBIND53">
+		IchaUI_HeroBindFire(53);
+	</Binding>
+	<Binding name="ICHA_HEROBIND54">
+		IchaUI_HeroBindFire(54);
+	</Binding>
+	<Binding name="ICHA_HEROBIND55">
+		IchaUI_HeroBindFire(55);
+	</Binding>
+	<Binding name="ICHA_HEROBIND56">
+		IchaUI_HeroBindFire(56);
+	</Binding>
+	<Binding name="ICHA_HEROBIND57">
+		IchaUI_HeroBindFire(57);
+	</Binding>
+	<Binding name="ICHA_HEROBIND58">
+		IchaUI_HeroBindFire(58);
+	</Binding>
+	<Binding name="ICHA_HEROBIND59">
+		IchaUI_HeroBindFire(59);
+	</Binding>
+	<Binding name="ICHA_HEROBIND60">
+		IchaUI_HeroBindFire(60);
+	</Binding>
+	<Binding name="ICHA_HEROBIND61">
+		IchaUI_HeroBindFire(61);
+	</Binding>
+	<Binding name="ICHA_HEROBIND62">
+		IchaUI_HeroBindFire(62);
+	</Binding>
+	<Binding name="ICHA_HEROBIND63">
+		IchaUI_HeroBindFire(63);
+	</Binding>
+	<Binding name="ICHA_HEROBIND64">
+		IchaUI_HeroBindFire(64);
+	</Binding>
+	<Binding name="ICHA_HEROBIND65">
+		IchaUI_HeroBindFire(65);
+	</Binding>
+	<Binding name="ICHA_HEROBIND66">
+		IchaUI_HeroBindFire(66);
+	</Binding>
+	<Binding name="ICHA_HEROBIND67">
+		IchaUI_HeroBindFire(67);
+	</Binding>
+	<Binding name="ICHA_HEROBIND68">
+		IchaUI_HeroBindFire(68);
+	</Binding>
+	<Binding name="ICHA_HEROBIND69">
+		IchaUI_HeroBindFire(69);
+	</Binding>
+	<Binding name="ICHA_HEROBIND70">
+		IchaUI_HeroBindFire(70);
+	</Binding>
+	<Binding name="ICHA_HEROBIND71">
+		IchaUI_HeroBindFire(71);
+	</Binding>
+	<Binding name="ICHA_HEROBIND72">
+		IchaUI_HeroBindFire(72);
+	</Binding>
+	<Binding name="ICHA_HEROBIND73">
+		IchaUI_HeroBindFire(73);
+	</Binding>
+	<Binding name="ICHA_HEROBIND74">
+		IchaUI_HeroBindFire(74);
+	</Binding>
+	<Binding name="ICHA_HEROBIND75">
+		IchaUI_HeroBindFire(75);
+	</Binding>
+	<Binding name="ICHA_HEROBIND76">
+		IchaUI_HeroBindFire(76);
+	</Binding>
+	<Binding name="ICHA_HEROBIND77">
+		IchaUI_HeroBindFire(77);
+	</Binding>
+	<Binding name="ICHA_HEROBIND78">
+		IchaUI_HeroBindFire(78);
+	</Binding>
+	<Binding name="ICHA_HEROBIND79">
+		IchaUI_HeroBindFire(79);
+	</Binding>
+	<Binding name="ICHA_HEROBIND80">
+		IchaUI_HeroBindFire(80);
+	</Binding>
+	<Binding name="ICHA_HEROBIND81">
+		IchaUI_HeroBindFire(81);
+	</Binding>
+	<Binding name="ICHA_HEROBIND82">
+		IchaUI_HeroBindFire(82);
+	</Binding>
+	<Binding name="ICHA_HEROBIND83">
+		IchaUI_HeroBindFire(83);
+	</Binding>
+	<Binding name="ICHA_HEROBIND84">
+		IchaUI_HeroBindFire(84);
+	</Binding>
+	<Binding name="ICHA_HEROBIND85">
+		IchaUI_HeroBindFire(85);
+	</Binding>
+	<Binding name="ICHA_HEROBIND86">
+		IchaUI_HeroBindFire(86);
+	</Binding>
+	<Binding name="ICHA_HEROBIND87">
+		IchaUI_HeroBindFire(87);
+	</Binding>
+	<Binding name="ICHA_HEROBIND88">
+		IchaUI_HeroBindFire(88);
+	</Binding>
+	<Binding name="ICHA_HEROBIND89">
+		IchaUI_HeroBindFire(89);
+	</Binding>
+	<Binding name="ICHA_HEROBIND90">
+		IchaUI_HeroBindFire(90);
+	</Binding>
+	<Binding name="ICHA_HEROBIND91">
+		IchaUI_HeroBindFire(91);
+	</Binding>
+	<Binding name="ICHA_HEROBIND92">
+		IchaUI_HeroBindFire(92);
+	</Binding>
+	<Binding name="ICHA_HEROBIND93">
+		IchaUI_HeroBindFire(93);
+	</Binding>
+	<Binding name="ICHA_HEROBIND94">
+		IchaUI_HeroBindFire(94);
+	</Binding>
+	<Binding name="ICHA_HEROBIND95">
+		IchaUI_HeroBindFire(95);
+	</Binding>
+	<Binding name="ICHA_HEROBIND96">
+		IchaUI_HeroBindFire(96);
+	</Binding>
+</Bindings>

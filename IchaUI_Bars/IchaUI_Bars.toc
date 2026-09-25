@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: IchaUI - Bars
+## Notes: Action bars. /icha scale, gap, hotkeys, bind.
+## Dependencies: IchaUI
+## OptionalDeps: IchaUI_Hero
+## Version: 3.3.0
+
+Layout.lua

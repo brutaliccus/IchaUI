@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: IchaUI - Buff Bars
+## Notes: Player buff and debuff bars.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+BuffBars.lua

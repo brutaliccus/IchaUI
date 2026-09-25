@@ -1,0 +1,134 @@
+<Bindings>
+	<Binding name="ICHA_THROWTOTEMS" header="ICHA">
+		IchaUITotems_ThrowSet();
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET1">
+		IchaUITotems_ThrowSetN(1);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET2">
+		IchaUITotems_ThrowSetN(2);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET3">
+		IchaUITotems_ThrowSetN(3);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET4">
+		IchaUITotems_ThrowSetN(4);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET5">
+		IchaUITotems_ThrowSetN(5);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET6">
+		IchaUITotems_ThrowSetN(6);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET7">
+		IchaUITotems_ThrowSetN(7);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET8">
+		IchaUITotems_ThrowSetN(8);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET9">
+		IchaUITotems_ThrowSetN(9);
+	</Binding>
+	<Binding name="ICHA_THROWTOTEMSET10">
+		IchaUITotems_ThrowSetN(10);
+	</Binding>
+	<Binding name="ICHA_SHOCKBIND1">
+		IchaUI_ShockBindFire(1);
+	</Binding>
+	<Binding name="ICHA_SHOCKBIND2">
+		IchaUI_ShockBindFire(2);
+	</Binding>
+	<Binding name="ICHA_SHOCKBIND3">
+		IchaUI_ShockBindFire(3);
+	</Binding>
+	<Binding name="ICHA_SHIELDBIND1">
+		IchaUI_ShieldBindFire(1);
+	</Binding>
+	<Binding name="ICHA_SHIELDBIND2">
+		IchaUI_ShieldBindFire(2);
+	</Binding>
+	<Binding name="ICHA_SHIELDBIND3">
+		IchaUI_ShieldBindFire(3);
+	</Binding>
+	<Binding name="ICHA_TOTEMBIND_EARTH">
+		IchaUITotems_SlotBindFire("earth");
+	</Binding>
+	<Binding name="ICHA_TOTEMBIND_FIRE">
+		IchaUITotems_SlotBindFire("fire");
+	</Binding>
+	<Binding name="ICHA_TOTEMBIND_WATER">
+		IchaUITotems_SlotBindFire("water");
+	</Binding>
+	<Binding name="ICHA_TOTEMBIND_AIR">
+		IchaUITotems_SlotBindFire("air");
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST1">
+		IchaUITotems_SpellBindFire(1);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST2">
+		IchaUITotems_SpellBindFire(2);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST3">
+		IchaUITotems_SpellBindFire(3);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST4">
+		IchaUITotems_SpellBindFire(4);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST5">
+		IchaUITotems_SpellBindFire(5);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST6">
+		IchaUITotems_SpellBindFire(6);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST7">
+		IchaUITotems_SpellBindFire(7);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST8">
+		IchaUITotems_SpellBindFire(8);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST9">
+		IchaUITotems_SpellBindFire(9);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST10">
+		IchaUITotems_SpellBindFire(10);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST11">
+		IchaUITotems_SpellBindFire(11);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST12">
+		IchaUITotems_SpellBindFire(12);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST13">
+		IchaUITotems_SpellBindFire(13);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST14">
+		IchaUITotems_SpellBindFire(14);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST15">
+		IchaUITotems_SpellBindFire(15);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST16">
+		IchaUITotems_SpellBindFire(16);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST17">
+		IchaUITotems_SpellBindFire(17);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST18">
+		IchaUITotems_SpellBindFire(18);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST19">
+		IchaUITotems_SpellBindFire(19);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST20">
+		IchaUITotems_SpellBindFire(20);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST21">
+		IchaUITotems_SpellBindFire(21);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST22">
+		IchaUITotems_SpellBindFire(22);
+	</Binding>
+	<Binding name="ICHA_TOTEMCAST23">
+		IchaUITotems_SpellBindFire(23);
+	</Binding>
+</Bindings>

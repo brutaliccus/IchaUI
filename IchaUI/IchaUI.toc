@@ -1,0 +1,22 @@
+## Interface: 11200
+## Title: IchaUI
+## Notes: Core options, profiles, gold theme, and skins. /iui options | /icha commands
+## Author: Addon Bot
+## Version: 3.3.0
+## OptionalDeps: Bongos_ActionBar, WeakestAuras, ClassicAPI, SuperWoW
+## SavedVariables: IchaUIDB, IchaUIProfiles
+
+Defaults.lua
+Gold.lua
+CombatAssist.lua
+ChatSkin.lua
+FrameSkin.lua
+TooltipSkin.lua
+CombatTooltips.lua
+Profiles.lua
+FrameEditor.lua
+DrawerStyle.lua
+Positions.lua
+DrawerPop.lua
+Options.lua
+Slash.lua

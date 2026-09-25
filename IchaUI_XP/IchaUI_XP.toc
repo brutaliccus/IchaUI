@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: IchaUI - XP
+## Notes: Experience bar.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+XPBar.lua

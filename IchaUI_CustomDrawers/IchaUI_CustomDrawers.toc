@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: IchaUI - Custom Drawers
+## Notes: Extra custom ability drawers.
+## Dependencies: IchaUI, IchaUI_Hero
+## Version: 3.3.0
+
+CustomDrawers.lua

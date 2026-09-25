@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: IchaUI - Smart Tab
+## Notes: Smart Tab target cycling.
+## Dependencies: IchaUI, IchaUI_UnitFrames
+## Version: 3.3.0
+
+SmartTab.lua

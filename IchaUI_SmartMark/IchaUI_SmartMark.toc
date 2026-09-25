@@ -1,0 +1,7 @@
+## Interface: 11200
+## Title: IchaUI_SmartMark
+## Notes: Hold a modifier and mark mouseover units in raid-icon order. Requires IchaUI.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+SmartMark.lua

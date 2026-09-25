@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: IchaUI - Hero
+## Notes: Hero bars, hero binds, and the hero ability picker.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+HeroBinds.lua
+HeroPicker.lua

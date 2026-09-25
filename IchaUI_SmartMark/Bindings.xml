@@ -1,0 +1,8 @@
+<Bindings>
+  <Binding name="ICHA_SMARTMARK" header="ICHASMART" description="Smart Mark">
+    if IchaUI_SmartMark_Bind then IchaUI_SmartMark_Bind("down") end
+  </Binding>
+  <Binding name="ICHA_SMARTMARK_FRIENDLY" description="Smart Mark Friendly">
+    if IchaUI_SmartMark_BindFriendly then IchaUI_SmartMark_BindFriendly("down") end
+  </Binding>
+</Bindings>

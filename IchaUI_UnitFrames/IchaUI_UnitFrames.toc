@@ -1,0 +1,9 @@
+## Interface: 11200
+## Title: IchaUI - Unit Frames
+## Notes: Player, target, party, and raid frames, including cast bars, swing timers, and resists.
+## Dependencies: IchaUI
+## Version: 3.3.0
+
+UnitFrames.lua
+Focus.lua
+CombatFrames.lua

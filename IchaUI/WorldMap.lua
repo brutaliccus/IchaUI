@@ -515,6 +515,76 @@ local function installIchaUIWorldMap()
         if WorldMapFrameScrollFrame then wrapWheel(WorldMapFrameScrollFrame, true) end
     end
 
+    -- FULLSCREEN keeps the map above the HUD but under dropdowns, the config
+    -- panel and tooltips. 1.12 does not reliably carry a strata change down to
+    -- existing children, so each child below it is set too; children already
+    -- higher (Magnify's zone label, the level tooltip) keep theirs.
+    local MAP_STRATA = "FULLSCREEN"
+    local STRATA_RANK = {
+        BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5,
+        FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8,
+    }
+
+    local function liftStrata(fr)
+        if not fr or not fr.GetFrameStrata then return end
+        local cur = fr:GetFrameStrata()
+        if (STRATA_RANK[cur] or 0) < STRATA_RANK[MAP_STRATA] then
+            if st.strataSaved[fr] == nil then st.strataSaved[fr] = cur or false end
+            fr:SetFrameStrata(MAP_STRATA)
+        end
+        if not fr.GetChildren then return end
+        local kids = { fr:GetChildren() }
+        local i
+        for i = 1, table.getn(kids) do liftStrata(kids[i]) end
+    end
+
+    -- Children above the map strata, so a strata change that does cascade
+    -- can be undone for them.
+    local function highKids(fr, out)
+        if not fr.GetChildren then return out end
+        local kids = { fr:GetChildren() }
+        local i
+        for i = 1, table.getn(kids) do
+            local k = kids[i]
+            if k.GetFrameStrata and (STRATA_RANK[k:GetFrameStrata()] or 0) > STRATA_RANK[MAP_STRATA] then
+                table.insert(out, { k, k:GetFrameStrata() })
+            end
+            highKids(k, out)
+        end
+        return out
+    end
+
+    local function keepHigh(list)
+        local i
+        for i = 1, table.getn(list) do list[i][1]:SetFrameStrata(list[i][2]) end
+    end
+
+    local function raiseStrata()
+        local f = WorldMapFrame
+        if not f.SetFrameStrata then return end
+        if st.origStrata == nil then st.origStrata = f:GetFrameStrata() or false end
+        st.strataSaved = st.strataSaved or {}
+        if st.strataDone and f:GetFrameStrata() == MAP_STRATA then return end
+        local high = highKids(f, {})
+        liftStrata(f)
+        keepHigh(high)
+        st.strataDone = true
+    end
+
+    local function restoreStrata()
+        local f = WorldMapFrame
+        local high = highKids(f, {})
+        if st.origStrata and f.SetFrameStrata then f:SetFrameStrata(st.origStrata) end
+        keepHigh(high)
+        if st.strataSaved then
+            local fr, old
+            for fr, old in pairs(st.strataSaved) do
+                if old and fr ~= f then fr:SetFrameStrata(old) end
+            end
+        end
+        st.strataSaved, st.strataDone, st.origStrata = nil, nil, nil
+    end
+
     -- Scale, opacity and position only: safe on every show.
     local function applyLight()
         if not st.active then return end
@@ -525,6 +595,7 @@ local function installIchaUIWorldMap()
         f:EnableKeyboard(false)
         f:EnableMouseWheel(1)
         if f.SetClampedToScreen then f:SetClampedToScreen(true) end
+        raiseStrata()
         d.scale = scaleFor(d.scale)
         f:SetScale(d.scale)
         f:SetAlpha(clamp(d.alpha, ALPHA_LO, ALPHA_HI))
@@ -682,6 +753,7 @@ local function installIchaUIWorldMap()
         if BlackoutWorld then BlackoutWorld:Show() end
         paintBorder()
         if st.grip then st.grip:Hide() end
+        restoreStrata()
         if maximized() and type(WorldMapFrame_Maximize) == "function" then
             WorldMapFrame_Maximize()
         end

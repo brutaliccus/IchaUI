@@ -39,6 +39,8 @@ local function installIchaUIWorldMap()
         origToggle = nil, origPanel = nil, addedSpecial = false,
         border = nil, noticed = false,
     }
+    -- Assigned later: dragStop/gripStop run before those local function lines.
+    local raiseStrata, hookWheels
 
     local function clamp(v, lo, hi)
         v = tonumber(v) or lo
@@ -215,6 +217,7 @@ local function installIchaUIWorldMap()
         if keep then
             nudgeTitle()
             saveAnchor()
+            if raiseStrata then raiseStrata() end
         end
     end
 
@@ -306,6 +309,7 @@ local function installIchaUIWorldMap()
         g:SetScript("OnUpdate", nil)
         nudgeTitle()
         saveAnchor()
+        if raiseStrata then raiseStrata() end
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
 
@@ -638,17 +642,39 @@ local function installIchaUIWorldMap()
         zoomAt(arg1)
     end
 
-    -- The wheel goes to the top frame under the cursor that takes it: Magnify's
-    -- scroll frame, WorldMapButton (if it ends up on top) or the window edge.
-    -- Chain each one: Ctrl/Shift are ours, plain wheel zooms.
+    -- 1.12 sends the wheel to the topmost mouse-enabled frame under the cursor.
+    -- A hit-rect with EnableMouse but no wheel handler swallows Ctrl/Shift.
+    -- Chain every mouse frame in the window: Ctrl/Shift are ours, plain zooms.
     local wheelWrap = {}
     local function wrapWheel(f, isMagnify)
         if not f or not f.GetScript then return end
+        local name = "?"
+        if f.GetName then name = f:GetName() or "?" end
+        if name ~= "?" and name ~= "" then
+            st.wheelHooked = st.wheelHooked or {}
+            local i, seen
+            seen = false
+            for i = 1, table.getn(st.wheelHooked) do
+                if st.wheelHooked[i] == name then seen = true end
+            end
+            if not seen then table.insert(st.wheelHooked, name) end
+        end
         local cur = f:GetScript("OnMouseWheel")
-        if cur and cur == wheelWrap[f] then return end
+        if cur and cur == wheelWrap[f] then
+            if f.EnableMouseWheel then f:EnableMouseWheel(1) end
+            return
+        end
         local prev = cur
         if isMagnify then st.magnifyWheel = prev end
         local w = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            if arg1 == nil and a1 ~= nil then arg1 = a1 end
+            local mod = "none"
+            if IsShiftKeyDown and IsShiftKeyDown() then
+                mod = "shift"
+            elseif IsControlKeyDown and IsControlKeyDown() then
+                mod = "ctrl"
+            end
+            st.lastWheel = { frame = name, mod = mod, delta = tonumber(arg1) or 0 }
             if wheelStep() then return end
             if st.active and not isMagnify then
                 zoomWheel()
@@ -658,13 +684,21 @@ local function installIchaUIWorldMap()
         end
         wheelWrap[f] = w
         f:SetScript("OnMouseWheel", w)
-        if not isMagnify and f.EnableMouseWheel then f:EnableMouseWheel(1) end
+        if f.EnableMouseWheel then f:EnableMouseWheel(1) end
     end
 
-    local function hookWheels()
-        wrapWheel(WorldMapFrame, false)
-        wrapWheel(WorldMapButton, false)
-        if WorldMapFrameScrollFrame then wrapWheel(WorldMapFrameScrollFrame, true) end
+    hookWheels = function()
+        st.wheelHooked = {}
+        local function walk(fr, depth)
+            if not fr or not fr.GetScript or depth > 6 then return end
+            wrapWheel(fr, WorldMapFrameScrollFrame and fr == WorldMapFrameScrollFrame)
+            if not fr.GetChildren then return end
+            local kids = { fr:GetChildren() }
+            local i
+            for i = 1, table.getn(kids) do walk(kids[i], depth + 1) end
+        end
+        walk(WorldMapFrame, 0)
+        if zoom.frame then wrapWheel(zoom.frame, false) end
     end
 
     -- FULLSCREEN keeps the map above the HUD but under dropdowns, the config
@@ -711,12 +745,14 @@ local function installIchaUIWorldMap()
         for i = 1, table.getn(list) do list[i][1]:SetFrameStrata(list[i][2]) end
     end
 
-    local function raiseStrata()
+    raiseStrata = function()
         local f = WorldMapFrame
-        if not f.SetFrameStrata then return end
+        if not f or not f.SetFrameStrata then return end
         if st.origStrata == nil then st.origStrata = f:GetFrameStrata() or false end
         st.strataSaved = st.strataSaved or {}
-        if st.strataDone and f:GetFrameStrata() == MAP_STRATA then return end
+        -- Always walk children. Turtle maximize/minimize can drop kids back
+        -- to MEDIUM while the parent stays FULLSCREEN; an early return left
+        -- new hit-rects and the map art under the HUD.
         local high = highKids(f, {})
         liftStrata(f)
         keepHigh(high)
@@ -755,7 +791,6 @@ local function installIchaUIWorldMap()
         if nudgeTitle() then saveAnchor() end
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
-        hookWheels()
         hookRelease(WorldMapButton)
         if WorldMapFrameScrollFrame then hookRelease(WorldMapFrameScrollFrame) end
         if Magnify_ResetZoom and WorldMapFrameScrollFrame then
@@ -763,6 +798,9 @@ local function installIchaUIWorldMap()
         end
         ensureGrip():Show()
         ensureEdges()
+        -- Overlays exist now; hook them so they forward wheel instead of eating it.
+        hookWheels()
+        raiseStrata()
     end
 
     -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; size the
@@ -975,6 +1013,7 @@ local function installIchaUIWorldMap()
             if st.active and WorldMapFrame then
                 WorldMapFrame:SetScale(d.scale)
                 if nudgeTitle() then saveAnchor() end
+                raiseStrata()
             end
         elseif key == "alpha" then
             d.alpha = clamp(value, ALPHA_LO, ALPHA_HI)
@@ -1014,7 +1053,9 @@ local function installIchaUIWorldMap()
         if GetScreenHeight then sh = GetScreenHeight() end
         chat("mapdebug screen " .. n(sw) .. "x" .. n(sh))
         if UIParent then
-            chat("mapdebug UIParent scale=" .. n(UIParent:GetEffectiveScale and UIParent:GetEffectiveScale())
+            local us
+            if UIParent.GetEffectiveScale then us = UIParent:GetEffectiveScale() end
+            chat("mapdebug UIParent scale=" .. n(us)
                 .. " w=" .. n(UIParent:GetWidth()) .. " h=" .. n(UIParent:GetHeight())
                 .. " L=" .. n(UIParent:GetLeft()) .. " R=" .. n(UIParent:GetRight())
                 .. " T=" .. n(UIParent:GetTop()) .. " B=" .. n(UIParent:GetBottom()))
@@ -1044,6 +1085,42 @@ local function installIchaUIWorldMap()
         if WORLDMAP_WINDOWED ~= nil then win = tostring(WORLDMAP_WINDOWED) end
         chat("mapdebug Magnify=" .. mag .. " WORLDMAP_WINDOWED=" .. win
             .. " maximized=" .. tostring(maximized()))
+        local function strataOf(fr)
+            if not fr then return "nil" end
+            local nm = "?"
+            if fr.GetName then nm = fr:GetName() or "?" end
+            local s, lv = "?", "?"
+            if fr.GetFrameStrata then s = tostring(fr:GetFrameStrata()) end
+            if fr.GetFrameLevel then lv = tostring(fr:GetFrameLevel()) end
+            return nm .. " " .. s .. "/" .. lv
+        end
+        chat("mapdebug strata " .. strataOf(WorldMapFrame)
+            .. " | " .. strataOf(WorldMapButton)
+            .. " | " .. strataOf(WorldMapDetailFrame)
+            .. " | " .. strataOf(WorldMapFrameScrollFrame)
+            .. " | " .. strataOf(st.grip)
+            .. " | " .. strataOf(st.edges and st.edges[1]))
+        local hooks, hn = "-", 0
+        if st.wheelHooked then
+            hn = table.getn(st.wheelHooked)
+            hooks = ""
+            local i, lim
+            lim = hn
+            if lim > 12 then lim = 12 end
+            for i = 1, lim do
+                if i > 1 then hooks = hooks .. "," end
+                hooks = hooks .. st.wheelHooked[i]
+            end
+            if hn > lim then hooks = hooks .. ",+" .. (hn - lim) end
+        end
+        chat("mapdebug wheelhooks n=" .. tostring(hn) .. " " .. hooks)
+        local lw = st.lastWheel
+        if lw then
+            chat("mapdebug lastwheel frame=" .. tostring(lw.frame)
+                .. " mod=" .. tostring(lw.mod) .. " delta=" .. n(lw.delta))
+        else
+            chat("mapdebug lastwheel none")
+        end
     end
 
     -- Options > Map section. Helpers come from Options.lua; returns the next y.

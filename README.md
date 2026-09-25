@@ -47,7 +47,7 @@ Every module is its own addon, so you can turn off the ones you don't want.
 
 **Everything else**
 - Minimap with 26 frame shapes and a drawer that collects other addons' minimap buttons.
-- Windowed world map you can drag, resize and fade, with zone level ranges, instances and raids when you hover a zone.
+- Windowed world map you can drag, resize, fade and zoom with the mouse wheel, with zone level ranges, instances and raids when you hover a zone.
 - Movable tooltip anchor: put tooltips wherever you like instead of the bottom-right corner.
 - Buff bars (right-click to cancel), and an XP bar that switches to reputation on right-click.
 - Gold skin for chat, tooltips (with vendor prices), and the Caw DPS and TWThreat windows.

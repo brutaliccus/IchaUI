@@ -73,6 +73,17 @@ local function installIchaUIWorldMap()
         end)
     end
 
+    local function ownScript(f, script, func)
+        local prev = f:GetScript(script)
+        f:SetScript(script, function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            if st.active then
+                func(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            elseif prev then
+                prev(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            end
+        end)
+    end
+
     -- ShaguTweaks keys its module switches by the (localized) module title.
     local function shaguWindowOn()
         if not ShaguTweaks then return false end
@@ -117,13 +128,27 @@ local function installIchaUIWorldMap()
 
     -- Anchors CENTER to UIParent and pulls the saved spot back so the whole
     -- window is on screen (top-left wins if it can never fit).
+    -- Map units to UIParent units; the parent is not assumed to be UIParent.
+    local function unitRatio()
+        local f = WorldMapFrame
+        local fs = f:GetEffectiveScale() or 0
+        local us = UIParent:GetEffectiveScale() or 0
+        if fs > 0 and us > 0 then return fs / us end
+        return f:GetScale() or 1
+    end
+
+    local function round2(v)
+        return math.floor(v * 100 + 0.5) / 100
+    end
+
     local function place()
         local d = db()
         local f = WorldMapFrame
+        if f._ichaMoving then return end
         if d.point ~= "CENTER" or d.relPoint ~= "CENTER" then
             d.point, d.relPoint, d.x, d.y = "CENTER", "CENTER", 0, 0
         end
-        local s = f:GetScale() or 1
+        local s = unitRatio()
         local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
         local hw = (f:GetWidth() or 0) * s / 2
         local hh = (f:GetHeight() or 0) * s / 2
@@ -147,21 +172,20 @@ local function installIchaUIWorldMap()
         f:SetPoint("CENTER", UIParent, "CENTER", x, y)
     end
 
-    -- Save as a CENTER offset in the map's own scale so rescaling keeps it centered.
+    -- Save as a CENTER offset in the map's own scale so rescaling keeps it
+    -- centered. Read from the real top-left once, after the move has ended.
     local function savePos()
         local f = WorldMapFrame
-        local cx, cy = f:GetCenter()
+        local left, top = f:GetLeft(), f:GetTop()
+        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
         local ux, uy = UIParent:GetCenter()
-        if not cx or not ux then return end
-        local fs = f:GetEffectiveScale() or 1
-        local us = UIParent:GetEffectiveScale() or 1
-        if fs <= 0 then fs = 1 end
-        local k = us / fs
+        if not left or not top or not ux then return end
+        local k = 1 / unitRatio()
         local d = db()
         d.point = "CENTER"
         d.relPoint = "CENTER"
-        d.x = cx - ux * k
-        d.y = cy - uy * k
+        d.x = round2(left + w / 2 - ux * k)
+        d.y = round2(top - h / 2 - uy * k)
         place()
     end
 
@@ -199,7 +223,8 @@ local function installIchaUIWorldMap()
         local g = st.grip
         local f = WorldMapFrame
         local cx, cy = GetCursorPosition()
-        local ps = UIParent:GetEffectiveScale() or 1
+        local par = f:GetParent() or UIParent
+        local ps = par:GetEffectiveScale() or 1
         local w = (f:GetWidth() or 0) * ps
         local h = (f:GetHeight() or 0) * ps
         if w <= 0 or h <= 0 then return end
@@ -684,17 +709,21 @@ local function installIchaUIWorldMap()
             applyLight()
         end)
         hookWheels()
-        hookScript(f, "OnMouseDown", function()
-            if not st.active then return end
-            WorldMapFrame:StartMoving()
+        -- While windowed only this drag runs on the frame, so no other move or
+        -- position save can fight it; the previous handlers run otherwise.
+        ownScript(f, "OnMouseDown", function()
+            if arg1 and arg1 ~= "LeftButton" then return end
             WorldMapFrame._ichaMoving = true
+            WorldMapFrame:StartMoving()
         end)
-        hookScript(f, "OnMouseUp", function()
+        ownScript(f, "OnMouseUp", function()
             if not WorldMapFrame._ichaMoving then return end
-            WorldMapFrame._ichaMoving = nil
             WorldMapFrame:StopMovingOrSizing()
+            WorldMapFrame._ichaMoving = nil
             savePos()
         end)
+        ownScript(f, "OnDragStart", function() end)
+        ownScript(f, "OnDragStop", function() end)
         hookScript(f, "OnHide", function()
             if not WorldMapFrame._ichaMoving then return end
             WorldMapFrame._ichaMoving = nil

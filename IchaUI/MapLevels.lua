@@ -802,24 +802,35 @@ local function installIchaUIMapLevels()
         end
     end
 
+    -- Parented to UIParent so the map's opacity never fades it; the scale
+    -- follows the map so it still reads at the map's size.
+    local function liftTip(t)
+        if t:GetParent() ~= UIParent then t:SetParent(UIParent) end
+        t:SetFrameStrata("TOOLTIP")
+        local ms = WorldMapFrame:GetEffectiveScale() or 0
+        local us = UIParent:GetEffectiveScale() or 0
+        if ms > 0 and us > 0 then t:SetScale(ms / us) end
+        t:SetAlpha(1)
+    end
+
+    -- Fixed 0.9 panel: the theme fill opacity must not wash the text out.
+    local function skinTip(t)
+        local r, g, b = 0.07, 0.07, 0.08
+        if IchaUI_Fill then r, g, b = IchaUI_Fill() end
+        if r > 0.2 or g > 0.2 or b > 0.2 then r, g, b = 0.07, 0.07, 0.08 end
+        t:SetBackdropColor(r, g, b, 0.9)
+        local br, bg, bb = 1, 1, 1
+        if IchaUI_Gold then br, bg, bb = IchaUI_Gold() end
+        t:SetBackdropBorderColor(br, bg, bb, 1)
+    end
+
     local function ensureTip()
         if st.tip then return st.tip end
-        local t = CreateFrame("GameTooltip", "IchaUIMapLevelTip", WorldMapFrame, "GameTooltipTemplate")
+        local t = CreateFrame("GameTooltip", "IchaUIMapLevelTip", UIParent, "GameTooltipTemplate")
         t:SetFrameStrata("TOOLTIP")
         t:Hide()
         st.tip = t
         return t
-    end
-
-    local function skinTip(t)
-        local r, g, b = 0.07, 0.07, 0.08
-        if IchaUI_Fill then r, g, b = IchaUI_Fill() end
-        t:SetBackdropColor(r, g, b, 0.9)
-        if IchaUI_PaintGoldBorder then
-            IchaUI_PaintGoldBorder(t, 1)
-        else
-            t:SetBackdropBorderColor(1, 1, 1, 1)
-        end
     end
 
     local function placeTip(t)
@@ -897,6 +908,7 @@ local function installIchaUIMapLevels()
         end
         t:SetOwner(WorldMapButton, "ANCHOR_LEFT")
         if IchaUI_MapLevels_Fill(t, key) then
+            liftTip(t)
             t:Show()
             skinTip(t)
             placeTip(t)
@@ -927,10 +939,36 @@ local function installIchaUIMapLevels()
         if st.tip and (st.blocked or not opt("levels", true)) then st.tip:Hide() end
     end
 
+    -- LevelRange ships its tooltip with a fully transparent backdrop and as a
+    -- map child, so it fades with the map. Give it the same readable panel.
+    local function fixLevelRangeTip()
+        local t = LevelRangeTooltip
+        if not t or t._ichaLifted or not t.SetBackdropColor then return end
+        t._ichaLifted = true
+        liftTip(t)
+        local prev = t:GetScript("OnShow")
+        t:SetScript("OnShow", function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            if prev then prev(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
+            liftTip(t)
+            skinTip(t)
+        end)
+    end
+
+    local function hideTips()
+        if st.tip then st.tip:Hide() end
+        if LevelRangeTooltip and LevelRangeTooltip._ichaLifted then LevelRangeTooltip:Hide() end
+    end
+
     local function install()
         if st.installed or not WorldMapButton or not WorldMapFrame then return end
         st.installed = true
+        local prevHide = WorldMapFrame:GetScript("OnHide")
+        WorldMapFrame:SetScript("OnHide", function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            if prevHide then prevHide(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
+            hideTips()
+        end)
         if levelRangeLoaded() then
+            fixLevelRangeTip()
             st.blocked = true
             if opt("levels", true) and not st.noticed then
                 st.noticed = true

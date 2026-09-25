@@ -1936,7 +1936,7 @@ function IchaUIShamanExtras_PulsePush(which)
 end
 
 function IchaUIShamanExtras_NotifyBoundCast(spellName)
-    if not spellName or spellName == "" then return end
+    if not spellName or spellName == "" or not IchaUI_IsShaman() then return end
     local want = string.lower(spellName)
     want = string.gsub(want, "%s*%(.*%)$", "")
     local i
@@ -1961,7 +1961,7 @@ function IchaUIShamanExtras_NotifyBoundCast(spellName)
 end
 
 function IchaUIShamanExtras_NotifyBoundTexture(tex)
-    if not tex or tex == "" then return end
+    if not tex or tex == "" or not IchaUI_IsShaman() then return end
     local low = string.lower(string.gsub(tex, "/", "\\"))
     local k, v
     for k, v in pairs(IMBUE_ICONS) do
@@ -2006,13 +2006,14 @@ function IchaUIShamanExtras_Apply()
 end
 
 function IchaUIShamanExtras_SetTestMode(on)
+    if on and not IchaUI_IsShaman() then return end
     extrasTestMode = on and true or false
     applyAll()
 end
 
 function IchaUIShamanExtras_SetMove(which, on)
     local w = widgets[which]
-    if not w then return end
+    if not w or not IchaUI_IsShaman() then return end
     w.moving = on and true or false
     if w.moving then
         w.mover:Show()
@@ -2199,6 +2200,10 @@ function IchaUIShamanExtras_Set(field, value)
 end
 
 function IchaUIShamanExtras_Slash(rest)
+    if not IchaUI_IsShaman() then
+        DEFAULT_CHAT_FRAME:AddMessage("IchaUI: imbue / shield / utility are shaman-only.")
+        return
+    end
     rest = string.lower(rest or "")
     rest = string.gsub(rest, "^%s+", "")
     if string.find(rest, "^imbue") then
@@ -2240,7 +2245,14 @@ pcall(function() evt:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") end)
 pcall(function() evt:RegisterEvent("SPELL_UPDATE_COOLDOWN") end)
 pcall(function() evt:RegisterEvent("BAG_UPDATE") end)
 
+local function extrasStandDown()
+    if not IchaUI_ShamanStandDown(evt, imbueW.root, shieldW.root, utilityW.root) then return false end
+    IchaUI_ShamanStandDown(imbueW.drawer, shieldW.drawer, utilityW.drawer)
+    return true
+end
+
 evt:SetScript("OnEvent", function()
+    if (event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD") and extrasStandDown() then return end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         reagentDirty = true
         ensureKnown()
@@ -2316,3 +2328,5 @@ function IchaUIShamanExtras_ReloadFromDB()
     restorePos(utilityW)
     applyAll()
 end
+
+extrasStandDown()

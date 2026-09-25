@@ -469,6 +469,10 @@ local function customList(sid)
 end
 
 local function controlList(id)
+    if (id == "totems" or id == "recall" or id == "utility" or id == "imbue" or id == "shield")
+        and not IchaUI_IsShaman() then
+        return nil
+    end
     if id == "totems" then return totemsList() end
     if id == "recall" then return recallList() end
     if id == "utility" or id == "imbue" or id == "shield" then return extrasList(id) end

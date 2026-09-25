@@ -41,7 +41,11 @@ SlashCmdList["ICHA"] = function(msg)
         return
     end
     if msg == "" then
-        DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|totems|imbue|shield|utility|buffs|chat|shock|shieldbind")
+        if IchaUI_IsShaman() then
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|totems|imbue|shield|utility|buffs|chat|shock|shieldbind")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|buffs|chat")
+        end
         return
     end
     if string.find(msg, "^xp") then

@@ -1394,7 +1394,7 @@ local function collectEntries()
         end)
     end
     local totems = getglobal("IchaUITotemsRoot")
-    if IchaUITotems_Set and shown(totems) then
+    if IchaUITotems_Set and IchaUI_IsShaman() and shown(totems) then
         add("totems", totems, function()
             if IchaUITotems_Set then IchaUITotems_Set("move", true) end
         end, function()
@@ -1409,7 +1409,7 @@ local function collectEntries()
         if which == "imbue" then tag = "Imbue" end
         if which == "utility" then tag = "Utility" end
         local fr = getglobal("IchaUI" .. tag .. "Root")
-        if IchaUIShamanExtras_SetMove and shown(fr) then
+        if IchaUIShamanExtras_SetMove and IchaUI_IsShaman() and shown(fr) then
             local w = which
             add(w, fr, function()
                 if IchaUIShamanExtras_SetMove then IchaUIShamanExtras_SetMove(w, true) end
@@ -1426,7 +1426,7 @@ local function collectEntries()
         IchaUI_TotemRecallIcon_ApplyPos()
         recall = getglobal("IchaUITotemRecallIcon")
     end
-    if IchaUI_TotemRecallIcon_ToggleMove and recall and (shown(recall) or recallOn) then
+    if IchaUI_TotemRecallIcon_ToggleMove and IchaUI_IsShaman() and recall and (shown(recall) or recallOn) then
         add("recall", recall, function()
             if IchaUI_TotemRecallIcon_Moving and not IchaUI_TotemRecallIcon_Moving() then
                 if IchaUI_TotemRecallIcon_ToggleMove then IchaUI_TotemRecallIcon_ToggleMove() end

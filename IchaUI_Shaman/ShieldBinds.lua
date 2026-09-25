@@ -236,6 +236,10 @@ local function applyDefaultBindings(sb)
 end
 
 function IchaUIShieldBinds_Slash(msg)
+    if not IchaUI_IsShaman() then
+        DEFAULT_CHAT_FRAME:AddMessage("IchaUI: shield binds are shaman-only.")
+        return
+    end
     local sb = ensureDB()
     DEFAULT_CHAT_FRAME:AddMessage("IchaUI shield binds:")
     local i
@@ -253,6 +257,7 @@ local evt = CreateFrame("Frame", "IchaUIShieldBindsEvent")
 evt:RegisterEvent("PLAYER_LOGIN")
 evt:RegisterEvent("PLAYER_ENTERING_WORLD")
 evt:SetScript("OnEvent", function()
+    if IchaUI_ShamanStandDown(this) then return end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
         local sb = ensureDB()
         applyDefaultBindings(sb)
@@ -267,5 +272,8 @@ evt:SetScript("OnEvent", function()
 end)
 
 function IchaUIShieldBinds_Reload()
+    if not IchaUI_IsShaman() then return end
     applyDefaultBindings(ensureDB())
 end
+
+IchaUI_ShamanStandDown(evt)

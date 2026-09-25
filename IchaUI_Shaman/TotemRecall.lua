@@ -476,11 +476,13 @@ function IchaUI_TotemRecallIcon_Moving()
 end
 
 function IchaUI_TotemRecallIcon_ApplyPos()
+    if not IchaUI_IsShaman() then return end
     ensureRecallIcon()
     restoreIconPos()
 end
 
 function IchaUI_TotemRecallIcon_ToggleMove()
+    if not IchaUI_IsShaman() then return false end
     ensureRecallIcon()
     iconMoving = not iconMoving
     if iconMoving then
@@ -678,6 +680,7 @@ f:RegisterEvent("PLAYER_REGEN_ENABLED")
 f:RegisterEvent("PLAYER_ENTERING_WORLD")
 f:RegisterEvent("SPELLS_CHANGED")
 f:SetScript("OnEvent", function()
+    if event == "PLAYER_ENTERING_WORLD" and IchaUI_ShamanStandDown(this, iconRoot) then return end
     if event == "PLAYER_REGEN_DISABLED" then
         lastRegen = "in"
         resetWait()
@@ -721,3 +724,5 @@ function IchaUI_TotemRecallReload()
     layoutRecallIcon()
     IchaUI_ApplyRecallIconStrata()
 end
+
+IchaUI_ShamanStandDown(f, iconRoot)

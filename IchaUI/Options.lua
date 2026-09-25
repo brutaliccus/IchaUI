@@ -1802,7 +1802,8 @@ local function build()
     y1 = placeActionAdds(pageBars, y1)
     tip(pageBars, "Side bars sit against the hero bar. Add makes another bar while free slots remain. Right-click a bar in Edit positions for scale, opacity, and its grid.", PAD, y1, 520)
     y1 = y1 - 16
-    tip(pageBars, "Strata: action bars, hero, totem bar, and all drawers. DIALOG is still below tooltips.", PAD, y1, 520)
+    tip(pageBars, IchaUI_IsShaman() and "Strata: action bars, hero, totem bar, and all drawers. DIALOG is still below tooltips."
+        or "Strata: action bars, hero, and all drawers. DIALOG is still below tooltips.", PAD, y1, 520)
     y1 = y1 - 28
     if not IchaUI_BarFormPick then IchaUI_BarFormPick = 1 end
     local barFormBtn = makeButton(pageBars, "Bar 1", 70, 20, function()
@@ -1920,29 +1921,31 @@ local function build()
     pageBars._formRefresh()
 
     y1 = -4
-    sectionHeader(pageBars, "Shield binds", COL2, y1); y1 = y1 - 18
     local shieldRows = {}
-    local shi
-    for shi = 1, 3 do
-        local idx = shi
-        local spellFallback = { "Lightning Shield", "Water Shield", "Earth Shield" }
-        local spellName = spellFallback[idx]
-        if IchaUIShieldBinds_GetSpell then
-            spellName = IchaUIShieldBinds_GetSpell(idx) or spellName
+    if IchaUI_IsShaman() then
+        sectionHeader(pageBars, "Shield binds", COL2, y1); y1 = y1 - 18
+        local shi
+        for shi = 1, 3 do
+            local idx = shi
+            local spellFallback = { "Lightning Shield", "Water Shield", "Earth Shield" }
+            local spellName = spellFallback[idx]
+            if IchaUIShieldBinds_GetSpell then
+                spellName = IchaUIShieldBinds_GetSpell(idx) or spellName
+            end
+            local row = makeKeyBindRow(pageBars, spellName, COL2, y1,
+                function()
+                    if IchaUIShieldBinds_GetKey then return IchaUIShieldBinds_GetKey(idx) end
+                    return ""
+                end,
+                function(key)
+                    if IchaUIShieldBinds_ApplyKey then IchaUIShieldBinds_ApplyKey(idx, key) end
+                end)
+            table.insert(shieldRows, row)
+            y1 = y1 - 24
         end
-        local row = makeKeyBindRow(pageBars, spellName, COL2, y1,
-            function()
-                if IchaUIShieldBinds_GetKey then return IchaUIShieldBinds_GetKey(idx) end
-                return ""
-            end,
-            function(key)
-                if IchaUIShieldBinds_ApplyKey then IchaUIShieldBinds_ApplyKey(idx, key) end
-            end)
-        table.insert(shieldRows, row)
-        y1 = y1 - 24
+        tip(pageBars, "Click a key, then press keyboard or mouse (Alt-M4 ok). /icha shieldbind", COL2, y1, 520)
+        y1 = y1 - 22
     end
-    tip(pageBars, "Click a key, then press keyboard or mouse (Alt-M4 ok). /icha shieldbind", COL2, y1, 520)
-    y1 = y1 - 22
 
     sectionHeader(pageBars, "XP bar", COL2, y1); y1 = y1 - 18
     local xpW = makeSliderRow(pageBars, "Width", COL2, y1, SLW, 80, 1200, 10,
@@ -2323,337 +2326,342 @@ local function build()
             makeDeg(parent, "Sh Rot", x, y, -360, 360, getS, setS)
         end
 
-        sectionHeader(page, "Totems", PAD, yL); yL = yL - 18
-        makeSliderRow(page, "Scale", PAD, yL, SLW, 0.4, 3.0, 0.05,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.scale) or 1
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("scale", v) end end)
-        yL = yL - ROW
-        makeSliderRow(page, "Size", PAD, yL, SLW, 20, 80, 1,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.size) or 36
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("size", v) end end)
-        yL = yL - ROW
-        makeSliderRow(page, "Gap", PAD, yL, SLW, 0, 40, 0.5,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.gap) or 6
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("gap", v) end end)
-        yL = yL - ROW
-        makeSliderRow(page, "Text", PAD, yL, SLW, 8, 24, 1,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.textSize) or 11
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("textSize", v) end end)
-        yL = yL - ROW
-        makeStrataRow(page, "T.strata", PAD, yL,
-            function()
-                if IchaUI_GetTotemTextStrata then
-                    local n, idx = IchaUI_GetTotemTextStrata()
-                    return idx or 4
-                end
-                return 4
-            end,
-            function(v)
-                if IchaUI_SetTotemTextStrata then IchaUI_SetTotemTextStrata(v) end
-            end)
-        yL = yL - ROW
-        makeSliderRow(page, "Drawer", PAD, yL, SLW, 14, 48, 1,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return t and t.drawerSize or 22
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerSize", v) end end)
-        yL = yL - ROW
-        makeSliderRow(page, "D.Gap", PAD, yL, SLW, 0, 12, 1,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return t and t.drawerGap or 2
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerGap", v) end end)
-        yL = yL - ROW
-        makeSliderRow(page, "CD badge", PAD, yL, SLW, 0.4, 1.5, 0.05,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.cdBadgeScale) or 0.85
-            end,
-            function(v) if IchaUITotems_Set then IchaUITotems_Set("cdBadgeScale", v) end end)
-        yL = yL - ROW
-
-        local totMove = makeButton(page, "Move", 55, 20, function()
-            if IchaUITotems_Slash then IchaUITotems_Slash("move") end
-        end)
-        totMove:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
-        local totShow = makeButton(page, "Show", 48, 20, function()
-            if IchaUITotems_Set then IchaUITotems_Set("hidden", false) end
-        end)
-        totShow:SetPoint("LEFT", totMove, "RIGHT", 4, 0)
-        local totHide = makeButton(page, "Hide", 48, 20, function()
-            if IchaUITotems_Set then IchaUITotems_Set("hidden", true) end
-        end)
-        totHide:SetPoint("LEFT", totShow, "RIGHT", 4, 0)
-        yL = yL - 22
-        tip(page, "T.strata: totem duration / tick numbers (default HIGH, below tooltips). Icon layer is Bars → Strata.", PAD, yL, 520)
-        yL = yL - 26
-
-        local throwBind = makeKeyBindRow(page, "Throw current", PAD, yL,
-            function()
-                if IchaUITotems_GetThrowKey then return IchaUITotems_GetThrowKey() end
-                return "T"
-            end,
-            function(key)
-                if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
-            end)
-        local nextSetBind = makeKeyBindRow(page, "Next set", PAD + 240, yL,
-            function()
-                if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
-                return ""
-            end,
-            function(key)
-                if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
-            end)
-        table.insert(slotRows, nextSetBind)
-        local totThrow = makeButton(page, "Throw now", 72, 20, function()
-            if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
-        end)
-        totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 464, yL + 3)
-        yL = yL - 26
-        if IchaUI_BuildTotemSetsBlock then
-            yL = IchaUI_BuildTotemSetsBlock(page, PAD, yL, sectionHeader, makeButton, makeEdit, makeKeyBindRow, slotRows)
-        end
-        makeDirBtn(page, PAD, yL,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.drawerDir) or "up"
-            end,
-            function(d)
-                if IchaUITotems_Set then IchaUITotems_Set("drawerDir", d) end
-            end)
-        yL = yL - 24
-        makeSpread(page, PAD, yL,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.drawerSpread) or 90
-            end,
-            function(v)
-                if IchaUITotems_Set then IchaUITotems_Set("drawerSpread", v) end
-            end)
-        yL = yL - 26
-        makeArc(page, PAD, yL,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                return (t and t.drawerArc) or 360
-            end,
-            function(v)
-                if IchaUITotems_Set then IchaUITotems_Set("drawerArc", v) end
-            end)
-        yL = yL - 26
-        makeRot(page, PAD, yL,
-            function()
-                local t = IchaUITotems_Get and IchaUITotems_Get()
-                if t and t.drawerRot ~= nil then return t.drawerRot end
-                return 90
-            end,
-            function(v)
-                if IchaUITotems_Set then IchaUITotems_Set("drawerRot", v) end
-            end)
-        yL = yL - 26
-        local shiftDr = makeButton(page, "Shift drawers: Off", 140, 20, function()
-            local t = IchaUITotems_Get and IchaUITotems_Get()
-            local on = not (t and t.shiftDrawer)
-            if IchaUITotems_Set then IchaUITotems_Set("shiftDrawer", on) end
-            this:SetText(on and "Shift drawers: On" or "Shift drawers: Off")
-        end)
-        shiftDr:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
-        yL = yL - 22
-        tip(page, "Open: element drawers grow from the slot. Default Up. Shift: also imbue / shield / utility.", PAD, yL, 520)
-        yL = yL - 16
-        tip(page, "Off = hover opens. On = hold Shift. Click = cast. Right-click drawer row = set throw.", PAD, yL, 500)
-        yL = yL - 28
-        if IchaUI_DrawerStyleControls then
-            yL = IchaUI_DrawerStyleControls(page, "totems", PAD, yL, true)
-        end
-        yL = yL - 8
-
+        local sham = IchaUI_IsShaman()
+        local throwBind, shiftDr, recallMove, refreshRecallOn
         local yC = -4
-        sectionHeader(page, "Recall", COL2, yC); yC = yC - 20
-        local recallOn = makeGoldToggle(page, "Recall: On", 120, 20)
-        local function refreshRecallOn()
-            local on = IchaUI_TotemRecallGet and IchaUI_TotemRecallGet()
-            if recallOn._label then
-                recallOn._label:SetText(on and "Recall: On" or "Recall: Off")
-            end
-            paintGoldToggle(recallOn, on and true or false)
-        end
-        recallOn:SetScript("OnClick", function()
-            local on = not (IchaUI_TotemRecallGet and IchaUI_TotemRecallGet())
-            if IchaUI_TotemRecallSet then IchaUI_TotemRecallSet(on) end
-            refreshRecallOn()
-        end)
-        recallOn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-        yC = yC - ROW
-        makeSliderRow(page, "Wait", COL2, yC, SLW, 1, 30, 1,
-            function()
-                if IchaUI_TotemRecallDelay then return IchaUI_TotemRecallDelay() end
-                return 5
-            end,
-            function(v)
-                if IchaUI_TotemRecallDelaySet then IchaUI_TotemRecallDelaySet(v) end
-            end)
-        yC = yC - ROW
-        tip(page, "Wait: seconds out of range of every live totem (out of combat) before the icon appears.", COL2, yC, 500)
-        yC = yC - 28
-        local recallMove = makeButton(page, "Move icon", 90, 20, function()
-            if IchaUI_TotemRecallIcon_ToggleMove then
-                local moving = IchaUI_TotemRecallIcon_ToggleMove()
-                this:SetText(moving and "Lock icon" or "Move icon")
-            end
-        end)
-        recallMove:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-        yC = yC - ROW
-        makeSliderRow(page, "Icon", COL2, yC, SLW, 0.5, 2.5, 0.05,
-            function()
-                if IchaUI_TotemRecallIcon_Scale then return IchaUI_TotemRecallIcon_Scale() end
-                return 1
-            end,
-            function(v)
-                if IchaUI_TotemRecallIcon_ScaleSet then IchaUI_TotemRecallIcon_ScaleSet(v) end
-            end)
-        yC = yC - ROW
-        if IchaUI_DrawerStyleControls then
-            yC = IchaUI_DrawerStyleControls(page, "recall", COL2, yC)
-        end
-        yC = yC - 8
-
-        local function extrasRow(which, label)
-            sectionHeader(page, label, COL2, yC); yC = yC - 20
-            local mv = makeButton(page, "Move", 55, 20, function()
-                if IchaUIShamanExtras_ToggleMove then IchaUIShamanExtras_ToggleMove(which) end
-            end)
-            mv:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-            local sh = makeButton(page, "Show", 48, 20, function()
-                if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, false) end
-            end)
-            sh:SetPoint("LEFT", mv, "RIGHT", 4, 0)
-            local hi = makeButton(page, "Hide", 48, 20, function()
-                if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, true) end
-            end)
-            hi:SetPoint("LEFT", sh, "RIGHT", 4, 0)
-            yC = yC - 24
-            if which == "utility" and IchaUIShamanExtras_UtilityEntries and IchaUIShamanExtras_SetUtilityShown then
-                local cap = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                cap:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-                cap:SetText("Show in drawer")
-                IchaUI_PaintGoldFont(cap, 0.93, 0.78, 0.35)
-                yC = yC - 14
-                local keys = IchaUIShamanExtras_UtilityEntries()
-                local UCOLS, UCW, UROW = 3, 160, 20
-                local ui
-                for ui = 1, table.getn(keys) do
-                    local key = keys[ui]
-                    local col = math.mod(ui - 1, UCOLS)
-                    local row = math.floor((ui - 1) / UCOLS)
-                    local cb = CreateFrame("CheckButton", nil, page)
-                    cb:SetWidth(20)
-                    cb:SetHeight(20)
-                    cb:SetPoint("TOPLEFT", page, "TOPLEFT", COL2 + col * UCW, yC - row * UROW)
-                    cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
-                    cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
-                    cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
-                    cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
-                    local lbl = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    lbl:SetPoint("LEFT", cb, "RIGHT", 2, 0)
-                    lbl:SetText(key)
-                    IchaUI_DyeFs(lbl, 1, 1, 1)
-                    cb:SetChecked(IchaUIShamanExtras_GetUtilityShown(key) and 1 or nil)
-                    cb:SetScript("OnClick", function()
-                        IchaUIShamanExtras_SetUtilityShown(key, this:GetChecked() and true or false)
-                    end)
-                    table.insert(textRefresh, function()
-                        cb:SetChecked(IchaUIShamanExtras_GetUtilityShown(key) and 1 or nil)
-                    end)
-                end
-                yC = yC - math.floor((table.getn(keys) + UCOLS - 1) / UCOLS) * UROW - 4
-            end
-            makeDirBtn(page, COL2, yC,
+        if sham then
+            sectionHeader(page, "Totems", PAD, yL); yL = yL - 18
+            makeSliderRow(page, "Scale", PAD, yL, SLW, 0.4, 3.0, 0.05,
                 function()
-                    if IchaUIShamanExtras_GetDrawerDir then return IchaUIShamanExtras_GetDrawerDir(which) end
-                    return "up"
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.scale) or 1
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("scale", v) end end)
+            yL = yL - ROW
+            makeSliderRow(page, "Size", PAD, yL, SLW, 20, 80, 1,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.size) or 36
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("size", v) end end)
+            yL = yL - ROW
+            makeSliderRow(page, "Gap", PAD, yL, SLW, 0, 40, 0.5,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.gap) or 6
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("gap", v) end end)
+            yL = yL - ROW
+            makeSliderRow(page, "Text", PAD, yL, SLW, 8, 24, 1,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.textSize) or 11
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("textSize", v) end end)
+            yL = yL - ROW
+            makeStrataRow(page, "T.strata", PAD, yL,
+                function()
+                    if IchaUI_GetTotemTextStrata then
+                        local n, idx = IchaUI_GetTotemTextStrata()
+                        return idx or 4
+                    end
+                    return 4
+                end,
+                function(v)
+                    if IchaUI_SetTotemTextStrata then IchaUI_SetTotemTextStrata(v) end
+                end)
+            yL = yL - ROW
+            makeSliderRow(page, "Drawer", PAD, yL, SLW, 14, 48, 1,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return t and t.drawerSize or 22
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerSize", v) end end)
+            yL = yL - ROW
+            makeSliderRow(page, "D.Gap", PAD, yL, SLW, 0, 12, 1,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return t and t.drawerGap or 2
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerGap", v) end end)
+            yL = yL - ROW
+            makeSliderRow(page, "CD badge", PAD, yL, SLW, 0.4, 1.5, 0.05,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.cdBadgeScale) or 0.85
+                end,
+                function(v) if IchaUITotems_Set then IchaUITotems_Set("cdBadgeScale", v) end end)
+            yL = yL - ROW
+
+            local totMove = makeButton(page, "Move", 55, 20, function()
+                if IchaUITotems_Slash then IchaUITotems_Slash("move") end
+            end)
+            totMove:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
+            local totShow = makeButton(page, "Show", 48, 20, function()
+                if IchaUITotems_Set then IchaUITotems_Set("hidden", false) end
+            end)
+            totShow:SetPoint("LEFT", totMove, "RIGHT", 4, 0)
+            local totHide = makeButton(page, "Hide", 48, 20, function()
+                if IchaUITotems_Set then IchaUITotems_Set("hidden", true) end
+            end)
+            totHide:SetPoint("LEFT", totShow, "RIGHT", 4, 0)
+            yL = yL - 22
+            tip(page, "T.strata: totem duration / tick numbers (default HIGH, below tooltips). Icon layer is Bars → Strata.", PAD, yL, 520)
+            yL = yL - 26
+
+            throwBind = makeKeyBindRow(page, "Throw current", PAD, yL,
+                function()
+                    if IchaUITotems_GetThrowKey then return IchaUITotems_GetThrowKey() end
+                    return "T"
+                end,
+                function(key)
+                    if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
+                end)
+            local nextSetBind = makeKeyBindRow(page, "Next set", PAD + 240, yL,
+                function()
+                    if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
+                    return ""
+                end,
+                function(key)
+                    if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
+                end)
+            table.insert(slotRows, nextSetBind)
+            local totThrow = makeButton(page, "Throw now", 72, 20, function()
+                if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
+            end)
+            totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 464, yL + 3)
+            yL = yL - 26
+            if IchaUI_BuildTotemSetsBlock then
+                yL = IchaUI_BuildTotemSetsBlock(page, PAD, yL, sectionHeader, makeButton, makeEdit, makeKeyBindRow, slotRows)
+            end
+            makeDirBtn(page, PAD, yL,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.drawerDir) or "up"
                 end,
                 function(d)
-                    if IchaUIShamanExtras_SetDrawerDir then IchaUIShamanExtras_SetDrawerDir(which, d) end
+                    if IchaUITotems_Set then IchaUITotems_Set("drawerDir", d) end
                 end)
-            yC = yC - 26
-            makeSpread(page, COL2, yC,
+            yL = yL - 24
+            makeSpread(page, PAD, yL,
                 function()
-                    if IchaUIShamanExtras_GetDrawerSpread then return IchaUIShamanExtras_GetDrawerSpread(which) end
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.drawerSpread) or 90
+                end,
+                function(v)
+                    if IchaUITotems_Set then IchaUITotems_Set("drawerSpread", v) end
+                end)
+            yL = yL - 26
+            makeArc(page, PAD, yL,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    return (t and t.drawerArc) or 360
+                end,
+                function(v)
+                    if IchaUITotems_Set then IchaUITotems_Set("drawerArc", v) end
+                end)
+            yL = yL - 26
+            makeRot(page, PAD, yL,
+                function()
+                    local t = IchaUITotems_Get and IchaUITotems_Get()
+                    if t and t.drawerRot ~= nil then return t.drawerRot end
                     return 90
                 end,
                 function(v)
-                    if IchaUIShamanExtras_SetDrawerSpread then IchaUIShamanExtras_SetDrawerSpread(which, v) end
+                    if IchaUITotems_Set then IchaUITotems_Set("drawerRot", v) end
                 end)
-            yC = yC - 26
-            makeArc(page, COL2, yC,
-                function()
-                    if IchaUIShamanExtras_GetDrawerArc then return IchaUIShamanExtras_GetDrawerArc(which) end
-                    return 360
-                end,
-                function(v)
-                    if IchaUIShamanExtras_SetDrawerArc then IchaUIShamanExtras_SetDrawerArc(which, v) end
-                end)
-            yC = yC - 26
-            makeRot(page, COL2, yC,
-                function()
-                    if IchaUIShamanExtras_GetDrawerRot then return IchaUIShamanExtras_GetDrawerRot(which) end
-                    return 90
-                end,
-                function(v)
-                    if IchaUIShamanExtras_SetDrawerRot then IchaUIShamanExtras_SetDrawerRot(which, v) end
-                end)
-            yC = yC - 26
-            if which == "imbue" or which == "shield" then
-                local textBtn = makeButton(page, "Text: On", 80, 20, function()
-                    local on = false
-                    if IchaUIShamanExtras_GetShowText then
-                        on = not IchaUIShamanExtras_GetShowText(which)
-                    end
-                    if IchaUIShamanExtras_SetShowText then
-                        IchaUIShamanExtras_SetShowText(which, on)
-                    end
-                    this:SetText(on and "Text: On" or "Text: Off")
-                end)
-                textBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-                yC = yC - 24
-                table.insert(textRefresh, function()
-                    local on = IchaUIShamanExtras_GetShowText and IchaUIShamanExtras_GetShowText(which)
-                    textBtn:SetText(on and "Text: On" or "Text: Off")
-                end)
-            end
+            yL = yL - 26
+            shiftDr = makeButton(page, "Shift drawers: Off", 140, 20, function()
+                local t = IchaUITotems_Get and IchaUITotems_Get()
+                local on = not (t and t.shiftDrawer)
+                if IchaUITotems_Set then IchaUITotems_Set("shiftDrawer", on) end
+                this:SetText(on and "Shift drawers: On" or "Shift drawers: Off")
+            end)
+            shiftDr:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
+            yL = yL - 22
+            tip(page, "Open: element drawers grow from the slot. Default Up. Shift: also imbue / shield / utility.", PAD, yL, 520)
+            yL = yL - 16
+            tip(page, "Off = hover opens. On = hold Shift. Click = cast. Right-click drawer row = set throw.", PAD, yL, 500)
+            yL = yL - 28
             if IchaUI_DrawerStyleControls then
-                yC = IchaUI_DrawerStyleControls(page, which, COL2, yC)
+                yL = IchaUI_DrawerStyleControls(page, "totems", PAD, yL, true)
             end
-            yC = yC - 6
-        end
-        extrasRow("utility", "Utility")
-        extrasRow("imbue", "Imbue")
-        extrasRow("shield", "Shield")
-        tip(page, "Detached circles. Open default Up. Red when imbue <60s / shield ≤2 / water buff <60s or 0 reagents.", COL2, yC, 500)
-        yC = yC - 28
+            yL = yL - 8
 
-        sectionHeader(page, "Resists", COL2, yC); yC = yC - 20
+            sectionHeader(page, "Recall", COL2, yC); yC = yC - 20
+            local recallOn = makeGoldToggle(page, "Recall: On", 120, 20)
+            refreshRecallOn = function()
+                local on = IchaUI_TotemRecallGet and IchaUI_TotemRecallGet()
+                if recallOn._label then
+                    recallOn._label:SetText(on and "Recall: On" or "Recall: Off")
+                end
+                paintGoldToggle(recallOn, on and true or false)
+            end
+            recallOn:SetScript("OnClick", function()
+                local on = not (IchaUI_TotemRecallGet and IchaUI_TotemRecallGet())
+                if IchaUI_TotemRecallSet then IchaUI_TotemRecallSet(on) end
+                refreshRecallOn()
+            end)
+            recallOn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+            yC = yC - ROW
+            makeSliderRow(page, "Wait", COL2, yC, SLW, 1, 30, 1,
+                function()
+                    if IchaUI_TotemRecallDelay then return IchaUI_TotemRecallDelay() end
+                    return 5
+                end,
+                function(v)
+                    if IchaUI_TotemRecallDelaySet then IchaUI_TotemRecallDelaySet(v) end
+                end)
+            yC = yC - ROW
+            tip(page, "Wait: seconds out of range of every live totem (out of combat) before the icon appears.", COL2, yC, 500)
+            yC = yC - 28
+            recallMove = makeButton(page, "Move icon", 90, 20, function()
+                if IchaUI_TotemRecallIcon_ToggleMove then
+                    local moving = IchaUI_TotemRecallIcon_ToggleMove()
+                    this:SetText(moving and "Lock icon" or "Move icon")
+                end
+            end)
+            recallMove:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+            yC = yC - ROW
+            makeSliderRow(page, "Icon", COL2, yC, SLW, 0.5, 2.5, 0.05,
+                function()
+                    if IchaUI_TotemRecallIcon_Scale then return IchaUI_TotemRecallIcon_Scale() end
+                    return 1
+                end,
+                function(v)
+                    if IchaUI_TotemRecallIcon_ScaleSet then IchaUI_TotemRecallIcon_ScaleSet(v) end
+                end)
+            yC = yC - ROW
+            if IchaUI_DrawerStyleControls then
+                yC = IchaUI_DrawerStyleControls(page, "recall", COL2, yC)
+            end
+            yC = yC - 8
+
+            local function extrasRow(which, label)
+                sectionHeader(page, label, COL2, yC); yC = yC - 20
+                local mv = makeButton(page, "Move", 55, 20, function()
+                    if IchaUIShamanExtras_ToggleMove then IchaUIShamanExtras_ToggleMove(which) end
+                end)
+                mv:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+                local sh = makeButton(page, "Show", 48, 20, function()
+                    if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, false) end
+                end)
+                sh:SetPoint("LEFT", mv, "RIGHT", 4, 0)
+                local hi = makeButton(page, "Hide", 48, 20, function()
+                    if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, true) end
+                end)
+                hi:SetPoint("LEFT", sh, "RIGHT", 4, 0)
+                yC = yC - 24
+                if which == "utility" and IchaUIShamanExtras_UtilityEntries and IchaUIShamanExtras_SetUtilityShown then
+                    local cap = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    cap:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+                    cap:SetText("Show in drawer")
+                    IchaUI_PaintGoldFont(cap, 0.93, 0.78, 0.35)
+                    yC = yC - 14
+                    local keys = IchaUIShamanExtras_UtilityEntries()
+                    local UCOLS, UCW, UROW = 3, 160, 20
+                    local ui
+                    for ui = 1, table.getn(keys) do
+                        local key = keys[ui]
+                        local col = math.mod(ui - 1, UCOLS)
+                        local row = math.floor((ui - 1) / UCOLS)
+                        local cb = CreateFrame("CheckButton", nil, page)
+                        cb:SetWidth(20)
+                        cb:SetHeight(20)
+                        cb:SetPoint("TOPLEFT", page, "TOPLEFT", COL2 + col * UCW, yC - row * UROW)
+                        cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
+                        cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
+                        cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
+                        cb:SetCheckedTexture("Interface\\Buttons\\UI-CheckBox-Check")
+                        local lbl = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                        lbl:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+                        lbl:SetText(key)
+                        IchaUI_DyeFs(lbl, 1, 1, 1)
+                        cb:SetChecked(IchaUIShamanExtras_GetUtilityShown(key) and 1 or nil)
+                        cb:SetScript("OnClick", function()
+                            IchaUIShamanExtras_SetUtilityShown(key, this:GetChecked() and true or false)
+                        end)
+                        table.insert(textRefresh, function()
+                            cb:SetChecked(IchaUIShamanExtras_GetUtilityShown(key) and 1 or nil)
+                        end)
+                    end
+                    yC = yC - math.floor((table.getn(keys) + UCOLS - 1) / UCOLS) * UROW - 4
+                end
+                makeDirBtn(page, COL2, yC,
+                    function()
+                        if IchaUIShamanExtras_GetDrawerDir then return IchaUIShamanExtras_GetDrawerDir(which) end
+                        return "up"
+                    end,
+                    function(d)
+                        if IchaUIShamanExtras_SetDrawerDir then IchaUIShamanExtras_SetDrawerDir(which, d) end
+                    end)
+                yC = yC - 26
+                makeSpread(page, COL2, yC,
+                    function()
+                        if IchaUIShamanExtras_GetDrawerSpread then return IchaUIShamanExtras_GetDrawerSpread(which) end
+                        return 90
+                    end,
+                    function(v)
+                        if IchaUIShamanExtras_SetDrawerSpread then IchaUIShamanExtras_SetDrawerSpread(which, v) end
+                    end)
+                yC = yC - 26
+                makeArc(page, COL2, yC,
+                    function()
+                        if IchaUIShamanExtras_GetDrawerArc then return IchaUIShamanExtras_GetDrawerArc(which) end
+                        return 360
+                    end,
+                    function(v)
+                        if IchaUIShamanExtras_SetDrawerArc then IchaUIShamanExtras_SetDrawerArc(which, v) end
+                    end)
+                yC = yC - 26
+                makeRot(page, COL2, yC,
+                    function()
+                        if IchaUIShamanExtras_GetDrawerRot then return IchaUIShamanExtras_GetDrawerRot(which) end
+                        return 90
+                    end,
+                    function(v)
+                        if IchaUIShamanExtras_SetDrawerRot then IchaUIShamanExtras_SetDrawerRot(which, v) end
+                    end)
+                yC = yC - 26
+                if which == "imbue" or which == "shield" then
+                    local textBtn = makeButton(page, "Text: On", 80, 20, function()
+                        local on = false
+                        if IchaUIShamanExtras_GetShowText then
+                            on = not IchaUIShamanExtras_GetShowText(which)
+                        end
+                        if IchaUIShamanExtras_SetShowText then
+                            IchaUIShamanExtras_SetShowText(which, on)
+                        end
+                        this:SetText(on and "Text: On" or "Text: Off")
+                    end)
+                    textBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+                    yC = yC - 24
+                    table.insert(textRefresh, function()
+                        local on = IchaUIShamanExtras_GetShowText and IchaUIShamanExtras_GetShowText(which)
+                        textBtn:SetText(on and "Text: On" or "Text: Off")
+                    end)
+                end
+                if IchaUI_DrawerStyleControls then
+                    yC = IchaUI_DrawerStyleControls(page, which, COL2, yC)
+                end
+                yC = yC - 6
+            end
+            extrasRow("utility", "Utility")
+            extrasRow("imbue", "Imbue")
+            extrasRow("shield", "Shield")
+            tip(page, "Detached circles. Open default Up. Red when imbue <60s / shield ≤2 / water buff <60s or 0 reagents.", COL2, yC, 500)
+            yC = yC - 28
+        end
+
+        local RX = sham and COL2 or PAD
+        sectionHeader(page, "Resists", RX, yC); yC = yC - 20
         local mobStatsBtn = makeButton(page, "Mob stats: On", 120, 20, function()
             if not IchaUIUF_GetTankDrawerEnabled or not IchaUIUF_SetTankDrawerEnabled then return end
             local on = not IchaUIUF_GetTankDrawerEnabled()
             IchaUIUF_SetTankDrawerEnabled(on)
             this:SetText(on and "Mob stats: On" or "Mob stats: Off")
         end)
-        mobStatsBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+        mobStatsBtn:SetPoint("TOPLEFT", page, "TOPLEFT", RX, yC)
         yC = yC - 24
         local minResBtn = makeButton(page, "Minimal resists: Off", 150, 20, function()
             if not IchaUIUF_GetTankDrawerMinimal or not IchaUIUF_SetTankDrawerMinimal then return end
@@ -2661,9 +2669,9 @@ local function build()
             IchaUIUF_SetTankDrawerMinimal(on)
             this:SetText(on and "Minimal resists: On" or "Minimal resists: Off")
         end)
-        minResBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+        minResBtn:SetPoint("TOPLEFT", page, "TOPLEFT", RX, yC)
         yC = yC - 24
-        makeDirBtn(page, COL2, yC,
+        makeDirBtn(page, RX, yC,
             function()
                 if IchaUIUF_GetTankDrawerSide then return IchaUIUF_GetTankDrawerSide() end
                 return "left"
@@ -2672,7 +2680,7 @@ local function build()
                 if IchaUIUF_SetTankDrawerSide then IchaUIUF_SetTankDrawerSide(d) end
             end)
         yC = yC - 22
-        makeSpread(page, COL2, yC,
+        makeSpread(page, RX, yC,
             function()
                 if IchaUIUF_GetTankDrawerSpread then return IchaUIUF_GetTankDrawerSpread() end
                 return 90
@@ -2681,7 +2689,7 @@ local function build()
                 if IchaUIUF_SetTankDrawerSpread then IchaUIUF_SetTankDrawerSpread(v) end
             end)
         yC = yC - 26
-        makeArc(page, COL2, yC,
+        makeArc(page, RX, yC,
             function()
                 if IchaUIUF_GetTankDrawerArc then return IchaUIUF_GetTankDrawerArc() end
                 return 360
@@ -2690,7 +2698,7 @@ local function build()
                 if IchaUIUF_SetTankDrawerArc then IchaUIUF_SetTankDrawerArc(v) end
             end)
         yC = yC - 26
-        makeRot(page, COL2, yC,
+        makeRot(page, RX, yC,
             function()
                 if IchaUIUF_GetTankDrawerRot then return IchaUIUF_GetTankDrawerRot() end
                 return 90
@@ -2699,76 +2707,79 @@ local function build()
                 if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end
             end)
         yC = yC - 26
-        tip(page, "Default Open: Left (inside). Minimal On = resists nestled by caret when closed.", COL2, yC, 500)
+        tip(page, "Default Open: Left (inside). Minimal On = resists nestled by caret when closed.", RX, yC, 500)
         yC = yC - 20
         if IchaUI_DrawerStyleControls then
-            yC = IchaUI_DrawerStyleControls(page, "resists", COL2, yC)
+            yC = IchaUI_DrawerStyleControls(page, "resists", RX, yC)
         end
         yC = yC - 8
 
-        sectionHeader(page, "Slot binds", PAD, yL); yL = yL - 18
-        local slotBindLabels = { "Earth", "Fire", "Water", "Air" }
-        local slotBindEls = { "earth", "fire", "water", "air" }
-        local sbi
-        for sbi = 1, 4 do
-            local el = slotBindEls[sbi]
-            local label = slotBindLabels[sbi]
-            local row = makeKeyBindRow(page, label, PAD, yL,
-                function()
-                    if IchaUITotems_GetSlotKey then return IchaUITotems_GetSlotKey(el) end
-                    return ""
-                end,
-                function(key)
-                    if IchaUITotems_ApplySlotKey then IchaUITotems_ApplySlotKey(el, key) end
-                end)
-            table.insert(slotRows, row)
-            yL = yL - 24
-        end
-        tip(page, "Casts the totem selected on that slot (right-click drawer to set).", PAD, yL, 500)
-        yL = yL - 22
+        if sham then
+            sectionHeader(page, "Slot binds", PAD, yL); yL = yL - 18
+            local slotBindLabels = { "Earth", "Fire", "Water", "Air" }
+            local slotBindEls = { "earth", "fire", "water", "air" }
+            local sbi
+            for sbi = 1, 4 do
+                local el = slotBindEls[sbi]
+                local label = slotBindLabels[sbi]
+                local row = makeKeyBindRow(page, label, PAD, yL,
+                    function()
+                        if IchaUITotems_GetSlotKey then return IchaUITotems_GetSlotKey(el) end
+                        return ""
+                    end,
+                    function(key)
+                        if IchaUITotems_ApplySlotKey then IchaUITotems_ApplySlotKey(el, key) end
+                    end)
+                table.insert(slotRows, row)
+                yL = yL - 24
+            end
+            tip(page, "Casts the totem selected on that slot (right-click drawer to set).", PAD, yL, 500)
+            yL = yL - 22
 
-        sectionHeader(page, "Spell binds", PAD, yL); yL = yL - 18
-        tip(page, "Binds cast that totem directly so you can drop action-bar buttons.", PAD, yL, 500)
-        yL = yL - 20
-        local spellBindList = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
-        local spellElHeaders = { earth = "Earth", fire = "Fire", water = "Water", air = "Air" }
-        local lastSpellEl = nil
-        local spi
-        for spi = 1, table.getn(spellBindList) do
-            local item = spellBindList[spi]
-            if item.element ~= lastSpellEl then
-                lastSpellEl = item.element
-                local hdr = spellElHeaders[item.element] or item.element
-                sectionHeader(page, hdr, PAD, yL); yL = yL - 18
+            sectionHeader(page, "Spell binds", PAD, yL); yL = yL - 18
+            tip(page, "Binds cast that totem directly so you can drop action-bar buttons.", PAD, yL, 500)
+            yL = yL - 20
+            local spellBindList = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
+            local spellElHeaders = { earth = "Earth", fire = "Fire", water = "Water", air = "Air" }
+            local lastSpellEl = nil
+            local spi
+            for spi = 1, table.getn(spellBindList) do
+                local item = spellBindList[spi]
+                if item.element ~= lastSpellEl then
+                    lastSpellEl = item.element
+                    local hdr = spellElHeaders[item.element] or item.element
+                    sectionHeader(page, hdr, PAD, yL); yL = yL - 18
+                end
+                local idx = item.index
+                local rowLabel = item.label
+                if (not rowLabel) and item.base then
+                    rowLabel = string.gsub(item.base, "%s+Totem%s*$", "")
+                end
+                if not rowLabel then rowLabel = tostring(idx) end
+                local row = makeKeyBindRow(page, rowLabel, PAD, yL,
+                    function()
+                        if IchaUITotems_GetSpellKey then return IchaUITotems_GetSpellKey(idx) end
+                        return ""
+                    end,
+                    function(key)
+                        if IchaUITotems_ApplySpellKey then IchaUITotems_ApplySpellKey(idx, key) end
+                    end)
+                table.insert(slotRows, row)
+                yL = yL - 24
             end
-            local idx = item.index
-            local rowLabel = item.label
-            if (not rowLabel) and item.base then
-                rowLabel = string.gsub(item.base, "%s+Totem%s*$", "")
-            end
-            if not rowLabel then rowLabel = tostring(idx) end
-            local row = makeKeyBindRow(page, rowLabel, PAD, yL,
-                function()
-                    if IchaUITotems_GetSpellKey then return IchaUITotems_GetSpellKey(idx) end
-                    return ""
-                end,
-                function(key)
-                    if IchaUITotems_ApplySpellKey then IchaUITotems_ApplySpellKey(idx, key) end
-                end)
-            table.insert(slotRows, row)
-            yL = yL - 24
+            yL = yL - 10
         end
-        yL = yL - 10
 
         if IchaUI_BuildDrawerExtras then
-            yC = IchaUI_BuildDrawerExtras(page, yC, COL2)
+            yC = IchaUI_BuildDrawerExtras(page, yC, RX)
         end
-        local needH = -yL
+        local needH = sham and -yL or 0
         if -yC > needH then needH = -yC end
         needH = needH + 80
         if page.GetHeight and (page:GetHeight() or 0) < needH then
             page:SetHeight(needH)
         end
+        if not sham and page.SetHeight then page:SetHeight(math.max(needH, contentH + 40)) end
 
 
 
@@ -2792,7 +2803,7 @@ local function build()
             for i = 1, table.getn(slotRows) do
                 if slotRows[i] and slotRows[i].refresh then slotRows[i].refresh() end
             end
-            refreshRecallOn()
+            if refreshRecallOn then refreshRecallOn() end
             if recallMove then
                 if IchaUI_TotemRecallIcon_Moving and IchaUI_TotemRecallIcon_Moving() then
                     recallMove:SetText("Lock icon")
@@ -3351,9 +3362,11 @@ local function build()
     tip(pageCombat, "On you and Loose recolor every tracker mob. Defaults match the old red and yellow.", PAD, -342, 520)
     tip(pageCombat, "OOR grey: action-bar icons tint when target is out of range (Layout).", PAD, -384, COL_TIP)
     tip(pageCombat, "In combat, action bar tooltips stay hidden unless you hold Shift.", PAD, -412, 520)
-    tip(pageCombat, "Totemic Recall icon: Drawers tab.", PAD, -440, 520)
+    if IchaUI_IsShaman() then
+        tip(pageCombat, "Totemic Recall icon: Drawers tab.", PAD, -440, 520)
+    end
 
-    tip(pageCombat, "Smart Mark (enemy and friendly binds, icon order): Mark tab.", PAD, -468, 520)
+    tip(pageCombat, "Smart Mark (enemy and friendly binds, icon order): Mark tab.", PAD, IchaUI_IsShaman() and -468 or -440, 520)
 
     if IchaUI_BuildDispelOptions then
         table.insert(combatRefreshList, IchaUI_BuildDispelOptions(pageCombat, COL2, -212, {
@@ -3511,8 +3524,10 @@ local function build()
     ySk = ySk - 36
 
     ySk = -4
-    tip(pageSkin, "Imbue / shield / utility drawers: Drawers tab.", COL2, ySk, PANEL_W - 40)
-    ySk = ySk - 24
+    if IchaUI_IsShaman() then
+        tip(pageSkin, "Imbue / shield / utility drawers: Drawers tab.", COL2, ySk, PANEL_W - 40)
+        ySk = ySk - 24
+    end
 
     sectionHeader(pageSkin, "Raid / watch debuffs", COL2, ySk); ySk = ySk - 16
     tip(pageSkin, "One debuff name per line.", COL2, ySk, PANEL_W - 40)

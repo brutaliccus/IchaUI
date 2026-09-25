@@ -4673,6 +4673,7 @@ function IchaUITotems_Apply()
 end
 
 function IchaUITotems_SetTestMode(on)
+    if on and not IchaUI_IsShaman() then return end
     totemTestMode = on and true or false
     if totemTestMode then
         local now = GetTime and GetTime() or 0
@@ -4721,6 +4722,10 @@ function IchaUITotems_SetTestMode(on)
 end
 
 function IchaUITotems_Slash(rest)
+    if not IchaUI_IsShaman() then
+        DEFAULT_CHAT_FRAME:AddMessage("IchaUI: the totem bar is shaman-only.")
+        return
+    end
     rest = string.lower(rest or "")
     rest = string.gsub(rest, "^%s+", "")
     if rest == "move" then
@@ -5047,6 +5052,10 @@ local function parseUnitCastEvent()
 end
 
 evt:SetScript("OnEvent", function()
+    if (event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD")
+        and IchaUI_ShamanStandDown(this, root, drawers.earth, drawers.fire, drawers.water, drawers.air) then
+        return
+    end
     if event == "PLAYER_LEAVING_WORLD" then
         liveGuid = {}
         return
@@ -5197,6 +5206,7 @@ SlashCmdList["ICHATOTEMS"] = function(msg)
 end
 
 function IchaUITotems_ReloadFromDB()
+    if not IchaUI_IsShaman() then return end
     loadCfg()
     restorePos()
     if IchaUITotems_Apply then IchaUITotems_Apply() end
@@ -5216,3 +5226,4 @@ function IchaUITotems_ReloadFromDB()
 end
 
 layoutBar()
+IchaUI_ShamanStandDown(evt, root, drawers.earth, drawers.fire, drawers.water, drawers.air)

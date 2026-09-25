@@ -1058,6 +1058,18 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end
 
     local edCol = 1
+    -- Rows hidden for every unit kind (class-gated) stay out of the search box.
+    local function noteRow(text, showFn)
+        if showFn then
+            local any = false
+            local n
+            for n = 1, table.getn(KINDS) do
+                if showFn(KINDS[n]) then any = true end
+            end
+            if not any then return end
+        end
+        IchaUI_OptNote("Frames", text, nil)
+    end
     local function addHeader(text, showFn, column)
         if column then edCol = column end
         local f = CreateFrame("Frame", nil, page)
@@ -1067,7 +1079,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         fs:SetPoint("LEFT", f, "LEFT", 0, 0)
         fs:SetText(text)
         IchaUI_PaintGoldFont(fs, 0.93, 0.78, 0.35)
-        IchaUI_OptNote("Frames", text, nil)
+        noteRow(text, showFn)
         table.insert(ed.rows, { frame = f, h = 16, show = showFn or function() return true end, col = edCol })
     end
 
@@ -1180,7 +1192,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
             commit(this:GetText())
         end)
         if xyList then table.insert(xyList, paint) end
-        IchaUI_OptNote("Frames", label, nil)
+        noteRow(label, showFn)
         table.insert(ed.rows, { frame = f, h = 20, show = showFn or function() return true end, refresh = paint, col = edCol })
     end
 
@@ -1457,28 +1469,28 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local m = metric(kind)
         return (m and m.badgeAngle) or 0
     end, function(kind, v) setField(kind, "badgeAngle", v) end, portOnly, true)
-    local function playerOnly(kind) return kind == "player" end
-    addHeader("Shield orbs", playerOnly, 2)
+    local function shamanPlayer(kind) return kind == "player" and IchaUI_IsShaman() end
+    addHeader("Shield orbs", shamanPlayer, 2)
     addSlider("Size", 6, 28, 1, 0, function(kind)
         local m = metric(kind)
         return (m and m.shieldChargeSize) or 10
-    end, function(kind, v) setField(kind, "shieldChargeSize", v) end, playerOnly, true)
+    end, function(kind, v) setField(kind, "shieldChargeSize", v) end, shamanPlayer, true)
     addSlider("Spread", 10, 360, 1, 0, function(kind)
         local m = metric(kind)
         return (m and m.shieldChargeSpread) or 90
-    end, function(kind, v) setField(kind, "shieldChargeSpread", v) end, playerOnly, true)
+    end, function(kind, v) setField(kind, "shieldChargeSpread", v) end, shamanPlayer, true)
     addSlider("Sh Rot", -360, 360, 1, 0, function(kind)
         local m = metric(kind)
         return (m and m.shieldChargeAngle) or 0
-    end, function(kind, v) setField(kind, "shieldChargeAngle", v) end, playerOnly, true)
+    end, function(kind, v) setField(kind, "shieldChargeAngle", v) end, shamanPlayer, true)
     addSlider("Sh X", -40, 40, 1, 0, function(kind)
         local m = metric(kind)
         return (m and m.shieldChargeOffsetX) or 0
-    end, function(kind, v) setField(kind, "shieldChargeOffsetX", v) end, playerOnly, true)
+    end, function(kind, v) setField(kind, "shieldChargeOffsetX", v) end, shamanPlayer, true)
     addSlider("Sh Y", -40, 40, 1, 0, function(kind)
         local m = metric(kind)
         return (m and m.shieldChargeOffsetY) or 0
-    end, function(kind, v) setField(kind, "shieldChargeOffsetY", v) end, playerOnly, true)
+    end, function(kind, v) setField(kind, "shieldChargeOffsetY", v) end, shamanPlayer, true)
     addButton("Badge on", 160, function(kind, b)
         local m = metric(kind)
         local cur = (m and m.badgeHost) or "portrait"

@@ -1474,6 +1474,36 @@ if IchaUIDB == nil then
     IchaUIDB = IchaUI_BakedCopy(IchaUI_BakedDefaults)
 end
 
+-- Shaman-only features (totems, recall, imbue, shield) check this. An unknown class
+-- (client has no player data yet) counts as shaman so nothing is dropped too early.
+function IchaUI_IsShaman()
+    if not IchaUI_PlayerClass and UnitClass then
+        local _, token = UnitClass("player")
+        if type(token) == "string" and token ~= "" then
+            IchaUI_PlayerClass = string.upper(token)
+        end
+    end
+    if not IchaUI_PlayerClass then return true end
+    return IchaUI_PlayerClass == "SHAMAN"
+end
+
+-- Other classes: silence shaman-module frames (no events, no OnUpdate, hidden).
+-- True when the frames were stood down.
+function IchaUI_ShamanStandDown(a, b, c, d, e, f)
+    if IchaUI_IsShaman() then return false end
+    local list = { a, b, c, d, e, f }
+    local i
+    for i = 1, 6 do
+        local fr = list[i]
+        if fr then
+            if fr.UnregisterAllEvents then fr:UnregisterAllEvents() end
+            if fr.SetScript then fr:SetScript("OnUpdate", nil) end
+            if fr.Hide then fr:Hide() end
+        end
+    end
+    return true
+end
+
 IchaUIBakedDefaultsBoot = CreateFrame("Frame", "IchaUIBakedDefaultsBoot")
 IchaUIBakedDefaultsBoot:RegisterEvent("ADDON_LOADED")
 IchaUIBakedDefaultsBoot:SetScript("OnEvent", function()

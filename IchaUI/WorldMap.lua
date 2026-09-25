@@ -31,6 +31,8 @@ local function installIchaUIWorldMap()
     local LEVEL_KEYS = { levels = true, levelInst = true, levelRaids = true, levelPvP = true, levelFish = true }
     local SCALE_LO, SCALE_HI = 0.4, 1.5
     local ALPHA_LO, ALPHA_HI = 0.2, 1
+    -- Title is 17 above the frame, gold border 4 around it; keep a few px of air.
+    local CHROME_TOP, CHROME_SIDE, CHROME_BOT, SCREEN_PAD = 21, 4, 4, 8
 
     local st = {
         installed = false, active = false, blocked = nil,
@@ -107,10 +109,13 @@ local function installIchaUIWorldMap()
         return WORLDMAP_WINDOWED ~= 1
     end
 
-    -- Largest scale at which the whole window fits on screen.
+    -- Largest SetScale at which the window plus title, border and a little
+    -- margin still fits on UIParent. Chrome is in the map's own units, so it
+    -- grows with scale.
     local function fitScale()
         local f = WorldMapFrame
-        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
+        local w = (f:GetWidth() or 0) + (CHROME_SIDE + SCREEN_PAD) * 2
+        local h = (f:GetHeight() or 0) + CHROME_TOP + CHROME_BOT + SCREEN_PAD * 2
         local sw, sh = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
         if w <= 0 or h <= 0 or sw <= 0 or sh <= 0 then return SCALE_HI end
         local s = sw / w
@@ -126,8 +131,6 @@ local function installIchaUIWorldMap()
         return s
     end
 
-    -- Anchors CENTER to UIParent and pulls the saved spot back so the whole
-    -- window is on screen (top-left wins if it can never fit).
     -- Map units to UIParent units; the parent is not assumed to be UIParent.
     local function unitRatio()
         local f = WorldMapFrame
@@ -141,6 +144,9 @@ local function installIchaUIWorldMap()
         return math.floor(v * 100 + 0.5) / 100
     end
 
+    -- Anchors CENTER to UIParent and pulls the saved spot back so the whole
+    -- window (title bar, border, grip) is on screen. If it can never fit,
+    -- top and left stay reachable.
     local function place()
         local d = db()
         local f = WorldMapFrame
@@ -154,17 +160,21 @@ local function installIchaUIWorldMap()
         local hh = (f:GetHeight() or 0) * s / 2
         local x, y = tonumber(d.x) or 0, tonumber(d.y) or 0
         if s > 0 and sw > 0 and sh > 0 and hw > 0 and hh > 0 then
+            local padP = SCREEN_PAD * s
+            local sideP = CHROME_SIDE * s
+            local topP = CHROME_TOP * s
+            local botP = CHROME_BOT * s
             local cx = sw / 2 + x * s
             local cy = sh / 2 + y * s
-            if hw * 2 >= sw or cx - hw < 0 then
-                x = (hw - sw / 2) / s
-            elseif cx + hw > sw then
-                x = (sw / 2 - hw) / s
+            if hw * 2 + sideP * 2 >= sw - padP * 2 or cx - hw - sideP < padP then
+                x = (hw + sideP + padP - sw / 2) / s
+            elseif cx + hw + sideP > sw - padP then
+                x = (sw / 2 - hw - sideP - padP) / s
             end
-            if hh * 2 >= sh or cy + hh > sh then
-                y = (sh / 2 - hh) / s
-            elseif cy - hh < 0 then
-                y = (hh - sh / 2) / s
+            if hh * 2 + topP + botP >= sh - padP * 2 or cy + hh + topP > sh - padP then
+                y = (sh / 2 - hh - topP - padP) / s
+            elseif cy - hh - botP < padP then
+                y = (hh + botP + padP - sh / 2) / s
             end
         end
         d.x, d.y = x, y
@@ -174,8 +184,9 @@ local function installIchaUIWorldMap()
 
     -- Save as a CENTER offset in the map's own scale so rescaling keeps it
     -- centered. left/top are the map's top-left in its own units; the live
-    -- rect is read when they are not given.
-    local function savePos(left, top)
+    -- rect is read when they are not given. skipPlace leaves a live TOPLEFT
+    -- drag/grip where it is, so release cannot jump.
+    local function savePos(left, top, skipPlace)
         local f = WorldMapFrame
         if not left or not top then left, top = f:GetLeft(), f:GetTop() end
         local w, h = f:GetWidth() or 0, f:GetHeight() or 0
@@ -187,51 +198,90 @@ local function installIchaUIWorldMap()
         d.relPoint = "CENTER"
         d.x = round2(left + w / 2 - ux * k)
         d.y = round2(top - h / 2 - uy * k)
-        place()
+        if not skipPlace then place() end
     end
 
-    -- The window is dragged by cursor delta, not StartMoving: this client's
-    -- StopMovingOrSizing re-anchors a frame scaled apart from its parent at
-    -- the wrong spot, so the map jumped on release. All values in map units.
+    -- Drag is cursor pixels, not StartMoving: this client's StopMovingOrSizing
+    -- re-anchors a frame scaled apart from its parent at the wrong spot.
+    -- GetLeft/GetTop are the map's own units (pixels / map effective scale).
+    -- SetPoint offsets relative to UIParent are UIParent units (pixels / UIParent
+    -- effective scale). Mixing those is what slammed the map to the bottom.
     local drag = {}
 
-    local function dragPos()
+    local function scales()
         local f = WorldMapFrame
         local es = f:GetEffectiveScale() or 1
         if es <= 0 then es = 1 end
-        local cx, cy = GetCursorPosition()
-        local l = drag.left + (cx - drag.cx) / es
-        local t = drag.top + (cy - drag.cy) / es
         local us = UIParent:GetEffectiveScale() or 1
-        local sw = (UIParent:GetWidth() or 0) * us / es
-        local sh = (UIParent:GetHeight() or 0) * us / es
-        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
-        if sw > 0 and sh > 0 then
-            if l + w > sw then l = sw - w end
-            if l < 0 then l = 0 end
-            if t - h < 0 then t = h end
-            if t > sh then t = sh end
+        if us <= 0 then us = 1 end
+        return es, us
+    end
+
+    -- True until we know the button is up. Missing API (stock 1.12) keeps
+    -- OnMouseUp as the only release path.
+    local function leftHeld()
+        if not IsMouseButtonDown then return true end
+        local down = true
+        pcall(function()
+            down = IsMouseButtonDown("LeftButton") and true or false
+        end)
+        return down
+    end
+
+    -- Pixel rect of the map frame. GetRight/GetBottom when the client has them,
+    -- otherwise left+width / top-height in the same units.
+    local function framePx()
+        local f = WorldMapFrame
+        local es, us = scales()
+        local l, t = f:GetLeft(), f:GetTop()
+        if not l or not t then return nil end
+        local r, b = f:GetRight(), f:GetBottom()
+        if not r then r = l + (f:GetWidth() or 0) end
+        if not b then b = t - (f:GetHeight() or 0) end
+        return l * es, t * es, r * es, b * es, es, us
+    end
+
+    local function clampPx(leftPx, topPx)
+        local f = WorldMapFrame
+        local es, us = scales()
+        local visW = (f:GetWidth() or 0) * es
+        local visH = (f:GetHeight() or 0) * es
+        local sw = (UIParent:GetWidth() or 0) * us
+        local sh = (UIParent:GetHeight() or 0) * us
+        local pad = SCREEN_PAD
+        local cL, cR = CHROME_SIDE * es, CHROME_SIDE * es
+        local cT, cB = CHROME_TOP * es, CHROME_BOT * es
+        if sw > 0 then
+            if visW + cL + cR >= sw - pad * 2 then
+                leftPx = pad + cL
+            else
+                if leftPx - cL < pad then leftPx = pad + cL end
+                if leftPx + visW + cR > sw - pad then leftPx = sw - pad - cR - visW end
+            end
         end
-        return l, t
+        if sh > 0 then
+            if visH + cT + cB >= sh - pad * 2 then
+                topPx = sh - pad - cT
+            else
+                if topPx + cT > sh - pad then topPx = sh - pad - cT end
+                if topPx - visH - cB < pad then topPx = pad + visH + cB end
+            end
+        end
+        return leftPx, topPx
     end
 
-    local function dragUpdate()
-        local l, t = dragPos()
+    local function setTopLeftPx(leftPx, topPx)
         local f = WorldMapFrame
+        local es, us = scales()
+        leftPx, topPx = clampPx(leftPx, topPx)
         f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", leftPx / us, topPx / us)
+        return leftPx, topPx
     end
 
-    local function dragStart()
-        local f = WorldMapFrame
-        local left, top = f:GetLeft(), f:GetTop()
-        if not left or not top then return end
-        drag.left, drag.top = left, top
-        drag.cx, drag.cy = GetCursorPosition()
-        f._ichaMoving = true
-        if not drag.ticker then drag.ticker = CreateFrame("Frame") end
-        drag.ticker:SetScript("OnUpdate", dragUpdate)
-        drag.ticker:Show()
+    local function dragPos()
+        local cx, cy = GetCursorPosition()
+        return clampPx(drag.lpx + (cx - drag.cx), drag.tpx + (cy - drag.cy))
     end
 
     local function dragStop(keep)
@@ -241,10 +291,33 @@ local function installIchaUIWorldMap()
         local l, t = dragPos()
         f._ichaMoving = nil
         if keep then
-            f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
-            savePos(l, t)
+            l, t = setTopLeftPx(l, t)
+            local es = scales()
+            savePos(l / es, t / es, true)
         end
+    end
+
+    local function dragUpdate()
+        if not leftHeld() then
+            dragStop(true)
+            return
+        end
+        local l, t = dragPos()
+        setTopLeftPx(l, t)
+    end
+
+    local function dragStart()
+        if not st.active then return end
+        local f = WorldMapFrame
+        local lpx, tpx = framePx()
+        if not lpx then return end
+        drag.lpx, drag.tpx = lpx, tpx
+        drag.cx, drag.cy = GetCursorPosition()
+        f._ichaMoving = true
+        if f.SetClampedToScreen then f:SetClampedToScreen(false) end
+        if not drag.ticker then drag.ticker = CreateFrame("Frame") end
+        drag.ticker:SetScript("OnUpdate", dragUpdate)
+        drag.ticker:Show()
     end
 
     local function paintBorder()
@@ -281,18 +354,18 @@ local function installIchaUIWorldMap()
         local g = st.grip
         local f = WorldMapFrame
         local cx, cy = GetCursorPosition()
-        local ps = (f:GetEffectiveScale() or 1) / (f:GetScale() or 1)
+        local es = scales()
+        local ps = es / (f:GetScale() or 1)
         local w = (f:GetWidth() or 0) * ps
         local h = (f:GetHeight() or 0) * ps
         if w <= 0 or h <= 0 then return end
         local s = (cx - g._left) / w
-        local sh = (g._top - cy) / h
-        if sh > s then s = sh end
+        local sy = (g._top - cy) / h
+        if sy > s then s = sy end
         s = scaleFor(s)
         db().scale = s
         f:SetScale(s)
-        f:ClearAllPoints()
-        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", g._left / (s * ps), g._top / (s * ps))
+        setTopLeftPx(g._left, g._top)
     end
 
     local function gripStop()
@@ -300,9 +373,9 @@ local function installIchaUIWorldMap()
         if not g or not g._sizing then return end
         g._sizing = nil
         g:SetScript("OnUpdate", nil)
-        local es = WorldMapFrame:GetEffectiveScale() or 1
+        local es = scales()
         if es <= 0 then es = 1 end
-        savePos(g._left / es, g._top / es)
+        savePos(g._left / es, g._top / es, true)
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
 
@@ -348,6 +421,71 @@ local function installIchaUIWorldMap()
         g:SetScript("OnLeave", function() GameTooltip:Hide() end)
         st.grip = g
         return g
+    end
+
+    -- Invisible title and edge hit-rects above Magnify's scroll frame so
+    -- dragging still works when the map art covers WorldMapFrame.
+    local function bindDrag(fr)
+        fr:EnableMouse(true)
+        fr:SetScript("OnMouseDown", function()
+            if arg1 and arg1 ~= "LeftButton" then return end
+            dragStart()
+        end)
+        fr:SetScript("OnMouseUp", function()
+            dragStop(true)
+        end)
+    end
+
+    local function ensureEdges()
+        if st.edges then
+            local i
+            for i = 1, table.getn(st.edges) do st.edges[i]:Show() end
+            return
+        end
+        local parent = WorldMapFrame
+        local lv = (parent:GetFrameLevel() or 1) + 10
+        local edges = {}
+        local function strip(name, w, h)
+            local s = CreateFrame("Frame", name, parent)
+            s:SetFrameLevel(lv)
+            if w then s:SetWidth(w) end
+            if h then s:SetHeight(h) end
+            bindDrag(s)
+            table.insert(edges, s)
+            return s
+        end
+        local top = strip("IchaUIWorldMapDragTop", nil, 32)
+        top:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 4)
+        top:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 4)
+        local left = strip("IchaUIWorldMapDragLeft", 10, nil)
+        left:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, 0)
+        left:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, 10)
+        local right = strip("IchaUIWorldMapDragRight", 10, nil)
+        right:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT", 0, 0)
+        right:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 18)
+        local bot = strip("IchaUIWorldMapDragBot", nil, 10)
+        bot:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 10, 0)
+        bot:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -18, 0)
+        st.edges = edges
+        local names = {
+            "WorldMapFrameCloseButton", "WorldMapFrameMaximizeButton",
+            "WorldMapFrameMinimizeButton",
+        }
+        local i
+        for i = 1, table.getn(names) do
+            local b = getglobal(names[i])
+            if b and b.SetFrameLevel then
+                b:SetFrameLevel(lv + 4)
+            end
+        end
+    end
+
+    local function hookRelease(fr)
+        if not fr or not fr.GetScript or fr._ichaRel then return end
+        fr._ichaRel = true
+        hookScript(fr, "OnMouseUp", function()
+            dragStop(true)
+        end)
     end
 
     -- Ctrl + wheel scales, Shift + wheel fades. Returns true when it used the event.
@@ -678,7 +816,7 @@ local function installIchaUIWorldMap()
         f:EnableMouse(true)
         f:EnableKeyboard(false)
         f:EnableMouseWheel(1)
-        if f.SetClampedToScreen then f:SetClampedToScreen(true) end
+        if f.SetClampedToScreen then f:SetClampedToScreen(false) end
         raiseStrata()
         d.scale = scaleFor(d.scale)
         f:SetScale(d.scale)
@@ -687,7 +825,13 @@ local function installIchaUIWorldMap()
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
         hookWheels()
+        hookRelease(WorldMapButton)
+        if WorldMapFrameScrollFrame then hookRelease(WorldMapFrameScrollFrame) end
+        if Magnify_ResetZoom and WorldMapFrameScrollFrame then
+            WorldMapFrameScrollFrame:SetPoint("TOP", f, 0, -36)
+        end
         ensureGrip():Show()
+        ensureEdges()
     end
 
     -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; size the
@@ -696,14 +840,11 @@ local function installIchaUIWorldMap()
         if not st.active then return end
         local f = WorldMapFrame
         if maximized() then
+            f:ClearAllPoints()
             f:SetWidth(WorldMapButton:GetWidth() + 15)
             f:SetHeight(WorldMapButton:GetHeight() + 55)
             if TargetHPText and WorldMapFrameTitle then
                 WorldMapFrameTitle:SetPoint("TOP", f, 0, 17)
-            end
-            -- Magnify keeps its scroll frame at -70 unless ShaguTweaks' window is on.
-            if Magnify_ResetZoom and WorldMapFrameScrollFrame then
-                WorldMapFrameScrollFrame:SetPoint("TOP", f, 0, -48)
             end
             zoomAttach()
         end
@@ -831,6 +972,10 @@ local function installIchaUIWorldMap()
         if BlackoutWorld then BlackoutWorld:Show() end
         paintBorder()
         if st.grip then st.grip:Hide() end
+        if st.edges then
+            local i
+            for i = 1, table.getn(st.edges) do st.edges[i]:Hide() end
+        end
         restoreStrata()
         if maximized() and type(WorldMapFrame_Maximize) == "function" then
             WorldMapFrame_Maximize()

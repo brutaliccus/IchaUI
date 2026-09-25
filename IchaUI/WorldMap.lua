@@ -40,7 +40,8 @@ local function installIchaUIWorldMap()
         border = nil, noticed = false,
     }
     -- Assigned later: dragStop/gripStop run before those local function lines.
-    local raiseStrata, hookWheels
+    local raiseStrata, hookWheels, updateZoomLabel
+    local FULL_MARGIN = 2
 
     local function clamp(v, lo, hi)
         v = tonumber(v) or lo
@@ -141,6 +142,7 @@ local function installIchaUIWorldMap()
     end
 
     local function saveAnchor()
+        if maximized() then return end
         local p, rel, rp, x, y = getAnchor(WorldMapFrame)
         if not p then return end
         local d = db()
@@ -151,7 +153,7 @@ local function installIchaUIWorldMap()
     -- Measured pixel edges. No GetWidth, no saved scale.
     local function nudgeTitle()
         local f = WorldMapFrame
-        if f._ichaMoving then return false end
+        if f._ichaMoving or maximized() then return false end
         local es = f:GetEffectiveScale() or 1
         if es <= 0 then es = 1 end
         local us = UIParent:GetEffectiveScale() or 1
@@ -235,7 +237,7 @@ local function installIchaUIWorldMap()
     end
 
     local function dragStart()
-        if not st.active then return end
+        if not st.active or maximized() then return end
         local f = WorldMapFrame
         local p, rel, rp, x, y = getAnchor(f)
         if not p then return end
@@ -293,6 +295,7 @@ local function installIchaUIWorldMap()
         local s = (cx - g._left) / w
         local sy = (g._top - cy) / h
         if sy > s then s = sy end
+        if maximized() then return end
         s = scaleFor(s)
         db().scale = s
         f:SetScale(s)
@@ -300,6 +303,7 @@ local function installIchaUIWorldMap()
         if nes <= 0 then nes = 1 end
         f:ClearAllPoints()
         f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", g._left / nes, g._top / nes)
+        if updateZoomLabel then updateZoomLabel() end
     end
 
     local function gripStop()
@@ -335,7 +339,7 @@ local function installIchaUIWorldMap()
             end
         end
         g:SetScript("OnMouseDown", function()
-            if not st.active then return end
+            if not st.active or maximized() then return end
             local f = WorldMapFrame
             local es = f:GetEffectiveScale() or 1
             local left, top = f:GetLeft(), f:GetTop()
@@ -431,6 +435,7 @@ local function installIchaUIWorldMap()
             IchaUI_WorldMap_Set("alpha", (tonumber(d.alpha) or 1) + step)
             return true
         elseif IsControlKeyDown() then
+            if maximized() then return true end
             IchaUI_WorldMap_Set("scale", (tonumber(d.scale) or 1) + step)
             return true
         end
@@ -675,12 +680,16 @@ local function installIchaUIWorldMap()
                 mod = "ctrl"
             end
             st.lastWheel = { frame = name, mod = mod, delta = tonumber(arg1) or 0 }
-            if wheelStep() then return end
+            if wheelStep() then
+                if updateZoomLabel then updateZoomLabel() end
+                return
+            end
             if st.active and not isMagnify then
                 zoomWheel()
             elseif prev then
                 prev(a1, a2, a3, a4, a5, a6, a7, a8, a9)
             end
+            if updateZoomLabel then updateZoomLabel() end
         end
         wheelWrap[f] = w
         f:SetScript("OnMouseWheel", w)
@@ -773,6 +782,159 @@ local function installIchaUIWorldMap()
         st.strataSaved, st.strataDone, st.origStrata = nil, nil, nil
     end
 
+    local function screenEdges()
+        local us = UIParent:GetEffectiveScale() or 1
+        if us <= 0 then us = 1 end
+        local sl = (UIParent:GetLeft() or 0) * us
+        local sr = UIParent:GetRight() and UIParent:GetRight() * us
+        local stop = UIParent:GetTop() and UIParent:GetTop() * us
+        local sb = (UIParent:GetBottom() or 0) * us
+        if not sr then sr = (UIParent:GetWidth() or 0) * us end
+        if not stop then stop = (UIParent:GetHeight() or 0) * us end
+        return sl, sb, sr, stop, us
+    end
+
+    -- Title top and border/frame bottom in true screen pixels.
+    local function chromeEdges()
+        local f = WorldMapFrame
+        local es = f:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        local fl, fr, ft, fb = f:GetLeft(), f:GetRight(), f:GetTop(), f:GetBottom()
+        if not fl or not ft then return nil end
+        fl, ft = fl * es, ft * es
+        if fr then fr = fr * es else fr = fl end
+        if fb then fb = fb * es else fb = ft end
+        local top, bot = ft, fb
+        local title = WorldMapFrameTitle
+        if title and title.GetTop and title:GetTop() then
+            local tes = es
+            if title.GetEffectiveScale then tes = title:GetEffectiveScale() or es end
+            local tt = title:GetTop() * tes
+            if tt > top then top = tt end
+        end
+        local b = st.border
+        if b and b.IsShown and b:IsShown() then
+            if b.GetTop and b:GetTop() then
+                local bes = es
+                if b.GetEffectiveScale then bes = b:GetEffectiveScale() or es end
+                local bt = b:GetTop() * bes
+                if bt > top then top = bt end
+            end
+            if b.GetBottom and b:GetBottom() then
+                local bes = es
+                if b.GetEffectiveScale then bes = b:GetEffectiveScale() or es end
+                local bb = b:GetBottom() * bes
+                if bb < bot then bot = bb end
+            end
+        end
+        return fl, bot, fr, top, es
+    end
+
+    local function computeFullScale()
+        local sl, sb, sr, stop = screenEdges()
+        local fl, bot, fr, top, es = chromeEdges()
+        if not fl then return st.fullScale end
+        local screenH = stop - sb
+        local chromeH = top - bot
+        if chromeH < 1 then return st.fullScale end
+        local s0 = WorldMapFrame:GetScale() or 1
+        if s0 <= 0 then s0 = 1 end
+        return s0 * (screenH - FULL_MARGIN * 2) / chromeH
+    end
+
+    -- Fit title+border to the measured screen height. Never writes IchaUIDB.
+    local function layoutMaximized()
+        local f = WorldMapFrame
+        if WorldMapButton then
+            f:SetWidth(WorldMapButton:GetWidth() + 15)
+            f:SetHeight(WorldMapButton:GetHeight() + 55)
+        end
+        if TargetHPText and WorldMapFrameTitle then
+            WorldMapFrameTitle:SetPoint("TOP", f, 0, 17)
+        end
+        if zoomAttach then zoomAttach() end
+        f:SetScale(1)
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        local s = computeFullScale()
+        if not s or s < 0.1 then s = 1 end
+        st.fullScale = s
+        f:SetScale(s)
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+        local fl, bot, fr, top, es = chromeEdges()
+        local sl, sb, sr, stop = screenEdges()
+        if fl and es and es > 0 then
+            local dx = ((sl + sr) / 2) - ((fl + fr) / 2)
+            local dy = (stop - FULL_MARGIN) - top
+            if dx ~= 0 or dy ~= 0 then
+                f:ClearAllPoints()
+                f:SetPoint("CENTER", UIParent, "CENTER", dx / es, dy / es)
+            end
+        end
+    end
+
+    local function ensureZoomInfo()
+        if st.zoomInfo then return st.zoomInfo end
+        local z = CreateFrame("Frame", "IchaUIWorldMapZoomInfo", WorldMapFrame)
+        z:SetWidth(118)
+        z:SetHeight(18)
+        z:SetFrameLevel((WorldMapFrame:GetFrameLevel() or 1) + 16)
+        z:EnableMouse(false)
+        if z.EnableMouseWheel then z:EnableMouseWheel(false) end
+        z:SetBackdrop({
+            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+        z:SetBackdropColor(0.05, 0.05, 0.06, 0.88)
+        if IchaUI_PaintGoldLightBorder then
+            IchaUI_PaintGoldLightBorder(z, 0.9)
+        elseif z.SetBackdropBorderColor then
+            z:SetBackdropBorderColor(0.93, 0.78, 0.35, 0.9)
+        end
+        local fs = z:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        fs:SetPoint("CENTER", z, "CENTER", 0, 0)
+        if fs.SetTextColor then fs:SetTextColor(0.95, 0.93, 0.85) end
+        if IchaUI_PaintGoldFont then IchaUI_PaintGoldFont(fs, 0.93, 0.78, 0.35) end
+        z.text = fs
+        local btn = WorldMapFrameMinimizeButton or WorldMapFrameMaximizeButton or WorldMapFrameCloseButton
+        if btn then
+            z:SetPoint("RIGHT", btn, "LEFT", -8, 0)
+        else
+            z:SetPoint("TOPRIGHT", WorldMapFrame, "TOPRIGHT", -36, -6)
+        end
+        st.zoomInfo = z
+        return z
+    end
+
+    updateZoomLabel = function()
+        local z = ensureZoomInfo()
+        if not st.active or maximized() then
+            z:Hide()
+            return
+        end
+        if WorldMapFrame.IsShown and not WorldMapFrame:IsShown() then
+            z:Hide()
+            return
+        end
+        local zoom = 1
+        if WorldMapDetailFrame and WorldMapDetailFrame.GetScale then
+            zoom = tonumber(WorldMapDetailFrame:GetScale()) or 1
+        end
+        local pct = math.floor((tonumber(db().scale) or 1) * 100 + 0.5)
+        z.text:SetText(string.format("Zoom %.1fx   %d%%", zoom, pct))
+        z:ClearAllPoints()
+        local btn = WorldMapFrameMaximizeButton or WorldMapFrameCloseButton
+        if btn then
+            z:SetPoint("RIGHT", btn, "LEFT", -8, 0)
+        else
+            z:SetPoint("TOPRIGHT", WorldMapFrame, "TOPRIGHT", -36, -6)
+        end
+        z:Show()
+    end
+
     -- Scale, opacity and position only: safe on every show.
     local function applyLight()
         if not st.active then return end
@@ -785,38 +947,44 @@ local function installIchaUIWorldMap()
         if f.SetClampedToScreen then f:SetClampedToScreen(false) end
         raiseStrata()
         d.scale = scaleFor(d.scale)
-        f:SetScale(d.scale)
         f:SetAlpha(clamp(d.alpha, ALPHA_LO, ALPHA_HI))
-        applyAnchor()
-        if nudgeTitle() then saveAnchor() end
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
         hookRelease(WorldMapButton)
         if WorldMapFrameScrollFrame then hookRelease(WorldMapFrameScrollFrame) end
-        if Magnify_ResetZoom and WorldMapFrameScrollFrame then
-            WorldMapFrameScrollFrame:SetPoint("TOP", f, 0, -36)
-        end
-        ensureGrip():Show()
+        ensureGrip()
         ensureEdges()
-        -- Overlays exist now; hook them so they forward wheel instead of eating it.
+        ensureZoomInfo()
+        if maximized() then
+            layoutMaximized()
+            if st.grip then st.grip:Hide() end
+            if st.edges then
+                local i
+                for i = 1, table.getn(st.edges) do st.edges[i]:Hide() end
+            end
+        else
+            zoomDetach()
+            f:SetScale(d.scale)
+            applyAnchor()
+            if nudgeTitle() then saveAnchor() end
+            if Magnify_ResetZoom and WorldMapFrameScrollFrame then
+                WorldMapFrameScrollFrame:SetPoint("TOP", f, 0, -36)
+            end
+            if st.grip then st.grip:Show() end
+            if st.edges then
+                local i
+                for i = 1, table.getn(st.edges) do st.edges[i]:Show() end
+            end
+        end
         hookWheels()
         raiseStrata()
+        updateZoomLabel()
     end
 
-    -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; size the
-    -- window first, then applyAnchor + a measured title nudge.
+    -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; applyLight
+    -- then fits chrome to the measured screen and does not save that layout.
     local function applyFull()
         if not st.active then return end
-        local f = WorldMapFrame
-        if maximized() then
-            f:ClearAllPoints()
-            f:SetWidth(WorldMapButton:GetWidth() + 15)
-            f:SetHeight(WorldMapButton:GetHeight() + 55)
-            if TargetHPText and WorldMapFrameTitle then
-                WorldMapFrameTitle:SetPoint("TOP", f, 0, 17)
-            end
-            zoomAttach()
-        end
         applyLight()
     end
 
@@ -941,6 +1109,7 @@ local function installIchaUIWorldMap()
         if BlackoutWorld then BlackoutWorld:Show() end
         paintBorder()
         if st.grip then st.grip:Hide() end
+        if st.zoomInfo then st.zoomInfo:Hide() end
         if st.edges then
             local i
             for i = 1, table.getn(st.edges) do st.edges[i]:Hide() end
@@ -1010,11 +1179,12 @@ local function installIchaUIWorldMap()
             paintBorder()
         elseif key == "scale" then
             d.scale = scaleFor(value)
-            if st.active and WorldMapFrame then
+            if st.active and WorldMapFrame and not maximized() then
                 WorldMapFrame:SetScale(d.scale)
                 if nudgeTitle() then saveAnchor() end
                 raiseStrata()
             end
+            if updateZoomLabel then updateZoomLabel() end
         elseif key == "alpha" then
             d.alpha = clamp(value, ALPHA_LO, ALPHA_HI)
             applyLight()
@@ -1084,7 +1254,8 @@ local function installIchaUIWorldMap()
         local win = "nil"
         if WORLDMAP_WINDOWED ~= nil then win = tostring(WORLDMAP_WINDOWED) end
         chat("mapdebug Magnify=" .. mag .. " WORLDMAP_WINDOWED=" .. win
-            .. " maximized=" .. tostring(maximized()))
+            .. " maximized=" .. tostring(maximized())
+            .. " fullScale=" .. n(st.fullScale or computeFullScale()))
         local function strataOf(fr)
             if not fr then return "nil" end
             local nm = "?"

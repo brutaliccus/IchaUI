@@ -2,6 +2,6 @@
 ## Title: IchaUI - Custom Drawers
 ## Notes: Extra custom ability drawers.
 ## Dependencies: IchaUI, IchaUI_Hero
-## Version: 3.4.0
+## Version: 3.4.1
 
 CustomDrawers.lua

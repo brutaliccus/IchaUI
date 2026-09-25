@@ -2,6 +2,6 @@
 ## Title: IchaUI_SmartMark
 ## Notes: Hold a modifier and mark mouseover units in raid-icon order. Requires IchaUI.
 ## Dependencies: IchaUI
-## Version: 3.4.0
+## Version: 3.4.1
 
 SmartMark.lua

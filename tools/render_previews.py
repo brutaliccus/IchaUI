@@ -5,14 +5,14 @@ UI textures (PNG exports, default F:\\wow-ui-textures, override with the
 WOW_UI_TEXTURES environment variable). Geometry follows DrawerStyle.lua,
 Totems.lua, MinimapSkin.lua and XPBar.lua.
 
-    python tools/render_previews.py                 # renders, keep existing placeholders
-    python tools/render_previews.py --placeholders  # also rewrite placeholder images
+    python tools/render_previews.py
+
+Only preview-*.png files are written; the in-game screenshots are never touched.
 
 Requires Pillow.
 """
 import math
 import os
-import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -514,52 +514,12 @@ def render_raid_icons():
     save(im, "preview-raid-icon-order.png")
 
 
-PLACEHOLDERS = [
-    ("config-bars.png", "Config window: Bars tab"),
-    ("config-hero.png", "Config window: Hero tab and Hero setup picker"),
-    ("config-drawers-totems.png", "Config window: Drawers tab (totems, sets, utility checkboxes)"),
-    ("config-frames.png", "Config window: Frames tab (unit-frame editor)"),
-    ("config-mark.png", "Config window: Mark tab (Smart Mark binds and icon order)"),
-    ("unit-frames.png", "Player, target, target-of-target and focus frames"),
-    ("party-raid-frames.png", "Party and raid frames (Test UI helps)"),
-    ("combat-tracker.png", "Combat tracker grid with on-you / loose colors"),
-    ("totem-bar-ingame.png", "Totem bar in game with the progress ring"),
-    ("edit-mode.png", "Edit positions mode (/icha move)"),
-    ("buff-bars.png", "Buff and debuff bars"),
-    ("skins-chat-tooltip.png", "Gold chat frame and tooltip skin"),
-]
-
-
-def render_placeholder(name, caption, force):
-    p = os.path.join(OUT, name)
-    if os.path.exists(p) and not force:
-        return
-    w, h = 960, 360
-    im = Image.new("RGBA", (w, h), (24, 23, 26, 255))
-    d = ImageDraw.Draw(im)
-    gold = tuple(int(c * 255) for c in GOLD)
-    for x in range(10, w - 10, 24):
-        d.line((x, 10, x + 12, 10), fill=gold, width=3)
-        d.line((x, h - 11, x + 12, h - 11), fill=gold, width=3)
-    for y in range(10, h - 10, 24):
-        d.line((10, y, 10, y + 12), fill=gold, width=3)
-        d.line((w - 11, y, w - 11, y + 12), fill=gold, width=3)
-    d.text((w / 2, 130), "SCREENSHOT PLACEHOLDER", font=font(34, serif=True), fill=LABEL, anchor="mm")
-    d.text((w / 2, 190), caption, font=font(20), fill=(235, 232, 220), anchor="mm")
-    d.text((w / 2, 240), "Replace docs/screenshots/%s with an in-game capture" % name,
-           font=font(16, bold=False), fill=MUTED, anchor="mm")
-    save(im, name)
-
-
 def main():
-    force = "--placeholders" in sys.argv
     render_shapes()
     render_totems()
     render_minimap()
     render_xp()
     render_raid_icons()
-    for name, caption in PLACEHOLDERS:
-        render_placeholder(name, caption, force)
 
 
 if __name__ == "__main__":

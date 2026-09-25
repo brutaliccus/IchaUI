@@ -6,7 +6,7 @@ A full interface replacement for the 1.12 client (Turtle WoW / RavenCraft): acti
 ![Client](https://img.shields.io/badge/client-Turtle%20WoW%201.12-green)
 ![Interface](https://img.shields.io/badge/interface-11200-lightgrey)
 
-> **About the images:** anything named `preview-*.png` is an **offline preview render** built from the addon's real textures (`tools/render_previews.py`). It is not an in-game screenshot. Images marked **SCREENSHOT PLACEHOLDER** are waiting for in-game captures.
+> **About the images:** anything named `preview-*.png` is an **offline preview render** built from the addon's real textures (`tools/render_previews.py`). It is not an in-game screenshot. Every other image is an in-game capture.
 
 ![Button and drawer shapes](docs/screenshots/preview-button-shapes.png)
 
@@ -38,7 +38,6 @@ A full interface replacement for the 1.12 client (Turtle WoW / RavenCraft): acti
 - [Saved settings, profiles and defaults](#saved-settings-profiles-and-defaults)
 - [FAQ / troubleshooting](#faq--troubleshooting)
 - [Credits](#credits)
-- [Screenshots to capture](#screenshots-to-capture)
 
 ---
 
@@ -101,8 +100,9 @@ Without SuperWoW, the combat tracker and Smart Tab fall back to name-based track
 - Most sliders have a number box next to them. Type a value and press Enter.
 - Key capture buttons take any key, mouse button (M3, M4, M5) or mouse wheel, with Shift, Ctrl or Alt. Press Esc to cancel.
 
-<!-- SCREENSHOT: docs/screenshots/config-bars.png — replace with in-game capture -->
 ![Config window: Bars tab](docs/screenshots/config-bars.png)
+
+*The Bars tab: action bar scale, gap and strata, per-bar shape and layout, shield binds, and the XP bar size.*
 
 ---
 
@@ -132,8 +132,13 @@ The centerpiece: a grid of large buttons where each button holds **several abili
 - **Shape and Layout** (Grid or Radial, with Spread, Arc and Sh Rot) follow the hero bar you have selected.
 - **Scale:** `/icha heroscale <n>` or the Hero tab slider.
 
-<!-- SCREENSHOT: docs/screenshots/config-hero.png — replace with in-game capture -->
 ![Config window: Hero tab](docs/screenshots/config-hero.png)
+
+*The Hero tab: hero bar selection, scale, columns and rows, shape and layout.*
+
+![Hero setup window](docs/screenshots/hero-setup.png)
+
+*Hero setup: the ability grid on the left, and the abilities on the selected slot with their rank, target and key.*
 
 ### Drawers and shape styles
 
@@ -166,10 +171,13 @@ Build your own drawers of anything: spells, macros or bag items.
 
 ### Shaman totem bar and extras (`IchaUI_Shaman`)
 
-![Totem bar preview](docs/screenshots/preview-totem-bar.png)
-
-<!-- SCREENSHOT: docs/screenshots/totem-bar-ingame.png — replace with in-game capture -->
 ![Totem bar in game](docs/screenshots/totem-bar-ingame.png)
+
+*In game: four element slots with timers and progress rings, paging arrows on each side, and a drawer row above.*
+
+![Totem bar preview render](docs/screenshots/preview-totem-bar.png)
+
+*Offline preview render of the totem bar shapes. The faint background track behind the progress ring is not drawn in game.*
 
 **The bar.** Four element slots (Earth, Fire, Water, Air) with live duration timers. An empty slot shows a skull icon.
 
@@ -207,14 +215,11 @@ Build your own drawers of anything: spells, macros or bag items.
 **Shield binds** (Bars tab): three keys for Lightning, Water and Earth Shield. The shield widget flips to whichever you cast last.
 
 **Resists drawer** (Drawers tab, **Resists**): **Mob stats: On / Off** adds a drawer of the target's resistances to the target frame. **Minimal resists** tucks them by the caret when the drawer is closed. It has Open direction and radial controls too.
-
-<!-- SCREENSHOT: docs/screenshots/config-drawers-totems.png — replace with in-game capture -->
-![Config window: Drawers tab](docs/screenshots/config-drawers-totems.png)
-
 ### Unit frames (`IchaUI_UnitFrames`)
 
-<!-- SCREENSHOT: docs/screenshots/unit-frames.png — replace with in-game capture -->
 ![Unit frames](docs/screenshots/unit-frames.png)
+
+*Player frame, the mob stats box, target frame and target-of-target.*
 
 - **Frames:** Player (round portrait with a gold ring), Target, Target-of-Target, **Focus**, **Party**, **Raid**, and the **Combat** tracker.
 - Thick health bars, thin power bars, class colors, and choice of health, power and cast-bar textures.
@@ -226,11 +231,13 @@ Build your own drawers of anything: spells, macros or bag items.
 - **Focus:** `/setfocus` remembers a unit (friendly or hostile) by GUID until it dies; `/clearfocus`, `/targetfocus`, and `/focuscast <spell>`. `/target focus` in macros is hooked too.
 - `/icha uf blizzard` toggles the default Blizzard frames.
 
-<!-- SCREENSHOT: docs/screenshots/party-raid-frames.png — replace with in-game capture -->
-![Party and raid frames](docs/screenshots/party-raid-frames.png)
+![Party frames](docs/screenshots/party-frames.png)
 
-<!-- SCREENSHOT: docs/screenshots/config-frames.png — replace with in-game capture -->
+*Party frames.*
+
 ![Config window: Frames tab](docs/screenshots/config-frames.png)
+
+*The Frames tab editor on the Player sub-tab, with the live preview in the top left.*
 
 ### Combat tracker
 
@@ -239,8 +246,9 @@ A grid of small unit frames for **every enemy you or your party / raid is fighti
 - Row colors show threat at a glance: **On you** (default red) and **Loose** (on nobody in your group, default yellow). Both colors are editable on the Combat tab.
 - Rows are tracked per GUID with SuperWoW (same-named mobs get their own rows). The tracker is also what **Smart Tab** cycles (below).
 
-<!-- SCREENSHOT: docs/screenshots/combat-tracker.png — replace with in-game capture -->
 ![Combat tracker](docs/screenshots/combat-tracker.png)
+
+*The combat tracker listing a pack of enemies, each showing the raid icon Smart Mark gave it.*
 
 ### Buff bars (`IchaUI_BuffBars`)
 
@@ -248,8 +256,9 @@ A grid of small unit frames for **every enemy you or your party / raid is fighti
 - **Right-click a buff to cancel it.**
 - Buffs tab: Scale, Gap, Row, Cols, Text, Move. Also `/icha buffs move | scale | gap | cols`.
 
-<!-- SCREENSHOT: docs/screenshots/buff-bars.png — replace with in-game capture -->
 ![Buff bars](docs/screenshots/buff-bars.png)
+
+*Buff bars with durations and stacks under the icons.*
 
 ### Minimap (`IchaUI_Minimap`)
 
@@ -300,8 +309,9 @@ Hold a key and **sweep the mouse over a pack**: every unit you touch gets the ne
 - In a raid you need leader or assist to mark.
 - Set the keys on the Mark tab, or in Esc > Key Bindings > **IchaUI Smart Mark**. **Smart Mark: On / Off** disables it without losing the binds.
 
-<!-- SCREENSHOT: docs/screenshots/config-mark.png — replace with in-game capture -->
 ![Config window: Mark tab](docs/screenshots/config-mark.png)
+
+*The Mark tab: Smart Mark enemy and friendly keys, and the separate enemy and friendly icon orders.*
 
 ### Edit positions and the frame editor
 
@@ -311,10 +321,6 @@ Hold a key and **sweep the mouse over a pack**: every unit you touch gets the ne
 - **Detach** a bar to place it freely on the screen.
 - **Escape saves** the positions and leaves edit mode.
 - Unit frames have their own **Move / Show / Hide** buttons, X/Y boxes and arrow nudges on the Frames tab, plus `/icha uf <frame> move`.
-
-<!-- SCREENSHOT: docs/screenshots/edit-mode.png — replace with in-game capture -->
-![Edit positions mode](docs/screenshots/edit-mode.png)
-
 ### Skins: gold theme, chat, tooltips, frames
 
 All on the **Skin** tab:
@@ -324,8 +330,9 @@ All on the **Skin** tab:
 - **Tooltips:** gold border and dark fill on GameTooltip and common tooltip frames (including late ones such as AtlasLoot). It shows the **vendor sell price** when the client provides it (SuperWoW), and the comparison tooltips show what you have equipped in the matching slots (both rings, both trinkets, both hands for two-handers).
 - **TWThreat + Caw DPS skin:** gold tooltip-border chrome on those addons' windows and dropdowns. The Character and Spellbook frames stay stock.
 
-<!-- SCREENSHOT: docs/screenshots/skins-chat-tooltip.png — replace with in-game capture -->
-![Chat and tooltip skin](docs/screenshots/skins-chat-tooltip.png)
+![Chat skin](docs/screenshots/skin-chat.png)
+
+*The chat skin, with the edit box parked above the frame.*
 
 ### Combat assist
 
@@ -455,33 +462,10 @@ Please open an issue with the full error text (install an error catcher such as 
 
 ```
 IchaUI/ ... IchaUI_XP/     the addon folders (what the release zip contains)
-docs/screenshots/          README images (preview renders and placeholders)
+docs/screenshots/          README images (in-game captures and preview-*.png renders)
 tools/sync.ps1             re-copy the addon folders from a live AddOns folder
 tools/render_previews.py   rebuild the preview renders (needs Pillow)
 tools/build_release.py     build dist/IchaUI-<version>.zip from the committed addon folders
 ```
 
 The release zip contains only the addon folders; `docs/` and `tools/` are repository-only.
-
----
-
-## Screenshots to capture
-
-These README images are placeholders. Capture them in game (1920x1080 or larger, cropped to the subject) and save them over the files in `docs/screenshots/` with the same names. `python tools/render_previews.py` never overwrites existing placeholder files unless you pass `--placeholders`.
-
-| File | What to capture |
-|------|-----------------|
-| `config-bars.png` | `/iui`, Bars tab |
-| `config-hero.png` | `/iui`, Hero tab, ideally with the Hero setup picker open |
-| `config-drawers-totems.png` | `/iui`, Drawers tab: totem sets, binds, and the utility checkboxes |
-| `config-frames.png` | `/iui`, Frames tab (unit-frame editor) |
-| `config-mark.png` | `/iui`, Mark tab (Smart Mark binds and icon order) |
-| `unit-frames.png` | Player, target, target-of-target and focus frames |
-| `party-raid-frames.png` | Party and raid frames (Test UI works) |
-| `combat-tracker.png` | Combat tracker grid mid-pull, showing on-you and loose colors |
-| `totem-bar-ingame.png` | Totem bar with timers and a running progress ring |
-| `edit-mode.png` | `/icha move` edit mode |
-| `buff-bars.png` | Buff and debuff bars |
-| `skins-chat-tooltip.png` | Gold chat frame plus an item tooltip |
-
-The `preview-*.png` renders (button shapes, totem bar, minimap shapes, XP bar, raid icon order) can stay, or be swapped for captures too.

@@ -47,6 +47,8 @@ Every module is its own addon, so you can turn off the ones you don't want.
 
 **Everything else**
 - Minimap with 26 frame shapes and a drawer that collects other addons' minimap buttons.
+- Windowed world map you can drag, scale and fade, with zone level ranges, instances and raids when you hover a zone.
+- Movable tooltip anchor: put tooltips wherever you like instead of the bottom-right corner.
 - Buff bars (right-click to cancel), and an XP bar that switches to reputation on right-click.
 - Gold skin for chat, tooltips (with vendor prices), and the Caw DPS and TWThreat windows.
 - Auto-dismount, auto-attack on melee abilities, and saveable profiles.
@@ -124,6 +126,8 @@ The key must include Shift, Ctrl or Alt (for example `Shift-Q`). In a raid you n
 
 - Made by [brutaliccus](https://github.com/brutaliccus) for the Turtle WoW community.
 - IchaPlates is based on ShaguPlatesX by Eric Mauser (Shagu), adapted by Ehawne, derived from [ShaguPlates](https://github.com/shagu/ShaguPlates) and [pfUI](https://github.com/shagu/pfUI). Used under the MIT License.
+- The windowed world map is based on [ShaguTweaks](https://github.com/shagu/ShaguTweaks) by Eric Mauser (Shagu), used under the MIT License.
+- World map level ranges come from [LevelRange [Turtle]](https://github.com/Spartelfant/LevelRange-Turtle) by Bull3t, Tenyar97, rado-boy, blehz, rafacc87, Diginfotek and Spartelfant.
 - Minimap shapes use SexyMap-style masks and pfUI border art.
 - Totemic Recall range logic follows CallOfElements.
 

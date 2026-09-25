@@ -19,5 +19,7 @@ FrameEditor.lua
 DrawerStyle.lua
 Positions.lua
 DrawerPop.lua
+WorldMap.lua
+MapLevels.lua
 Options.lua
 Slash.lua

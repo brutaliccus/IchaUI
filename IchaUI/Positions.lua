@@ -1479,6 +1479,16 @@ local function collectEntries()
             end)
         end
     end
+    -- Tooltip anchor: an invisible frame, so it is listed whenever the custom
+    -- anchor is on (cursor-follow ignores the box, so it is left out then).
+    local tipCfg = IchaUI_TooltipAnchor_Get and IchaUI_TooltipAnchor_Get()
+    if IchaUI_TooltipAnchor_SetMove and tipCfg and tipCfg.enabled and not tipCfg.cursor then
+        add("tooltip", IchaUI_TooltipAnchor_Frame(), function()
+            IchaUI_TooltipAnchor_SetMove(true)
+        end, function()
+            IchaUI_TooltipAnchor_SetMove(false)
+        end)
+    end
     local drawers = IchaUIDB and IchaUIDB.customDrawers
     if IchaUI_CustomDrawers_Apply and type(drawers) == "table" then
         local di
@@ -1525,6 +1535,7 @@ end
 local SNAP_KEYS = {
     "layoutX", "layoutY", "barPlace", "xp", "buffBars", "uf", "totems",
     "shamanExtras", "minimap", "customDrawers", "combat", "heroExtras",
+    "tooltip",
 }
 
 local function takeSnapshot()
@@ -1556,6 +1567,7 @@ local function reapply()
     if IchaUIShamanExtras_Apply then IchaUIShamanExtras_Apply() end
     if IchaUI_CustomDrawers_Apply then IchaUI_CustomDrawers_Apply() end
     if IchaUI_TotemRecallIcon_ApplyPos then IchaUI_TotemRecallIcon_ApplyPos() end
+    if IchaUI_TooltipAnchor_Apply then IchaUI_TooltipAnchor_Apply() end
     if IchaUIUF_Get then
         local keys = { "player", "target", "tot", "focus" }
         local i

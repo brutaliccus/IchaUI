@@ -1163,7 +1163,7 @@ end
 function D.backToGeneral()
     if not cfg().backToGeneral then return end
     D.hideFakes()
-    if D.isHost(SELECTED_CHAT_FRAME) and FCF_SelectDockFrame then
+    if (D.isHost(M.shownFrame()) or D.isHost(SELECTED_CHAT_FRAME)) and FCF_SelectDockFrame then
         local cf1 = getglobal("ChatFrame1")
         if cf1 and cf1.isDocked then FCF_SelectDockFrame(cf1) end
     end

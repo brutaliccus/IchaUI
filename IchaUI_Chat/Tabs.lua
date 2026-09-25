@@ -33,7 +33,7 @@ end
 
 function T.paintTabs()
     local c = M.C("tabs")
-    local sel = M.selectedFrame()
+    local sel = M.shownFrame()
     local a = tonumber(c.inactiveAlpha) or 0.5
     local i
     for i = 1, M.numWindows() do

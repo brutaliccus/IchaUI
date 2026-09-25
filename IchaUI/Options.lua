@@ -910,6 +910,63 @@ function IchaUI_ChoiceMenu(anchor, opts, cur, onPick, fontPreview)
     IchaUI_ChoiceMenuPaint()
 end
 
+-- Skin tab row for the movable tooltip anchor (TooltipSkin.lua). Returns a refresh fn.
+function IchaUI_BuildTooltipAnchorRow(page, x, y)
+    local ui = {}
+    local function cfg()
+        return (IchaUI_TooltipAnchor_Get and IchaUI_TooltipAnchor_Get()) or {}
+    end
+    local function refresh()
+        local t = cfg()
+        ui.on:SetText(t.enabled and "Custom anchor: On" or "Custom anchor: Off")
+        ui.corner:SetText("Corner: " .. IchaUI_TooltipAnchor_CornerLabel(t.corner))
+        ui.cursor:SetText(t.cursor and "Cursor: On" or "Cursor: Off")
+        local solo = IchaUI_TooltipAnchor_SoloActive and IchaUI_TooltipAnchor_SoloActive()
+        ui.move:SetText(solo and "Lock" or "Move")
+    end
+    local function set(field, value)
+        if IchaUI_TooltipAnchor_Set then IchaUI_TooltipAnchor_Set(field, value) end
+        refresh()
+    end
+    ui.on = makeButton(page, "Custom anchor: On", 120, 20, function()
+        set("enabled", not cfg().enabled)
+    end)
+    ui.on:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
+    ui.corner = makeButton(page, "Corner: Bottom right", 140, 20, function()
+        if not IchaUI_TooltipAnchor_Corners then return end
+        local opts = IchaUI_TooltipAnchor_Corners()
+        local cur, i = 1, 1
+        for i = 1, table.getn(opts) do
+            if opts[i][1] == cfg().corner then cur = i end
+        end
+        IchaUI_ChoiceMenu(this, opts, cur, function(pick)
+            if opts[pick] then set("corner", opts[pick][1]) end
+        end)
+    end)
+    IchaUI_ChoiceArrow(ui.corner)
+    ui.corner:SetPoint("LEFT", ui.on, "RIGHT", 6, 0)
+    ui.cursor = makeButton(page, "Cursor: Off", 84, 20, function()
+        set("cursor", not cfg().cursor)
+    end)
+    ui.cursor:SetPoint("LEFT", ui.corner, "RIGHT", 6, 0)
+    ui.move = makeButton(page, "Move", 54, 20, function()
+        if IchaUI_TooltipAnchor_ToggleSolo then IchaUI_TooltipAnchor_ToggleSolo() end
+        refresh()
+    end)
+    ui.move:SetPoint("LEFT", ui.cursor, "RIGHT", 6, 0)
+    ui.reset = makeButton(page, "Reset", 54, 20, function()
+        set("reset")
+    end)
+    ui.reset:SetPoint("LEFT", ui.move, "RIGHT", 6, 0)
+    if not IchaUI_TooltipAnchor_Get then
+        ui.on:Hide(); ui.corner:Hide(); ui.cursor:Hide(); ui.move:Hide(); ui.reset:Hide()
+        return function() end
+    end
+    IchaUI_TooltipAnchorRowRefresh = refresh
+    refresh()
+    return refresh
+end
+
 local function makeEdit(parent, w, h)
     local e = CreateFrame("EditBox", nil, parent, "InputBoxTemplate")
     e:SetWidth(w)
@@ -3162,6 +3219,10 @@ local function build()
     tip(pageMap, "Clock defaults under the map. Locked = click-through. Move to drag, Lock when done.", PAD, yMp, 520)
     yMp = yMp - 28
 
+    if IchaUI_WorldMapOptionsBlock then
+        yMp = IchaUI_WorldMapOptionsBlock(pageMap, PAD, yMp, sectionHeader, makeButton, makeSliderRow, tip, SLW, ROW, sliderRefreshList)
+    end
+
     fillMapDrawer(pageMap)
 
     ------------------------------------------------------------------
@@ -3356,8 +3417,10 @@ local function build()
     end)
     tipSkinBtn:SetPoint("TOPLEFT", pageSkin, "TOPLEFT", PAD, ySk)
     ySk = ySk - 24
-    tip(pageSkin, "Gold border / dark fill on GameTooltip and common tips. Default On.", PAD, ySk, PANEL_W - 40)
-    ySk = ySk - 28
+    pages._tipAnchorRefresh = IchaUI_BuildTooltipAnchorRow(pageSkin, PAD, ySk)
+    ySk = ySk - 24
+    tip(pageSkin, "Gold border / dark fill on GameTooltip and common tips. Default On. Custom anchor: Move (or /icha move) and drag the Tooltip box; Corner is the tooltip corner that sits on the box; Reset returns to Blizzard's spot.", PAD, ySk, COL2 - PAD - 20)
+    ySk = ySk - 40
 
     sectionHeader(pageSkin, "Gold", PAD, ySk); ySk = ySk - 20
     local goldLabel = pageSkin:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -3545,6 +3608,7 @@ local function build()
             local g = (IchaUI_TooltipSkin_Get and IchaUI_TooltipSkin_Get()) or IchaUITooltipSkin_Get()
             tipSkinBtn:SetText((g and g.enabled) and "Tooltips: On" or "Tooltips: Off")
         end
+        if pages._tipAnchorRefresh then pages._tipAnchorRefresh() end
         if pages._chatRefresh then pages._chatRefresh() end
         if pages._platesRefresh then pages._platesRefresh() end
         if IchaUI_HeroPickRefresh then IchaUI_HeroPickRefresh() end

@@ -1302,3 +1302,379 @@ cmpWatch:SetScript("OnUpdate", function()
 end)
 
 hookSetTooltipMoney()
+
+------------------------------------------------------------------------
+-- Movable default tooltip anchor (IchaUIDB.tooltip).
+-- Only GameTooltip_SetDefaultAnchor callers move; tooltips an addon anchors
+-- itself (ANCHOR_RIGHT on its own owner etc.) never pass through here.
+-- Until the box is dragged in /icha move and the corner is Bottom right,
+-- the hook changes nothing and Blizzard's spot is used as is.
+------------------------------------------------------------------------
+local function installIchaUITooltipAnchor()
+    local CORNERS = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPRIGHT", "TOPLEFT" }
+    local CORNER_LABELS = {
+        BOTTOMRIGHT = "Bottom right", BOTTOMLEFT = "Bottom left",
+        TOPRIGHT = "Top right", TOPLEFT = "Top left",
+    }
+    local BOX_W, BOX_H = 160, 64
+    local anchor = nil
+    local moving = false
+    local base = nil
+    local prev = nil
+    local busy = false
+    local defaultAnchor
+
+    local function db()
+        if type(IchaUIDB) ~= "table" then IchaUIDB = {} end
+        local t = IchaUIDB.tooltip
+        if type(t) ~= "table" then
+            t = (IchaUI_BakedGet and IchaUI_BakedGet("tooltip")) or {}
+            if type(t) ~= "table" then t = {} end
+            IchaUIDB.tooltip = t
+        end
+        if t.enabled == nil then t.enabled = true end
+        return t
+    end
+
+    local function cornerOf(t)
+        local c = t and t.corner
+        if CORNER_LABELS[c] then return c end
+        return "BOTTOMRIGHT"
+    end
+
+    -- Blizzard's live spot: BOTTOMRIGHT, -CONTAINER_OFFSET_X - 13, CONTAINER_OFFSET_Y.
+    local function blizzXY()
+        local ox = tonumber(CONTAINER_OFFSET_X)
+        local oy = tonumber(CONTAINER_OFFSET_Y)
+        if not ox or not oy then
+            local t = IchaUI_BakedDefaults and IchaUI_BakedDefaults.tooltip
+            return (t and t.x) or -13, (t and t.y) or 70
+        end
+        return -ox - 13, oy
+    end
+
+    local function round(v)
+        return math.floor((v or 0) + 0.5)
+    end
+
+    local function place()
+        if not anchor then return end
+        local t = db()
+        anchor:ClearAllPoints()
+        if t.moved and t.point then
+            anchor:SetPoint(t.point, UIParent, t.relPoint or t.point, t.x or 0, t.y or 0)
+        else
+            local x, y = blizzXY()
+            anchor:SetPoint("BOTTOMRIGHT", UIParent, "BOTTOMRIGHT", x, y)
+        end
+    end
+
+    local function paintBox()
+        if not anchor or not anchor.sub then return end
+        anchor.sub:SetText(CORNER_LABELS[cornerOf(db())] .. " corner")
+    end
+
+    -- Store the box by the chosen corner so the tooltip grows away from it.
+    local function saveFromRect()
+        if not anchor then return end
+        local l, r = anchor:GetLeft(), anchor:GetRight()
+        local tp, b = anchor:GetTop(), anchor:GetBottom()
+        if not l or not r or not tp or not b then return end
+        local pr = UIParent:GetRight() or UIParent:GetWidth() or 0
+        local pt = UIParent:GetTop() or UIParent:GetHeight() or 0
+        local t = db()
+        local c = cornerOf(t)
+        local x, y
+        if string.find(c, "LEFT") then x = l else x = r - pr end
+        if string.find(c, "BOTTOM") then y = b else y = tp - pt end
+        t.point = c
+        t.relPoint = c
+        t.x = round(x)
+        t.y = round(y)
+        t.moved = true
+        place()
+    end
+
+    local function ensureAnchor()
+        if anchor then return anchor end
+        anchor = CreateFrame("Frame", "IchaUITooltipAnchor", UIParent)
+        anchor:SetWidth(BOX_W)
+        anchor:SetHeight(BOX_H)
+        anchor:SetFrameStrata("DIALOG")
+        anchor:SetClampedToScreen(true)
+        anchor:SetMovable(true)
+        anchor:EnableMouse(false)
+        anchor:RegisterForDrag("LeftButton")
+        local box = CreateFrame("Frame", nil, anchor)
+        box:SetAllPoints(anchor)
+        box:SetBackdrop({
+            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+            tile = true, tileSize = 8, edgeSize = 10,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+        box:SetBackdropColor(0.06, 0.06, 0.07, 0.85)
+        box:SetBackdropBorderColor(0.93, 0.78, 0.35, 1)
+        local lbl = box:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        lbl:SetPoint("CENTER", box, "CENTER", 0, 7)
+        lbl:SetText("Tooltip")
+        lbl:SetTextColor(0.93, 0.78, 0.35)
+        local sub = box:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        sub:SetPoint("CENTER", box, "CENTER", 0, -9)
+        sub:SetTextColor(1, 1, 1)
+        box:Hide()
+        anchor.box = box
+        anchor.sub = sub
+        anchor:SetScript("OnDragStart", function()
+            if moving then
+                this.dragging = true
+                this:StartMoving()
+            end
+        end)
+        anchor:SetScript("OnDragStop", function()
+            this.dragging = nil
+            this:StopMovingOrSizing()
+            if moving then saveFromRect() end
+        end)
+        place()
+        paintBox()
+        anchor:Show()
+        return anchor
+    end
+
+    local function applyTo(tooltip, parent)
+        if tooltip ~= GameTooltip then return end
+        local t = db()
+        if not t.enabled then return end
+        local owner = parent
+        if not owner and tooltip.GetOwner then owner = tooltip:GetOwner() end
+        if not owner then owner = UIParent end
+        if t.cursor then
+            tooltip:SetOwner(owner, "ANCHOR_CURSOR")
+            tooltip.default = 1
+            return
+        end
+        local c = cornerOf(t)
+        if not t.moved and c == "BOTTOMRIGHT" then return end
+        local a = ensureAnchor()
+        if not t.moved then place() end
+        tooltip:SetOwner(owner, "ANCHOR_NONE")
+        tooltip:ClearAllPoints()
+        tooltip:SetPoint(c, a, c, 0, 0)
+        tooltip.default = 1
+    end
+
+    -- A later addon that wraps us and calls us back as its "original" lands
+    -- in the busy branch, which runs the function we first replaced.
+    defaultAnchor = function(tooltip, parent)
+        if busy then
+            if base then return base(tooltip, parent) end
+            return
+        end
+        busy = true
+        local ok = true
+        if prev then ok = pcall(prev, tooltip, parent) end
+        busy = false
+        if not ok and base and base ~= prev then base(tooltip, parent) end
+        applyTo(tooltip, parent)
+    end
+
+    local function ensureHook()
+        local cur = GameTooltip_SetDefaultAnchor
+        if cur == defaultAnchor or type(cur) ~= "function" then return end
+        if not base then base = cur end
+        prev = cur
+        GameTooltip_SetDefaultAnchor = defaultAnchor
+    end
+
+    function IchaUI_TooltipAnchor_Get()
+        return db()
+    end
+
+    function IchaUI_TooltipAnchor_Enabled()
+        return db().enabled and true or false
+    end
+
+    function IchaUI_TooltipAnchor_Corners()
+        local out = {}
+        local i
+        for i = 1, table.getn(CORNERS) do
+            out[i] = { CORNERS[i], CORNER_LABELS[CORNERS[i]] }
+        end
+        return out
+    end
+
+    function IchaUI_TooltipAnchor_CornerLabel(c)
+        return CORNER_LABELS[c] or CORNER_LABELS.BOTTOMRIGHT
+    end
+
+    function IchaUI_TooltipAnchor_Frame()
+        return ensureAnchor()
+    end
+
+    function IchaUI_TooltipAnchor_Apply()
+        ensureHook()
+        ensureAnchor()
+        place()
+        paintBox()
+        if not moving then anchor.box:Hide() end
+    end
+
+    -- Solo move (Skin tab Move button): only this box unlocks, above the config
+    -- window, with its own Lock chip. Escape closes it via UISpecialFrames.
+    local solo = false
+    local soloStarting = false
+    local soloKey = nil
+    local soloChip = nil
+    local endSolo
+
+    local function ensureSolo()
+        if soloChip then return end
+        local a = ensureAnchor()
+        soloChip = CreateFrame("Button", nil, a.box)
+        soloChip:SetWidth(36)
+        soloChip:SetHeight(16)
+        soloChip:SetPoint("TOPRIGHT", a.box, "TOPRIGHT", 0, 16)
+        soloChip:SetBackdrop({
+            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+            tile = true, tileSize = 8, edgeSize = 8,
+            insets = { left = 2, right = 2, top = 2, bottom = 2 },
+        })
+        soloChip:SetBackdropColor(0.08, 0.08, 0.09, 0.94)
+        soloChip:SetBackdropBorderColor(0.93, 0.78, 0.35, 1)
+        local fs = soloChip:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetPoint("CENTER", soloChip, "CENTER", 0, 0)
+        fs:SetText("Lock")
+        fs:SetTextColor(1, 1, 1)
+        soloChip:SetScript("OnClick", function() endSolo() end)
+        soloChip:Hide()
+        soloKey = CreateFrame("Frame", "IchaUITooltipAnchorSolo", UIParent)
+        soloKey:SetScript("OnHide", function()
+            if solo then endSolo() end
+        end)
+        soloKey:Hide()
+        if UISpecialFrames then table.insert(UISpecialFrames, "IchaUITooltipAnchorSolo") end
+    end
+
+    local function soloRefresh()
+        if IchaUI_TooltipAnchorRowRefresh then pcall(IchaUI_TooltipAnchorRowRefresh) end
+    end
+
+    endSolo = function()
+        if not solo then return end
+        solo = false
+        IchaUI_TooltipAnchor_SetMove(false)
+        soloRefresh()
+    end
+
+    function IchaUI_TooltipAnchor_SetMove(on)
+        local a = ensureAnchor()
+        if solo and on and not soloStarting then
+            -- full edit mode took over: drop the solo chip, keep the box unlocked
+            solo = false
+            soloRefresh()
+        end
+        if on then
+            moving = true
+            place()
+            paintBox()
+            a:EnableMouse(true)
+            a.box:Show()
+        else
+            if a.dragging then
+                a.dragging = nil
+                a:StopMovingOrSizing()
+                saveFromRect()
+            end
+            moving = false
+            solo = false
+            a:EnableMouse(false)
+            a.box:Hide()
+        end
+        if soloChip then
+            if solo then soloChip:Show() else soloChip:Hide() end
+            if not solo and soloKey:IsShown() then soloKey:Hide() end
+        end
+        if solo then
+            a:SetFrameStrata("TOOLTIP")
+            a:SetFrameLevel(250)
+            a.box:SetFrameLevel(251)
+            soloChip:SetFrameLevel(252)
+        else
+            a:SetFrameStrata("DIALOG")
+        end
+    end
+
+    function IchaUI_TooltipAnchor_Moving()
+        return moving
+    end
+
+    function IchaUI_TooltipAnchor_SoloActive()
+        return solo
+    end
+
+    -- Unlock only the tooltip box; a second call locks and saves.
+    function IchaUI_TooltipAnchor_ToggleSolo()
+        if solo then
+            endSolo()
+            return false
+        end
+        if IchaUI_EditModeActive and IchaUI_EditModeActive() then return false end
+        local t = db()
+        t.enabled = true
+        t.cursor = false
+        ensureSolo()
+        solo = true
+        soloStarting = true
+        IchaUI_TooltipAnchor_SetMove(true)
+        soloStarting = false
+        soloKey:Show()
+        soloRefresh()
+        return true
+    end
+
+    -- field: "enabled" | "cursor" | "corner" | "reset"
+    function IchaUI_TooltipAnchor_Set(field, value)
+        local t = db()
+        if field == "enabled" then
+            t.enabled = value and true or false
+        elseif field == "cursor" then
+            t.cursor = value and true or false
+        elseif field == "corner" then
+            if not CORNER_LABELS[value] then return end
+            t.corner = value
+            if t.moved then saveFromRect() end
+        elseif field == "reset" then
+            t.moved = false
+            t.corner = "BOTTOMRIGHT"
+            local x, y = blizzXY()
+            t.point = "BOTTOMRIGHT"
+            t.relPoint = "BOTTOMRIGHT"
+            t.x = x
+            t.y = y
+        end
+        ensureAnchor()
+        place()
+        paintBox()
+    end
+
+    -- Hook at load, then again after login in case another addon replaced
+    -- the global without chaining (it then becomes our prev).
+    ensureHook()
+    local tipBoot = CreateFrame("Frame")
+    tipBoot:RegisterEvent("PLAYER_ENTERING_WORLD")
+    tipBoot:SetScript("OnEvent", function()
+        this:UnregisterEvent("PLAYER_ENTERING_WORLD")
+        IchaUI_TooltipAnchor_Apply()
+        local e = 0
+        this:SetScript("OnUpdate", function()
+            e = e + (arg1 or 0)
+            if e < 3 then return end
+            this:SetScript("OnUpdate", nil)
+            ensureHook()
+        end)
+    end)
+end
+
+installIchaUITooltipAnchor()

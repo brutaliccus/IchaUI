@@ -28,8 +28,37 @@ local function skinOn()
     return g and g.enabled and true or false
 end
 
+------------------------------------------------------------------------
+-- The edit box follows the selected tab, but never a meter tab: there it
+-- stays on the last chat tab (position, chatFrame, SELECTED_CHAT_FRAME).
+------------------------------------------------------------------------
+local function isMeter(cf)
+    return cf and M.Dock and M.Dock.isHost and M.Dock.isHost(cf) or false
+end
+E.isMeter = isMeter
+
+function E.chatFrame()
+    local cf = E.lastChat
+    if cf and not isMeter(cf) and (cf.isDocked or (cf.IsShown and cf:IsShown())) then return cf end
+    return getglobal("ChatFrame1")
+end
+
+function E.rebind()
+    local sel = SELECTED_CHAT_FRAME
+    if sel and not isMeter(sel) then
+        E.lastChat = sel
+    end
+    local cf = E.chatFrame()
+    if isMeter(SELECTED_CHAT_FRAME) then SELECTED_CHAT_FRAME = cf end
+    if isMeter(DEFAULT_CHAT_FRAME) then DEFAULT_CHAT_FRAME = cf end
+    local b = box()
+    if b and isMeter(b.chatFrame) then b.chatFrame = cf end
+    return cf
+end
+
 function E.anchorFrame()
     local cf = M.selectedFrame()
+    if isMeter(cf) then cf = E.chatFrame() end
     if not cf then return getglobal("ChatFrame1") end
     if skinOn() and cf._waChrome then return cf._waChrome end
     return cf
@@ -256,8 +285,13 @@ local function hookGlobals()
     if type(ChatFrame_OpenChat) == "function" then
         local oldOpen = ChatFrame_OpenChat
         ChatFrame_OpenChat = function(text, chatFrame)
+            local before = SELECTED_CHAT_FRAME
             if M.Dock and M.Dock.beforeOpenChat then M.Dock.beforeOpenChat() end
+            local cf = E.rebind()
+            -- a meter frame, or the tab Back to General just switched away from
+            if chatFrame and (isMeter(chatFrame) or (chatFrame == before and cf ~= before)) then chatFrame = cf end
             oldOpen(text, chatFrame)
+            E.rebind()
             local stash = E.stash
             E.stash = nil
             if (text == nil or text == "") and stash and stash ~= "" and M.C("editbox").sticky then
@@ -282,17 +316,22 @@ local function hookGlobals()
     end
     clearFirst("ChatFrame_ReplyTell")
     clearFirst("ChatFrame_ReplyTell2")
-    local function placeAfter(fname)
+    local function placeAfter(fname, selects)
         local old = getglobal(fname)
         if type(old) ~= "function" then return end
         setglobal(fname, function(a1, a2, a3, a4)
             local r = old(a1, a2, a3, a4)
+            -- FCF_SelectDockFrame(frame): a chat tab picked in code counts as selected
+            if selects and type(a1) == "table" and a1.AddMessage and not isMeter(a1) then
+                SELECTED_CHAT_FRAME = a1
+            end
+            E.rebind()
             E.place()
             return r
         end)
     end
     placeAfter("FCF_Tab_OnClick")
-    placeAfter("FCF_SelectDockFrame")
+    placeAfter("FCF_SelectDockFrame", true)
 end
 
 local function hookShow()
@@ -301,7 +340,9 @@ local function hookShow()
     b._icShowHook = true
     local old = b:GetScript("OnShow")
     b:SetScript("OnShow", function()
+        E.rebind()
         if old then old() end
+        E.rebind()
         IchaUIChat_PlaceEditBox(this)
     end)
 end

@@ -146,6 +146,19 @@ function M.selectedFrame()
     return SELECTED_CHAT_FRAME or DEFAULT_CHAT_FRAME or getglobal("ChatFrame1")
 end
 
+-- The docked tab on screen. Differs from selectedFrame on a meter tab,
+-- where the edit box keeps SELECTED_CHAT_FRAME on the last chat tab.
+function M.shownFrame()
+    local s = SELECTED_DOCK_FRAME
+    if s and s.IsVisible and s:IsVisible() then return s end
+    local i
+    for i = 1, M.numWindows() do
+        local cf = M.frame(i)
+        if cf and cf.isDocked and cf:IsVisible() then return cf end
+    end
+    return M.selectedFrame()
+end
+
 ------------------------------------------------------------------------
 -- One-shot timers
 ------------------------------------------------------------------------

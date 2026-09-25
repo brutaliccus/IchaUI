@@ -1,6 +1,6 @@
 # IchaUI
 
-A complete UI replacement for WoW 1.12 and Turtle WoW: action bars, unit frames, nameplates, chat, minimap and more, all in one matching gold theme. Everything is configured in one window: type `/iui`.
+A complete UI replacement for WoW 1.12: action bars, unit frames, nameplates, chat, minimap and more, all in one matching gold theme. Everything is configured in one window: type `/iui`.
 
 Built for Shamans first (full totem bar with sets and Fire Twist), but every other module works for any class.
 
@@ -44,6 +44,7 @@ Every module is its own addon, so you can turn off the ones you don't want.
 **Targeting**
 - Smart Tab: Tab cycles the combat tracker by health, with a tank mode.
 - Smart Mark: hold a key and sweep your mouse over a pack to mark it. Works on enemies and friendlies.
+- Click to dispel: pick a click and modifier for each dispel type on any unit frame, plus a Smart Dispel keybind that cures in your priority order.
 
 **Everything else**
 - Minimap with 26 frame shapes and a drawer that collects other addons' minimap buttons.
@@ -88,7 +89,8 @@ Every module is its own addon, so you can turn off the ones you don't want.
 
 ### Requirements
 
-- WoW 1.12.1 client (tested on Turtle WoW).
+- WoW 1.12.1 client.
+- ClassicAPI is **required**. IchaUI uses it throughout.
 - [SuperWoW](https://github.com/balakethelock/SuperWoW) is **required for IchaPlates** and recommended for everything else. It enables the focus frame, enemy cast bars, totem range checks, vendor prices, and lets the combat tracker, Smart Tab and Smart Mark tell same-named mobs apart.
 - Optional: Nampower (for `/focuscast`) and SuperCleveRoidMacros (for `[@focus]` macros).
 
@@ -124,10 +126,10 @@ The key must include Shift, Ctrl or Alt (for example `Shift-Q`). In a raid you n
 
 ## Credits
 
-- Made by [brutaliccus](https://github.com/brutaliccus) for the Turtle WoW community.
+- Made by [brutaliccus](https://github.com/brutaliccus).
 - IchaPlates is based on ShaguPlatesX by Eric Mauser (Shagu), adapted by Ehawne, derived from [ShaguPlates](https://github.com/shagu/ShaguPlates) and [pfUI](https://github.com/shagu/pfUI). Used under the MIT License.
 - The windowed world map is based on [ShaguTweaks](https://github.com/shagu/ShaguTweaks) by Eric Mauser (Shagu), used under the MIT License.
-- World map level ranges come from [LevelRange [Turtle]](https://github.com/Spartelfant/LevelRange-Turtle) by Bull3t, Tenyar97, rado-boy, blehz, rafacc87, Diginfotek and Spartelfant.
+- World map level ranges come from [LevelRange](https://github.com/Spartelfant/LevelRange-Turtle) by Bull3t, Tenyar97, rado-boy, blehz, rafacc87, Diginfotek and Spartelfant.
 - Minimap shapes use SexyMap-style masks and pfUI border art.
 - Totemic Recall range logic follows CallOfElements.
 

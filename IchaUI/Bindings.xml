@@ -1,3 +1,15 @@
 <Bindings>
 	<!-- ICHA category header. Feature binds live on IchaUI_Hero, IchaUI_SmartTab, and IchaUI_Shaman. -->
+	<Binding name="ICHA_DISPEL_TARGET" header="ICHADISPEL">
+		if IchaUI_Dispel_Bind then IchaUI_Dispel_Bind("target") end
+	</Binding>
+	<Binding name="ICHA_DISPEL_MOUSEOVER">
+		if IchaUI_Dispel_Bind then IchaUI_Dispel_Bind("mouseover") end
+	</Binding>
+	<Binding name="ICHA_DISPEL_SELF">
+		if IchaUI_Dispel_Bind then IchaUI_Dispel_Bind("self") end
+	</Binding>
+	<Binding name="ICHA_DISPEL_FOCUS">
+		if IchaUI_Dispel_Bind then IchaUI_Dispel_Bind("focus") end
+	</Binding>
 </Bindings>

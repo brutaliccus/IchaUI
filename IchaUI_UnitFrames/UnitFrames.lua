@@ -4956,38 +4956,8 @@ local function showUnitMenu(unit, fromFocus)
     skinOurDropLists()
 end
 
--- Shift-click dispel (shaman): Cure Poison / Cure Disease when that debuff is present
-local DISPEL_POISON = "Cure Poison"
-local DISPEL_DISEASE = "Cure Disease"
-
-local function unitHasDebuffType(unit, want)
-    if not unit or not UnitExists or not UnitExists(unit) then return false end
-    want = string.lower(want or "")
-    local i
-    for i = 1, 24 do
-        local name, icon, count, dtype = readDebuff(unit, i, nil)
-        if not name and not icon then
-            break
-        end
-        if dtype and string.lower(dtype) == want then
-            return true
-        end
-    end
-    return false
-end
-
-local function castSpellOnUnit(spell, unit)
-    if not spell or not unit or not UnitExists(unit) then return end
-    if type(CastSpellByName) ~= "function" then return end
-    CastSpellByName(spell)
-    if SpellIsTargeting and SpellIsTargeting() then
-        if SpellTargetUnit then
-            SpellTargetUnit(unit)
-        else
-            TargetUnit(unit)
-        end
-    end
-end
+-- Click-to-dispel lives in IchaUI\Dispel.lua; it reads debuff schools through this.
+IchaUI_Dispel_ReadDebuff = readDebuff
 
 local function handleUnitFrameClick(fr, unit, button)
     if not fr or fr.moving then return end
@@ -5008,18 +4978,8 @@ local function handleUnitFrameClick(fr, unit, button)
         if DropItemOnUnit then DropItemOnUnit(unit) end
         return
     end
-    if IsShiftKeyDown and IsShiftKeyDown() then
-        if button == "LeftButton" then
-            if unitHasDebuffType(unit, "poison") then
-                castSpellOnUnit(DISPEL_POISON, unit)
-            end
-            return
-        elseif button == "RightButton" then
-            if unitHasDebuffType(unit, "disease") then
-                castSpellOnUnit(DISPEL_DISEASE, unit)
-            end
-            return
-        end
+    if IchaUI_Dispel_HandleClick and IchaUI_Dispel_HandleClick(unit, button) then
+        return
     end
     if button == "LeftButton" then
         TargetUnit(unit)
@@ -5069,6 +5029,7 @@ local function createUnitFrame(key, unit, defaults, opts)
     root:SetMovable(true)
     root:EnableMouse(true)
     root:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    if IchaUI_Dispel_RegisterFrame then IchaUI_Dispel_RegisterFrame(root, fr) end
     root:RegisterForDrag("LeftButton")
     fr.root = root
 
@@ -5083,6 +5044,7 @@ local function createUnitFrame(key, unit, defaults, opts)
         port:SetFrameLevel((root:GetFrameLevel() or 1) + 40)
         port:EnableMouse(true)
         port:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        if IchaUI_Dispel_RegisterFrame then IchaUI_Dispel_RegisterFrame(port, fr) end
         port:SetScript("OnClick", function()
             handleUnitFrameClick(fr, unit, arg1)
         end)

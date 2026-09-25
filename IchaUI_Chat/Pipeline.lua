@@ -346,6 +346,8 @@ local function insertAround(disp, name, pre, suf)
     return pre .. disp .. suf
 end
 
+-- gsub callbacks must always return a string: in Lua 5.0 a nil/false
+-- result deletes the match instead of keeping it.
 local function nameRepl(link, disp)
     local _, _, name = string.find(link, "^([^:]+)")
     name = name or link
@@ -356,7 +358,7 @@ local function nameRepl(link, disp)
     end
     if grpOn and raidGroup[name] then suf = ":" .. raidGroup[name] end
     if not styleOn then
-        if pre == "" and suf == "" then return nil end
+        if pre == "" and suf == "" then return "|Hplayer:" .. link .. "|h" .. disp .. "|h" end
         disp = dropExtras(disp, name)
         return "|Hplayer:" .. link .. "|h" .. insertAround(disp, name, pre, suf) .. "|h"
     end
@@ -372,7 +374,7 @@ local function nameRepl(link, disp)
     elseif st == "none" then L, R = "", ""
     else L, R = "[", "]" end
     local col = classHex(cls)
-    if not col and pre == "" and suf == "" and L == "[" and hadBr then return nil end
+    if not col and pre == "" and suf == "" and L == "[" and hadBr then return "|Hplayer:" .. link .. "|h" .. disp .. "|h" end
     if col then body = col .. pre .. inner .. suf .. "|r" else body = pre .. inner .. suf end
     return "|Hplayer:" .. link .. "|h" .. L .. body .. R .. "|h"
 end
@@ -435,10 +437,10 @@ P.isURL = isURL
 local urlHex = "|cff66ccff"
 
 local function urlToken(tok)
-    if string.find(tok, "|", 1, true) then return nil end
+    if string.find(tok, "|", 1, true) then return tok end
     local _, _, lead, core, trail = string.find(tok, "^([%(<\"']*)(.-)([%.,;:!%?%)>\"']*)$")
-    if not core or core == "" then return nil end
-    if not isURL(core) then return nil end
+    if not core or core == "" then return tok end
+    if not isURL(core) then return tok end
     local shown = core
     if urlsCfg.brackets then shown = "[" .. core .. "]" end
     return lead .. urlHex .. "|Hurl:" .. core .. "|h" .. shown .. "|h|r" .. trail

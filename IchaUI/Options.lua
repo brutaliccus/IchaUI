@@ -3355,6 +3355,14 @@ local function build()
 
     tip(pageCombat, "Smart Mark (enemy and friendly binds, icon order): Mark tab.", PAD, -468, 520)
 
+    if IchaUI_BuildDispelOptions then
+        table.insert(combatRefreshList, IchaUI_BuildDispelOptions(pageCombat, COL2, -212, {
+            sectionHeader = sectionHeader, tip = tip, makeButton = makeButton,
+            makeGoldToggle = makeGoldToggle, paintGoldToggle = paintGoldToggle,
+            makeKeyBindRow = makeKeyBindRow,
+        }))
+    end
+
     pageCombat._combatRefresh = function()
         local i
         for i = 1, table.getn(combatRefreshList) do

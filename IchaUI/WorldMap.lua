@@ -173,10 +173,11 @@ local function installIchaUIWorldMap()
     end
 
     -- Save as a CENTER offset in the map's own scale so rescaling keeps it
-    -- centered. Read from the real top-left once, after the move has ended.
-    local function savePos()
+    -- centered. left/top are the map's top-left in its own units; the live
+    -- rect is read when they are not given.
+    local function savePos(left, top)
         local f = WorldMapFrame
-        local left, top = f:GetLeft(), f:GetTop()
+        if not left or not top then left, top = f:GetLeft(), f:GetTop() end
         local w, h = f:GetWidth() or 0, f:GetHeight() or 0
         local ux, uy = UIParent:GetCenter()
         if not left or not top or not ux then return end
@@ -187,6 +188,63 @@ local function installIchaUIWorldMap()
         d.x = round2(left + w / 2 - ux * k)
         d.y = round2(top - h / 2 - uy * k)
         place()
+    end
+
+    -- The window is dragged by cursor delta, not StartMoving: this client's
+    -- StopMovingOrSizing re-anchors a frame scaled apart from its parent at
+    -- the wrong spot, so the map jumped on release. All values in map units.
+    local drag = {}
+
+    local function dragPos()
+        local f = WorldMapFrame
+        local es = f:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        local cx, cy = GetCursorPosition()
+        local l = drag.left + (cx - drag.cx) / es
+        local t = drag.top + (cy - drag.cy) / es
+        local us = UIParent:GetEffectiveScale() or 1
+        local sw = (UIParent:GetWidth() or 0) * us / es
+        local sh = (UIParent:GetHeight() or 0) * us / es
+        local w, h = f:GetWidth() or 0, f:GetHeight() or 0
+        if sw > 0 and sh > 0 then
+            if l + w > sw then l = sw - w end
+            if l < 0 then l = 0 end
+            if t - h < 0 then t = h end
+            if t > sh then t = sh end
+        end
+        return l, t
+    end
+
+    local function dragUpdate()
+        local l, t = dragPos()
+        local f = WorldMapFrame
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+    end
+
+    local function dragStart()
+        local f = WorldMapFrame
+        local left, top = f:GetLeft(), f:GetTop()
+        if not left or not top then return end
+        drag.left, drag.top = left, top
+        drag.cx, drag.cy = GetCursorPosition()
+        f._ichaMoving = true
+        if not drag.ticker then drag.ticker = CreateFrame("Frame") end
+        drag.ticker:SetScript("OnUpdate", dragUpdate)
+        drag.ticker:Show()
+    end
+
+    local function dragStop(keep)
+        local f = WorldMapFrame
+        if not f._ichaMoving then return end
+        if drag.ticker then drag.ticker:SetScript("OnUpdate", nil) end
+        local l, t = dragPos()
+        f._ichaMoving = nil
+        if keep then
+            f:ClearAllPoints()
+            f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+            savePos(l, t)
+        end
     end
 
     local function paintBorder()
@@ -223,8 +281,7 @@ local function installIchaUIWorldMap()
         local g = st.grip
         local f = WorldMapFrame
         local cx, cy = GetCursorPosition()
-        local par = f:GetParent() or UIParent
-        local ps = par:GetEffectiveScale() or 1
+        local ps = (f:GetEffectiveScale() or 1) / (f:GetScale() or 1)
         local w = (f:GetWidth() or 0) * ps
         local h = (f:GetHeight() or 0) * ps
         if w <= 0 or h <= 0 then return end
@@ -243,7 +300,9 @@ local function installIchaUIWorldMap()
         if not g or not g._sizing then return end
         g._sizing = nil
         g:SetScript("OnUpdate", nil)
-        savePos()
+        local es = WorldMapFrame:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        savePos(g._left / es, g._top / es)
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
 
@@ -713,22 +772,15 @@ local function installIchaUIWorldMap()
         -- position save can fight it; the previous handlers run otherwise.
         ownScript(f, "OnMouseDown", function()
             if arg1 and arg1 ~= "LeftButton" then return end
-            WorldMapFrame._ichaMoving = true
-            WorldMapFrame:StartMoving()
+            dragStart()
         end)
         ownScript(f, "OnMouseUp", function()
-            if not WorldMapFrame._ichaMoving then return end
-            WorldMapFrame:StopMovingOrSizing()
-            WorldMapFrame._ichaMoving = nil
-            savePos()
+            dragStop(true)
         end)
         ownScript(f, "OnDragStart", function() end)
         ownScript(f, "OnDragStop", function() end)
         hookScript(f, "OnHide", function()
-            if not WorldMapFrame._ichaMoving then return end
-            WorldMapFrame._ichaMoving = nil
-            WorldMapFrame:StopMovingOrSizing()
-            savePos()
+            dragStop(true)
         end)
     end
 
@@ -760,10 +812,7 @@ local function installIchaUIWorldMap()
         if not st.active then return end
         st.active = false
         local f = WorldMapFrame
-        if f._ichaMoving then
-            f._ichaMoving = nil
-            f:StopMovingOrSizing()
-        end
+        dragStop(false)
         setSpecial(false)
         if type(UIPanelWindows) == "table" and st.origPanel ~= nil then
             if st.origPanel then

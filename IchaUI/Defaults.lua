@@ -208,6 +208,23 @@ IchaUI_BakedDefaults = {
         totemRecallDelay = 5,
     },
     cooldownNumbers = true,
+    dispel = {
+        clicks = {
+            Curse = { button = "RightButton", mod = "CTRL" },
+            Disease = { button = "RightButton", mod = "SHIFT" },
+            Magic = { button = "LeftButton", mod = "CTRL" },
+            Offensive = { button = "LeftButton", mod = "ALT" },
+            Poison = { button = "LeftButton", mod = "SHIFT" },
+            Smart = { button = "MiddleButton", mod = "NONE" },
+        },
+        enabled = true,
+        order = {
+            [1] = "Magic",
+            [2] = "Curse",
+            [3] = "Poison",
+            [4] = "Disease",
+        },
+    },
     drawerPopPos = {
         x = 957.3333966143256,
         y = -588.000006291626,
@@ -1388,6 +1405,7 @@ IchaUI_BakedAtomic = {
     barPopPos = true, drawerPopPos = true,
     minimapButtons = { buttons = { ["*"] = true } },
     uf = { raidDebuffs = true },
+    dispel = { order = true },
 }
 
 function IchaUI_BakedCopy(src)

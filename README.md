@@ -1,9 +1,8 @@
-# IchaUI - Complete UI Suite for Turtle WoW (1.12)
+# IchaUI - Complete UI Suite
 
-A full interface replacement for the 1.12 client (Turtle WoW / RavenCraft): action bars, hero bars and drawers, unit frames with a combat tracker, a Shaman totem bar, minimap skin and button drawer, XP / reputation bar, buff bars, Smart Tab, Smart Mark, and one gold theme across chat, tooltips and frames. Everything is set up in one window: type `/iui`.
+A full interface replacement: action bars, hero bars and drawers, unit frames with a combat tracker, a Shaman totem bar, minimap skin and button drawer, XP / reputation bar, buff bars, Smart Tab, Smart Mark, and one gold theme across chat, tooltips and frames. Everything is set up in one window: type `/iui`.
 
 ![Version](https://img.shields.io/badge/version-3.3.0-blue)
-![Client](https://img.shields.io/badge/client-Turtle%20WoW%201.12-green)
 ![Interface](https://img.shields.io/badge/interface-11200-lightgrey)
 
 > **About the images:** anything named `preview-*.png` is an **offline preview render** built from the addon's real textures (`tools/render_previews.py`). It is not an in-game screenshot. Every other image is an in-game capture.

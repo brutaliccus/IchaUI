@@ -109,11 +109,20 @@ Type `/icha` for the full command list.
 **Something is missing or a texture is a green square.**
 Fully restart WoW. New files are only picked up at startup.
 
-**Using IchaPlates?**
-Disable ShaguPlatesX (or any other nameplate addon). Import your ShaguPlatesX settings first from `/iui` > Plates if you want to keep them.
+**Which addons should I disable?**
+IchaUI replaces these, so turn them off:
+- Nameplate addons (ShaguPlatesX, pfUI plates, TidyPlates, Aloft). Import your ShaguPlatesX settings first from `/iui` > Plates if you want to keep them.
+- LevelRange (level ranges are built into the world map).
+- Cooldown count addons (OmniCC, ClassicCooldowns).
+- Chat addons (Prat, Chatter, ChatMOD).
+- Other UI replacements: pfUI, action bar addons (Bartender, Bongos, Discord Action Bars) and unit frame addons (Luna, XPerl, ag_UnitFrames, DUF).
 
-**Bars or frames are overlapping.**
-Turn off other addons that replace the same things: action bars, unit frames, minimap skins, chat addons, nameplates. IchaUI hides Bongos automatically.
+Keep these, but turn off the overlapping parts:
+- ShaguTweaks: turn off WorldMap Window, Cooldown Numbers, the chat modules, Cursor Tooltip and any nameplate modules in `/st`.
+- MoveAnything: release the chat edit box, tooltip and world map.
+- Minimap skins, buff frame, focus frame and totem timer addons do the same job as IchaUI, so pick one.
+
+Works alongside CawDPSMeter and TWThreat (dock them into chat tabs), pfQuest, Magnify and SuperCleveRoidMacros.
 
 **Where did my minimap buttons go?**
 Into the drawer under the minimap. Click the arrow to open it, or set a button to Free on the Map tab.

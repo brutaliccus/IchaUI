@@ -552,39 +552,113 @@ local function installIchaUIWorldMap()
         return nil
     end
 
+    -- Turtle WorldMapPing is a Model on WorldMapFrame. Windowed Minimize
+    -- leaves it at the stock 15,-33 / 0.7-scale spot; IchaUI's art lives
+    -- on WorldMapButton inside the viewport (10,-23, scale 1). Snap ping
+    -- onto the button at the same 0-1 player point the arrow uses.
+    local function playerMapOffset()
+        if not GetPlayerMapPosition then return nil end
+        local px, py = GetPlayerMapPosition("player")
+        if not px or (px == 0 and py == 0) then return nil end
+        local b = WorldMapButton
+        local w = (b and b.GetWidth and b:GetWidth()) or ART_W
+        local h = (b and b.GetHeight and b:GetHeight()) or ART_H
+        return px * w, -py * h
+    end
+
+    local function rememberMarker(f)
+        if not f then return end
+        zoom.markerSaved = zoom.markerSaved or {}
+        if zoom.markerSaved[f] then return end
+        local par, sc = nil, 1
+        if f.GetParent then par = f:GetParent() end
+        if f.GetScale then sc = f:GetScale() or 1 end
+        zoom.markerSaved[f] = { parent = par, scale = sc }
+    end
+
+    local function restoreMarker(f)
+        if not f then return end
+        local saved = zoom.markerSaved and zoom.markerSaved[f]
+        local par = saved and saved.parent or WorldMapFrame
+        if par and f.SetParent then pcall(function() f:SetParent(par) end) end
+        if f.SetScale then
+            local sc = saved and saved.scale
+            if not sc then
+                sc = 1
+                if not maximized() then sc = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end
+            end
+            f:SetScale(sc)
+        end
+    end
+
+    local function snapOnButton(f, x, y)
+        if not f or not f.SetPoint or not WorldMapButton then return end
+        rememberMarker(f)
+        if f.GetParent and f:GetParent() ~= WorldMapButton then
+            pcall(function() f:SetParent(WorldMapButton) end)
+        end
+        if f.SetScale then f:SetScale(1) end
+        f:ClearAllPoints()
+        local mark = zoom.arrow
+        if mark and mark.IsShown and mark:IsShown() then
+            f:SetPoint("CENTER", mark, "CENTER", 0, 0)
+        else
+            local m = zoom.model
+            if m and m ~= false and m.IsShown and m:IsShown() then
+                f:SetPoint("CENTER", m, "CENTER", 0, 0)
+            else
+                f:SetPoint("CENTER", WorldMapButton, "TOPLEFT", x, y)
+            end
+        end
+        if f.SetFrameLevel and zoom.lvButton then
+            pcall(function() f:SetFrameLevel((zoom.lvButton or 1) + 7) end)
+        end
+    end
+
+    local function updatePing()
+        if not st.active or not native then return end
+        local x, y = playerMapOffset()
+        if x == nil then return end
+        arrowModel()
+        local ping = getglobal("WorldMapPing")
+        if ping then snapOnButton(ping, x, y) end
+    end
+
     -- The client places its player arrow model in unzoomed units (Blizzard
     -- scales by WorldMapDetailFrame:GetScale(), which stays 1), and the model
     -- is not clipped. While zoomed, hide it and draw an arrow on WorldMapButton.
     local function updateArrow()
         local a = zoom.arrow
-        if not a then return end
-        if not st.active or zoom.z <= 1.001 then
-            a:Hide()
-            return
+        if a then
+            if not st.active or zoom.z <= 1.001 then
+                a:Hide()
+            else
+                local px, py = GetPlayerMapPosition("player")
+                if not px or (px == 0 and py == 0) then
+                    a:Hide()
+                else
+                    local b = WorldMapButton
+                    a:ClearAllPoints()
+                    a:SetPoint("CENTER", b, "TOPLEFT", px * (b:GetWidth() or ART_W), -py * (b:GetHeight() or ART_H))
+                    local size = 28 / zoom.z
+                    a.tex:SetWidth(size)
+                    a.tex:SetHeight(size)
+                    local m = arrowModel()
+                    if m and m.GetFacing then
+                        local r = m:GetFacing() or 0
+                        local s2 = math.sqrt(2)
+                        local q = math.pi / 4
+                        a.tex:SetTexCoord(
+                            0.5 + math.cos(r + 5 * q) / s2, 0.5 + math.sin(r + 5 * q) / s2,
+                            0.5 + math.cos(r + 3 * q) / s2, 0.5 + math.sin(r + 3 * q) / s2,
+                            0.5 + math.cos(r - q) / s2, 0.5 + math.sin(r - q) / s2,
+                            0.5 + math.cos(r + q) / s2, 0.5 + math.sin(r + q) / s2)
+                    end
+                    a:Show()
+                end
+            end
         end
-        local px, py = GetPlayerMapPosition("player")
-        if not px or (px == 0 and py == 0) then
-            a:Hide()
-            return
-        end
-        local b = WorldMapButton
-        a:ClearAllPoints()
-        a:SetPoint("CENTER", b, "TOPLEFT", px * (b:GetWidth() or ART_W), -py * (b:GetHeight() or ART_H))
-        local size = 28 / zoom.z
-        a.tex:SetWidth(size)
-        a.tex:SetHeight(size)
-        local m = arrowModel()
-        if m and m.GetFacing then
-            local r = m:GetFacing() or 0
-            local s2 = math.sqrt(2)
-            local q = math.pi / 4
-            a.tex:SetTexCoord(
-                0.5 + math.cos(r + 5 * q) / s2, 0.5 + math.sin(r + 5 * q) / s2,
-                0.5 + math.cos(r + 3 * q) / s2, 0.5 + math.sin(r + 3 * q) / s2,
-                0.5 + math.cos(r - q) / s2, 0.5 + math.sin(r - q) / s2,
-                0.5 + math.cos(r + q) / s2, 0.5 + math.sin(r + q) / s2)
-        end
-        a:Show()
+        updatePing()
     end
 
     local function zoomChanged()
@@ -744,6 +818,14 @@ local function installIchaUIWorldMap()
         a:Hide()
         zoom.arrow = a
 
+        local ping = getglobal("WorldMapPing")
+        if ping and not zoom.pingHooked then
+            zoom.pingHooked = true
+            hookScript(ping, "OnShow", function()
+                if st.active then updatePing() end
+            end)
+        end
+
         hookScript(WorldMapButton, "OnMouseDown", function()
             if arg1 == "LeftButton" then panStart() end
         end)
@@ -830,6 +912,7 @@ local function installIchaUIWorldMap()
         zoom.overlay:Show()
         applyZoom()
         placeDropdowns()
+        updatePing()
     end
 
     -- pfQuest /db object|unit|track calls pfMap:ShowMapID, which ToggleWorldMap
@@ -922,11 +1005,32 @@ local function installIchaUIWorldMap()
         end
     end
 
+    local function hookPingPlayer()
+        if st.hookedPingPlayer then return end
+        if type(WorldMapFrame_PingPlayerPosition) ~= "function" then return end
+        st.hookedPingPlayer = true
+        local orig = WorldMapFrame_PingPlayerPosition
+        WorldMapFrame_PingPlayerPosition = function(a1, a2, a3, a4, a5)
+            orig(a1, a2, a3, a4, a5)
+            if st.active then updatePing() end
+        end
+    end
+
     hookMapRepair = function()
         wrapButtonOnUpdate()
         wrapButtonOnUpdateFn()
         hookSetMapZoom()
         hookPfQuestTrack()
+        hookPingPlayer()
+        if native and not zoom.pingHooked then
+            local ping = getglobal("WorldMapPing")
+            if ping then
+                zoom.pingHooked = true
+                hookScript(ping, "OnShow", function()
+                    if st.active then updatePing() end
+                end)
+            end
+        end
     end
 
     -- Back to Turtle's stock art layout (IchaUI map switched off).
@@ -935,6 +1039,7 @@ local function installIchaUIWorldMap()
         zoom.z, zoom.h, zoom.v = 1, 0, 0
         panStop()
         if zoom.arrow then zoom.arrow:Hide() end
+        restoreMarker(getglobal("WorldMapPing"))
         local df, b = WorldMapDetailFrame, WorldMapButton
         local ws = 1
         if not maximized() then ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end
@@ -1655,6 +1760,15 @@ local function installIchaUIWorldMap()
         end
         fr("detail", WorldMapDetailFrame)
         fr("button", WorldMapButton)
+        fr("ping", getglobal("WorldMapPing"))
+        fr("player", getglobal("WorldMapPlayer"))
+        fr("arrow", zoom.arrow)
+        if zoom.model and zoom.model ~= false then fr("model", zoom.model) end
+        local px, py
+        if GetPlayerMapPosition then
+            px, py = GetPlayerMapPosition("player")
+        end
+        chat("|cffffd200you|r " .. n(px) .. "," .. n(py))
         if WorldMapFrameScrollFrame then fr("magnify", WorldMapFrameScrollFrame) end
         local drops = { "pfQuestMapDropdown", "pfQuestMapLevelDropdown",
             "ModernMapMarkersFilter_Blizz", "ModernMapMarkersFind_Blizz" }

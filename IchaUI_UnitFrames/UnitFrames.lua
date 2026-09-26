@@ -1851,6 +1851,101 @@ function IchaUI_Cast_FilterInfo(unit, info)
     return info
 end
 
+function IchaUI_Cast_Debug(msg)
+    if not IchaUI_Cast_DebugOn then return end
+    if DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffc9a227IchaCast|r " .. tostring(msg or ""))
+    end
+end
+
+function IchaUI_Cast_ToggleDebug()
+    IchaUI_Cast_DebugOn = not IchaUI_Cast_DebugOn
+    if DEFAULT_CHAT_FRAME then
+        if IchaUI_Cast_DebugOn then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffc9a227IchaCast|r debug on — /icha castdebug to stop")
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("|cffc9a227IchaCast|r debug off")
+        end
+    end
+end
+
+function IchaUI_Cast_Kill(why, caster)
+    if caster and IchaUI_Swing_CasterIsUnit and not IchaUI_Swing_CasterIsUnit(caster, "player") then
+        return
+    end
+    local now = 0
+    if GetTime then now = GetTime() end
+    local lock = IchaUI_Cast_Lock
+    IchaUI_Cast_Debug(string.format(
+        "%s t=%.3f spell=%s start=%.0f end=%.0f src=%s",
+        tostring(why or "KILL"),
+        now,
+        tostring(lock and lock.name or "?"),
+        tonumber(lock and lock.start) or 0,
+        tonumber(lock and lock.finish) or 0,
+        tostring(lock and lock.source or "?")))
+    IchaUI_Cast_Lock = nil
+    IchaUI_Cast_DeadUntil = now + 1.25
+end
+
+function IchaUI_Cast_Capture(info, source)
+    if not info then return nil end
+    if IchaUI_Cast_Lock then
+        local lock = IchaUI_Cast_Lock
+        if info.texture and info.texture ~= "" then lock.texture = info.texture end
+        if info.locked then lock.locked = true end
+        return lock
+    end
+    IchaUI_Cast_Lock = {
+        name = info.name,
+        texture = info.texture,
+        start = info.start,
+        finish = info.finish,
+        channel = info.channel and true or false,
+        spellId = info.spellId,
+        locked = info.locked and true or false,
+        delay = tonumber(info.delay) or 0,
+        source = source or "?",
+    }
+    IchaUI_Cast_DeadUntil = nil
+    IchaUI_Cast_Debug(string.format(
+        "START t=%.3f spell=%s start=%.0f end=%.0f lag=%s src=%s",
+        GetTime and GetTime() or 0,
+        tostring(info.name or "?"),
+        tonumber(info.start) or 0,
+        tonumber(info.finish) or 0,
+        tostring(info._lag or "?"),
+        tostring(source or "?")))
+    return IchaUI_Cast_Lock
+end
+
+function IchaUI_Cast_ApplyDelay(extraMs)
+    extraMs = tonumber(extraMs) or 0
+    if extraMs <= 0 then return end
+    if extraMs < 50 then extraMs = extraMs * 1000 end
+    local lock = IchaUI_Cast_Lock
+    if not lock or lock.channel then return end
+    local nowMs = (GetTime and GetTime() or 0) * 1000
+    local remain = (tonumber(lock.finish) or 0) - nowMs
+    local home, world, lag = 0, 0, 100
+    if type(GetNetStats) == "function" then
+        local _, _, lagHome, lagWorld = GetNetStats()
+        home = tonumber(lagHome) or 0
+        world = tonumber(lagWorld) or 0
+        if home < 0 then home = 0 end
+        if world < 0 then world = 0 end
+        lag = home
+        if world > lag then lag = world end
+        if lag < 1 then lag = 100 end
+    end
+    if remain <= (lag + 50) then
+        IchaUI_Cast_Debug(string.format("ignore DELAYED remain=%.0f lag=%.0f", remain, lag))
+        return
+    end
+    lock.delay = (tonumber(lock.delay) or 0) + extraMs
+    lock.finish = (tonumber(lock.finish) or 0) + extraMs
+end
+
 -- Vanilla pushback: jump the fill back by a fixed delay, keep original fill rate.
 -- ClassicAPI keeps startMs and extends endMs (delayMs); do not use stretched duration.
 function IchaUI_Cast_Progress(fr, info, nowMs)
@@ -1864,7 +1959,8 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
     if delay < 0 then delay = 0 end
     if delay > 0 and delay < 50 then delay = delay * 1000 end
 
-    local pinKey = tostring(info.spellId or "") .. "\t" .. tostring(info.name or "")
+    -- Name only: spellId appears mid-cast when ClassicAPI replaces SuperWoW.
+    local pinKey = tostring(info.name or "")
     if info.channel then pinKey = "c:" .. pinKey end
 
     local orig = raw
@@ -1903,6 +1999,16 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
         end
     end
     if orig < 50 then orig = raw end
+
+    -- DELAYED / ClassicAPI delayMs at the end is leftover, not pushback.
+    if delay > 0 and (not info.channel) then
+        local remain0 = finish - nowMs
+        local lag = 0
+        if fr then lag = tonumber(fr._castDispLag) or 0 end
+        if remain0 <= (lag + 50) then
+            delay = 0
+        end
+    end
 
     local pct = 0
     if orig > 0 then
@@ -2134,6 +2240,12 @@ function IchaUI_Cast_QuenchEvent(event, arg1)
             who = arg1
         end
     end
+    local isSelf = (who == "player")
+    if (not isSelf) and type(UnitIsUnit) == "function" then
+        local okS, sameS = pcall(UnitIsUnit, who, "player")
+        isSelf = okS and sameS and true or false
+    end
+    if isSelf and IchaUI_Cast_Kill then IchaUI_Cast_Kill("STOP") end
     IchaUI_Cast_QuenchUnit(who)
 end
 
@@ -4216,7 +4328,8 @@ function swCastRemember(caster, castEvent, spellID, durMs)
         elseif IchaUI_Cast_MarkDone then
             IchaUI_Cast_MarkDone(guid, spellID, nil)
         end
-        -- Hide now. A later OnUpdate with leftover CastingInfo must not rewind.
+        -- Hide now. OnUpdate / ClassicAPI leftover must not revive this cast.
+        if IchaUI_Cast_Kill then IchaUI_Cast_Kill("CAST", guid) end
         if IchaUI_Cast_QuenchUnit then IchaUI_Cast_QuenchUnit(guid) end
         return
     end
@@ -4265,6 +4378,10 @@ function swCastRemember(caster, castEvent, spellID, durMs)
     end
     swCastStore(guid, uname, spellID, nil, durMs, et == "CHANNEL")
     if IchaUI_Cast_Done then IchaUI_Cast_Done[guid] = nil end
+    if IchaUI_Cast_Capture and IchaUI_Swing_CasterIsUnit and IchaUI_Swing_CasterIsUnit(guid, "player") then
+        local stored = swCastByGuid[guid]
+        if stored then IchaUI_Cast_Capture(stored, "superwow") end
+    end
 end
 
 function swCastFresh(info, keyGuid, keyName)
@@ -4414,8 +4531,82 @@ function IchaUI_Cast_FromClassic(unit, channel)
     return castInfoFromParts(r1, r3, r4, r5, false, r9, r8, r11)
 end
 
+function IchaUI_Cast_PollPlayer()
+    if C_Spell and type(C_Spell) == "table" then
+        local ok, info = pcall(IchaUI_Cast_FromClassic, "player", false)
+        if ok and info then return info, "classic" end
+        ok, info = pcall(IchaUI_Cast_FromClassic, "player", true)
+        if ok and info then return info, "classic-ch" end
+    end
+    if type(UnitCastingInfo) == "function" then
+        local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitCastingInfo, "player")
+        if ok and r1 then
+            local texture, startMs, endMs = r4, r5, r6
+            if type(r3) == "string" and (string.find(r3, "Interface") or string.find(r3, "Icons")) then
+                texture, startMs, endMs = r3, r4, r5
+            end
+            local info = castInfoFromParts(r1, texture, startMs, endMs, false, nil, false)
+            if info then return info, "unitcast" end
+        end
+    end
+    if type(UnitChannelInfo) == "function" then
+        local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitChannelInfo, "player")
+        if ok and r1 then
+            local texture, startMs, endMs = r4, r5, r6
+            if type(r3) == "string" and (string.find(r3, "Interface") or string.find(r3, "Icons")) then
+                texture, startMs, endMs = r3, r4, r5
+            end
+            local info = castInfoFromParts(r1, texture, startMs, endMs, true, nil, false)
+            if info then return info, "unitchannel" end
+        end
+    end
+    local sw = getSwCastInfo("player")
+    if sw then return sw, "superwow" end
+    return nil, nil
+end
+
+function IchaUI_Cast_PlayerInfo()
+    local now = 0
+    if GetTime then now = GetTime() end
+    local nowMs = now * 1000
+    if IchaUI_Cast_DeadUntil and now < IchaUI_Cast_DeadUntil then
+        local raw, src = IchaUI_Cast_PollPlayer()
+        if raw then
+            local age = nowMs - (tonumber(raw.start) or 0)
+            if age >= 0 and age < 250 then
+                IchaUI_Cast_Lock = nil
+                IchaUI_Cast_DeadUntil = nil
+                return IchaUI_Cast_Capture(raw, src)
+            end
+            IchaUI_Cast_Debug(string.format(
+                "block leftover src=%s spell=%s start=%.0f age=%.0f",
+                tostring(src or "?"), tostring(raw.name or "?"),
+                tonumber(raw.start) or 0, age))
+        end
+        return nil
+    end
+    if IchaUI_Cast_Lock then
+        if (tonumber(IchaUI_Cast_Lock.finish) or 0) <= nowMs then
+            IchaUI_Cast_Lock = nil
+            return nil
+        end
+        return IchaUI_Cast_Lock
+    end
+    local raw, src = IchaUI_Cast_PollPlayer()
+    if not raw then return nil end
+    return IchaUI_Cast_Capture(raw, src)
+end
+
 local function getCastInfo(unit)
     if not unit then return nil end
+    local isPlayer = (unit == "player")
+    if (not isPlayer) and unit and UnitIsUnit then
+        local okU, sameU = pcall(UnitIsUnit, unit, "player")
+        isPlayer = okU and sameU and true or false
+    end
+    if isPlayer then
+        return IchaUI_Cast_PlayerInfo()
+    end
 
     -- 1) ClassicAPI C_Spell — authoritative for target/ToT/party on RavenCraft
     -- Shape: name, displayName, texture, startMs, endMs, isTradeSkill,
@@ -6400,7 +6591,8 @@ local function createUnitFrame(key, unit, defaults, opts)
                 local infoQ = getCastInfo(unit)
                 local startQ = infoQ and tonumber(infoQ.start) or 0
                 local finQ = infoQ and tonumber(infoQ.finish) or 0
-                if infoQ and finQ > (nowSec * 1000) and startQ > (self._castQuenchMark or 0) + 50 then
+                local ageQ = (nowSec * 1000) - startQ
+                if infoQ and finQ > (nowSec * 1000) and ageQ >= 0 and ageQ < 250 then
                     fresh = true
                     self._castQuenchUntil = 0
                 end
@@ -6632,11 +6824,19 @@ local function createUnitFrame(key, unit, defaults, opts)
             self._castDispLag = lagMs
             local pct, dur = IchaUI_Cast_Progress(self, info, now)
             if dur <= 0 then dur = finish - start end
-            -- Same cast: never draw backward (SUCCESS leftover / late START / pin).
-            local holdKey = tostring(info.spellId or "") .. "\t" .. tostring(info.name or "")
+            -- Same spell name: never draw backward (source switch used to reset this).
+            local holdKey = tostring(info.name or "")
             if info.channel then holdKey = "c:" .. holdKey end
             if self._castHoldKey == holdKey then
-                if pct < (self._castHoldPct or 0) then pct = self._castHoldPct end
+                if pct < (self._castHoldPct or 0) then
+                    if IchaUI_Cast_Debug then
+                        IchaUI_Cast_Debug(string.format(
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f src=%s",
+                            nowSec, holdKey, self._castHoldPct, pct,
+                            tostring(info.source or "?")))
+                    end
+                    pct = self._castHoldPct
+                end
             else
                 self._castHoldKey = holdKey
                 self._castHoldPct = 0
@@ -12121,16 +12321,20 @@ ev:SetScript("OnEvent", function()
         if event == "SPELLCAST_DELAYED" then
             local extra = tonumber(arg1) or 0
             if extra > 0 then
-                if extra < 50 then extra = extra * 1000 end
-                local g = IchaUI_Swing_Guid and IchaUI_Swing_Guid("player")
-                local info = g and swCastByGuid[g]
-                if not info and UnitName then
-                    local okn, n = pcall(UnitName, "player")
-                    if okn and n then info = swCastByName[swCastNormalizeName(n)] end
-                end
-                if info and not info.channel then
-                    info.delay = (tonumber(info.delay) or 0) + extra
-                    info.finish = (tonumber(info.finish) or 0) + extra
+                if IchaUI_Cast_ApplyDelay then
+                    IchaUI_Cast_ApplyDelay(extra)
+                else
+                    if extra < 50 then extra = extra * 1000 end
+                    local g = IchaUI_Swing_Guid and IchaUI_Swing_Guid("player")
+                    local info = g and swCastByGuid[g]
+                    if not info and UnitName then
+                        local okn, n = pcall(UnitName, "player")
+                        if okn and n then info = swCastByName[swCastNormalizeName(n)] end
+                    end
+                    if info and not info.channel then
+                        info.delay = (tonumber(info.delay) or 0) + extra
+                        info.finish = (tonumber(info.finish) or 0) + extra
+                    end
                 end
             end
         end

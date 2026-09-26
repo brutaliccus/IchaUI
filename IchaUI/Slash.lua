@@ -52,6 +52,14 @@ SlashCmdList["ICHA"] = function(msg)
         end
         return
     end
+    if msg == "castdebug" then
+        if IchaUI_Cast_ToggleDebug then
+            IchaUI_Cast_ToggleDebug()
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("Cast debug not loaded.")
+        end
+        return
+    end
     if msg == "options" or msg == "option" or msg == "config" or msg == "opt" then
         openOptions()
         return

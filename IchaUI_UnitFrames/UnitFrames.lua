@@ -1874,20 +1874,12 @@ function IchaUI_Cast_ToggleDebug()
 end
 
 function IchaUI_Cast_LagMs()
-    -- Observed START→SUCCESS leftover wins after the first sample.
-    if IchaUI_Cast_LagEma and (IchaUI_Cast_LagEmaN or 0) > 0 then
-        local e = tonumber(IchaUI_Cast_LagEma) or 0
-        if e < 0 then e = 0 end
-        if e > 500 then e = 500 end
-        return e
-    end
-    -- 1.12 Quartz: down, up, lag. Do not invent 100ms or max with world.
-    if type(GetNetStats) ~= "function" then return 0 end
-    local _, _, lagHome = GetNetStats()
-    local lag = tonumber(lagHome) or 0
-    if lag < 0 then lag = 0 end
-    if lag > 500 then lag = 500 end
-    return lag
+    -- Only observed SUCCESS leftover. No GetNetStats zone.
+    if (IchaUI_Cast_LagEmaN or 0) < 1 then return 0 end
+    local e = tonumber(IchaUI_Cast_LagEma) or 0
+    if e < 0 then e = 0 end
+    if e > 400 then e = 400 end
+    return e
 end
 
 function IchaUI_Cast_NoteSafe(lock, nowSec)
@@ -1897,13 +1889,22 @@ function IchaUI_Cast_NoteSafe(lock, nowSec)
     local dur = finish - start
     if dur < 50 then return end
     local elapsed = ((nowSec or 0) * 1000) - start
-    local safe = dur - elapsed
-    if safe < 0 then safe = 0 end
-    if safe > 500 then safe = 500 end
+    local leftover = dur - elapsed
+    if leftover < 0 then leftover = 0 end
+    if leftover > 400 then leftover = 400 end
+    local prog = 0
+    if dur > 0 then prog = elapsed / dur end
+    if prog < 0 then prog = 0 end
+    if prog > 1 then prog = 1 end
+    local redFrac = 0
+    if dur > 0 then redFrac = leftover / dur end
+    IchaUI_Cast_LastProg = prog
+    IchaUI_Cast_LastRedFrac = redFrac
+    IchaUI_Cast_LastLeft = leftover
     if IchaUI_Cast_LagEma then
-        IchaUI_Cast_LagEma = IchaUI_Cast_LagEma * 0.65 + safe * 0.35
+        IchaUI_Cast_LagEma = IchaUI_Cast_LagEma * 0.55 + leftover * 0.45
     else
-        IchaUI_Cast_LagEma = safe
+        IchaUI_Cast_LagEma = leftover
     end
     IchaUI_Cast_LagEmaN = (IchaUI_Cast_LagEmaN or 0) + 1
 end
@@ -1917,16 +1918,24 @@ function IchaUI_Cast_Kill(why, caster)
     local lock = IchaUI_Cast_Lock
     if why == "CAST" and lock then
         IchaUI_Cast_NoteSafe(lock, now)
+        IchaUI_Cast_Debug(string.format(
+            "SUCCESS start=%.0f end=%.0f t=%.3f prog=%.3f redFrac=%.3f leftover=%.0fms",
+            tonumber(lock.start) or 0,
+            tonumber(lock.finish) or 0,
+            now,
+            tonumber(IchaUI_Cast_LastProg) or 0,
+            tonumber(IchaUI_Cast_LastRedFrac) or 0,
+            tonumber(IchaUI_Cast_LastLeft) or 0))
+    else
+        IchaUI_Cast_Debug(string.format(
+            "%s t=%.3f spell=%s start=%.0f end=%.0f src=%s",
+            tostring(why or "KILL"),
+            now,
+            tostring(lock and lock.name or "?"),
+            tonumber(lock and lock.start) or 0,
+            tonumber(lock and lock.finish) or 0,
+            tostring(lock and lock.source or "?")))
     end
-    IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f lag=%.0f src=%s",
-        tostring(why or "KILL"),
-        now,
-        tostring(lock and lock.name or "?"),
-        tonumber(lock and lock.start) or 0,
-        tonumber(lock and lock.finish) or 0,
-        IchaUI_Cast_LagMs and IchaUI_Cast_LagMs() or 0,
-        tostring(lock and lock.source or "?")))
     IchaUI_Cast_Lock = nil
     IchaUI_Cast_DeadUntil = now + 1.25
 end
@@ -6868,8 +6877,13 @@ local function createUnitFrame(key, unit, defaults, opts)
             if pct > 1 then pct = 1 end
             local maxW = self._castFillMax or 1
             local lagW = 0
-            if outgoing and (not info.channel) and dur > 0 and lagMs > 0 then
-                lagW = maxW * (lagMs / dur)
+            if outgoing and (not info.channel) then
+                if lagMs > 0 and dur > 0 then
+                    lagW = maxW * (lagMs / dur)
+                else
+                    -- No SUCCESS sample yet: 3px tick, not a fat GetNetStats zone.
+                    lagW = 3
+                end
             end
             self._castLagW = lagW
             IchaUI_SeatCastFill(castFill, castFrame, self._castFillX or 6, self._castFillY or -7, math.max(0.001, maxW * pct), self._castFillH or 8)

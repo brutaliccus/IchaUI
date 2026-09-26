@@ -1767,6 +1767,10 @@ function IchaUI_Cast_PlaceSpark(fr, fillW)
         sp:Hide()
         return
     end
+    -- Above the red zone (OVERLAY 0). 1.12 may ignore sublevel; plate parent backs it up.
+    if sp.SetDrawLayer then
+        pcall(function() sp:SetDrawLayer("OVERLAY", 7) end)
+    end
     sp:ClearAllPoints()
     sp:SetPoint("CENTER", fr.castFill, "RIGHT", 0, 0)
     sp:Show()
@@ -1869,6 +1873,41 @@ function IchaUI_Cast_ToggleDebug()
     end
 end
 
+function IchaUI_Cast_LagMs()
+    -- Observed START→SUCCESS leftover wins after the first sample.
+    if IchaUI_Cast_LagEma and (IchaUI_Cast_LagEmaN or 0) > 0 then
+        local e = tonumber(IchaUI_Cast_LagEma) or 0
+        if e < 0 then e = 0 end
+        if e > 500 then e = 500 end
+        return e
+    end
+    -- 1.12 Quartz: down, up, lag. Do not invent 100ms or max with world.
+    if type(GetNetStats) ~= "function" then return 0 end
+    local _, _, lagHome = GetNetStats()
+    local lag = tonumber(lagHome) or 0
+    if lag < 0 then lag = 0 end
+    if lag > 500 then lag = 500 end
+    return lag
+end
+
+function IchaUI_Cast_NoteSafe(lock, nowSec)
+    if not lock or lock.channel then return end
+    local start = tonumber(lock.start) or 0
+    local finish = tonumber(lock.finish) or 0
+    local dur = finish - start
+    if dur < 50 then return end
+    local elapsed = ((nowSec or 0) * 1000) - start
+    local safe = dur - elapsed
+    if safe < 0 then safe = 0 end
+    if safe > 500 then safe = 500 end
+    if IchaUI_Cast_LagEma then
+        IchaUI_Cast_LagEma = IchaUI_Cast_LagEma * 0.65 + safe * 0.35
+    else
+        IchaUI_Cast_LagEma = safe
+    end
+    IchaUI_Cast_LagEmaN = (IchaUI_Cast_LagEmaN or 0) + 1
+end
+
 function IchaUI_Cast_Kill(why, caster)
     if caster and IchaUI_Swing_CasterIsUnit and not IchaUI_Swing_CasterIsUnit(caster, "player") then
         return
@@ -1876,13 +1915,17 @@ function IchaUI_Cast_Kill(why, caster)
     local now = 0
     if GetTime then now = GetTime() end
     local lock = IchaUI_Cast_Lock
+    if why == "CAST" and lock then
+        IchaUI_Cast_NoteSafe(lock, now)
+    end
     IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f src=%s",
+        "%s t=%.3f spell=%s start=%.0f end=%.0f lag=%.0f src=%s",
         tostring(why or "KILL"),
         now,
         tostring(lock and lock.name or "?"),
         tonumber(lock and lock.start) or 0,
         tonumber(lock and lock.finish) or 0,
+        IchaUI_Cast_LagMs and IchaUI_Cast_LagMs() or 0,
         tostring(lock and lock.source or "?")))
     IchaUI_Cast_Lock = nil
     IchaUI_Cast_DeadUntil = now + 1.25
@@ -1927,17 +1970,8 @@ function IchaUI_Cast_ApplyDelay(extraMs)
     if not lock or lock.channel then return end
     local nowMs = (GetTime and GetTime() or 0) * 1000
     local remain = (tonumber(lock.finish) or 0) - nowMs
-    local home, world, lag = 0, 0, 100
-    if type(GetNetStats) == "function" then
-        local _, _, lagHome, lagWorld = GetNetStats()
-        home = tonumber(lagHome) or 0
-        world = tonumber(lagWorld) or 0
-        if home < 0 then home = 0 end
-        if world < 0 then world = 0 end
-        lag = home
-        if world > lag then lag = world end
-        if lag < 1 then lag = 100 end
-    end
+    local lag = 0
+    if IchaUI_Cast_LagMs then lag = IchaUI_Cast_LagMs() end
     if remain <= (lag + 50) then
         IchaUI_Cast_Debug(string.format("ignore DELAYED remain=%.0f lag=%.0f", remain, lag))
         return
@@ -2268,7 +2302,6 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
         castLag:Hide()
         return
     end
-    if w < 3 then w = 3 end
     if w > maxW then w = maxW end
     fr._castLagW = w
     local il = tonumber(fr._castFillInsetL) or 0
@@ -2278,7 +2311,9 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     castLag:SetPoint("TOPLEFT", castFrame, "TOPLEFT", x, -iy)
     castLag:SetPoint("BOTTOMLEFT", castFrame, "BOTTOMLEFT", x, iy)
     castLag:SetWidth(math.max(0.001, w))
-    if castLag.SetDrawLayer then castLag:SetDrawLayer("OVERLAY") end
+    if castLag.SetDrawLayer then
+        pcall(function() castLag:SetDrawLayer("OVERLAY", 0) end)
+    end
     castLag:SetVertexColor(0.85, 0.12, 0.12, 1)
     castLag:Show()
 end
@@ -4648,21 +4683,8 @@ local function getCastInfo(unit)
 end
 
 local function getCastLatencyMs()
-    -- 1.12: down, up, lag. SuperWoW / later may add lagWorld as a 4th return.
-    -- Lua 0 is truthy, so "world or home" must not prefer a 0 world ping.
-    local home, world = 0, 0
-    if type(GetNetStats) == "function" then
-        local _, _, lagHome, lagWorld = GetNetStats()
-        home = tonumber(lagHome) or 0
-        world = tonumber(lagWorld) or 0
-    end
-    if home < 0 then home = 0 end
-    if world < 0 then world = 0 end
-    local lag = home
-    if world > lag then lag = world end
-    if lag < 1 then lag = 100 end
-    if lag > 1000 then lag = 1000 end
-    return lag
+    if IchaUI_Cast_LagMs then return IchaUI_Cast_LagMs() end
+    return 0
 end
 
 -- One cast UI per person, except self-target / self-ToT also mirror the player cast.
@@ -5603,7 +5625,7 @@ local function createUnitFrame(key, unit, defaults, opts)
     -- Name and timer sit above the bar art so the shield channel does not cover them
     local castTextPlate = CreateFrame("Frame", nil, castFrame)
     castTextPlate:SetAllPoints(castFrame)
-    castTextPlate:SetFrameLevel((castFrame:GetFrameLevel() or 1) + 5)
+    castTextPlate:SetFrameLevel((castFrame:GetFrameLevel() or 1) + 12)
     local castName = castTextPlate:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     castName:SetJustifyH("LEFT")
     castName:SetTextColor(1, 0.95, 0.85)
@@ -5613,8 +5635,8 @@ local function createUnitFrame(key, unit, defaults, opts)
     castTime:SetTextColor(1, 0.95, 0.85)
     castTime:Hide()
     fr.castTime = castTime
-    -- Progress spark at fill edge
-    local castSpark = castFrame:CreateTexture(nil, "OVERLAY")
+    -- Progress spark at fill edge — on the text plate so it sits above the red zone
+    local castSpark = castTextPlate:CreateTexture(nil, "OVERLAY")
     castSpark:SetTexture(IchaUI_CAST_SPARK)
     if castSpark.SetBlendMode then
         pcall(function() castSpark:SetBlendMode("ADD") end)

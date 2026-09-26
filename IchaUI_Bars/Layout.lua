@@ -1763,47 +1763,14 @@ local function updateVisuals()
                     b.cooldown:Show()
                 end
             end
-            local c = nil
-            if type(GetActionCount) == "function" then
-                c = GetActionCount(actionId)
-            end
-            if c ~= nil then c = tonumber(c) end
-            local heroId, heroName, heroTex = nil, nil, nil
-            local heroItem = false
-            if IchaUI_HeroButtonItem then
-                heroId, heroName, heroTex = IchaUI_HeroButtonItem(buttonId)
-                if (heroId ~= nil and tostring(heroId) ~= "") or (type(heroName) == "string" and heroName ~= "") then
-                    heroItem = true
-                end
-            end
-            local sameHero = false
-            if heroItem and type(heroTex) == "string" and heroTex ~= "" and type(GetActionTexture) == "function" then
-                local at = GetActionTexture(actionId)
-                if type(at) == "string" and at ~= "" then
-                    local ap = string.lower(string.gsub(at, "/", "\\"))
-                    local hp = string.lower(string.gsub(heroTex, "/", "\\"))
-                    if ap == hp then sameHero = true end
-                end
-            end
-            local actionIsItem = false
-            if c and c > 0 then actionIsItem = true end
-            if (not actionIsItem) and type(IsConsumableAction) == "function" and IsConsumableAction(actionId) then
-                actionIsItem = true
-            end
-            if (not actionIsItem) and type(GetActionInfo) == "function" then
-                local kind = GetActionInfo(actionId)
-                if kind == "item" then actionIsItem = true end
-            end
-            if (not actionIsItem) and sameHero then actionIsItem = true end
-            if actionIsItem and type(IsEquippedAction) == "function" and IsEquippedAction(actionId) then
-                if not c or c <= 1 then actionIsItem = false end
-            end
+            -- Stock ActionButton_UpdateCount: consumable or stackable only (show even at 1).
             local showCount = nil
-            if actionIsItem then
-                if heroItem and IchaUI_BagItemCount and (sameHero or c == nil or c == 0) then
-                    showCount = IchaUI_BagItemCount(heroId, heroName)
+            if (type(IsConsumableAction) == "function" and IsConsumableAction(actionId))
+                or (type(IsStackableAction) == "function" and IsStackableAction(actionId)) then
+                showCount = 0
+                if type(GetActionCount) == "function" then
+                    showCount = tonumber(GetActionCount(actionId)) or 0
                 end
-                if showCount == nil then showCount = c end
             end
             if showCount == nil then
                 b.count:SetText("")
@@ -2183,6 +2150,7 @@ f:RegisterEvent("ACTIONBAR_SHOWGRID")
 f:RegisterEvent("ACTIONBAR_HIDEGRID")
 f:RegisterEvent("UPDATE_BINDINGS")
 f:RegisterEvent("UNIT_INVENTORY_CHANGED")
+f:RegisterEvent("UPDATE_INVENTORY_ALERTS")
 f:RegisterEvent("BAG_UPDATE")
 
 local lastSig, pendingLayout, layoutElapsed = nil, true, 0
@@ -2340,6 +2308,10 @@ f:SetScript("OnEvent", function()
         if arg1 == "player" then
             updateVisuals()
         end
+        return
+    end
+    if ev == "UPDATE_INVENTORY_ALERTS" then
+        updateVisuals()
         return
     end
     if ev == "BAG_UPDATE" then

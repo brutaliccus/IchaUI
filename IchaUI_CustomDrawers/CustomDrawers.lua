@@ -404,8 +404,24 @@ local function paintItemCount(btn, entry, rec)
     end)
     local isItem = entry and entry.kind == "item"
     local n = nil
-    if isItem and IchaUI_BagItemCount then
-        n = IchaUI_BagItemCount(entry.itemId, entry.spell)
+    if isItem then
+        -- Same idea as stock action counts: unique equipment is not a stack.
+        local hideEq = false
+        if type(GetItemInfo) == "function" then
+            local key = entry.itemId
+            if key == nil or tostring(key) == "" then key = entry.spell end
+            if key ~= nil and key ~= "" then
+                local _, _, _, _, _, _, maxStack, equipLoc = GetItemInfo(key)
+                if type(equipLoc) == "string" and string.sub(equipLoc, 1, 8) == "INVTYPE_" then
+                    if not maxStack or tonumber(maxStack) <= 1 then
+                        hideEq = true
+                    end
+                end
+            end
+        end
+        if (not hideEq) and IchaUI_BagItemCount then
+            n = IchaUI_BagItemCount(entry.itemId, entry.spell)
+        end
     end
     if n == nil then
         fs:SetText("")

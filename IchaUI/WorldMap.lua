@@ -552,48 +552,20 @@ local function installIchaUIWorldMap()
         return nil
     end
 
-    -- Turtle WorldMapButton_OnUpdate (FrameXML ~536) does
-    --   ping:SetPoint(CENTER, WorldMapDetailFrame, TOPLEFT, playerX-7, playerY-9)
-    -- The -7,-9 is the MinimapPing.mdx origin vs the C++ arrow / WorldMapPlayer
-    -- centre. e11423b snapped the ping frame onto the pin and dropped that
-    -- nudge, so the pulse sat 7px right and 9px up of the character. Keep the
-    -- ping on WorldMapButton (same zoom/pan as the pin) and apply the stock
-    -- origin. playerX/Y are DetailFrame pixels, same as the arrow.
-    local PING_OX, PING_OY = -7, -9
-
+    -- WorldMapPing is a client Model. Turtle/C++ draw it as if WorldMapFrame
+    -- were stock fullscreen (art from the screen's top-right). IchaUI's
+    -- window can sit anywhere, and IchaUI "fullscreen" insets the art down
+    -- and left — SetPoint on the Model does not move that visual. Hide the
+    -- stock model and pulse a texture on the same parent / player point as
+    -- the visible pin (WorldMapButton, after viewport / drag / scale).
     local function playerMapOffset()
         if not GetPlayerMapPosition then return nil end
         local px, py = GetPlayerMapPosition("player")
         if not px or (px == 0 and py == 0) then return nil end
-        local host = WorldMapDetailFrame or WorldMapButton
+        local host = WorldMapButton or WorldMapDetailFrame
         local w = (host and host.GetWidth and host:GetWidth()) or ART_W
         local h = (host and host.GetHeight and host:GetHeight()) or ART_H
         return px * w, -py * h
-    end
-
-    local function rememberMarker(f)
-        if not f then return end
-        zoom.markerSaved = zoom.markerSaved or {}
-        if zoom.markerSaved[f] then return end
-        local par, sc = nil, 1
-        if f.GetParent then par = f:GetParent() end
-        if f.GetScale then sc = f:GetScale() or 1 end
-        zoom.markerSaved[f] = { parent = par, scale = sc }
-    end
-
-    local function restoreMarker(f)
-        if not f then return end
-        local saved = zoom.markerSaved and zoom.markerSaved[f]
-        local par = saved and saved.parent or WorldMapFrame
-        if par and f.SetParent then pcall(function() f:SetParent(par) end) end
-        if f.SetScale then
-            local sc = saved and saved.scale
-            if not sc then
-                sc = 1
-                if not maximized() then sc = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end
-            end
-            f:SetScale(sc)
-        end
     end
 
     local function visiblePin()
@@ -606,27 +578,100 @@ local function installIchaUIWorldMap()
         return nil
     end
 
+    local function hideStockPing()
+        local ping = getglobal("WorldMapPing")
+        if not ping then return end
+        if not zoom.pingNeutered then
+            zoom.pingNeutered = true
+            zoom.pingShow = ping.Show
+            ping.Show = function(self)
+                if st.active then return end
+                local old = zoom.pingShow
+                if old then old(self) end
+            end
+            if ping.GetModelScale then
+                zoom.pingModelScale = ping:GetModelScale()
+            end
+        end
+        if ping.SetModelScale then pcall(function() ping:SetModelScale(0) end) end
+        if ping.Hide then ping:Hide() end
+    end
+
+    local function restoreStockPing()
+        local ping = getglobal("WorldMapPing")
+        if zoom.ichaPing then
+            zoom.ichaPing:Hide()
+            zoom.ichaPing:SetScript("OnUpdate", nil)
+        end
+        if not ping or not zoom.pingNeutered then return end
+        if zoom.pingShow then ping.Show = zoom.pingShow end
+        zoom.pingShow, zoom.pingNeutered = nil, nil
+        if ping.SetModelScale then
+            pcall(function() ping:SetModelScale(zoom.pingModelScale or 0.15) end)
+        end
+    end
+
+    local function ensureIchaPing()
+        if zoom.ichaPing then return zoom.ichaPing end
+        local host = WorldMapButton
+        if not host then return nil end
+        local p = CreateFrame("Frame", "IchaUIWorldMapPing", host)
+        p:SetWidth(32)
+        p:SetHeight(32)
+        p:SetFrameLevel((host:GetFrameLevel() or 1) + 9)
+        p.tex = p:CreateTexture(nil, "OVERLAY")
+        p.tex:SetTexture("Interface\\Minimap\\Ping\\ping5")
+        p.tex:SetPoint("CENTER", p, "CENTER", 0, 0)
+        p.tex:SetWidth(32)
+        p.tex:SetHeight(32)
+        p:Hide()
+        zoom.ichaPing = p
+        return p
+    end
+
+    local function startPingPulse()
+        local p = ensureIchaPing()
+        if not p then return end
+        p.t = 0
+        p:Show()
+        p:SetScript("OnUpdate", function()
+            this.t = (this.t or 0) + (arg1 or 0)
+            if this.t > 1.2 then
+                this:Hide()
+                this:SetScript("OnUpdate", nil)
+                return
+            end
+            local u = this.t / 1.2
+            local z = zoom.z or 1
+            if z < 0.001 then z = 1 end
+            local size = (28 + 40 * u) / z
+            this.tex:SetWidth(size)
+            this.tex:SetHeight(size)
+            this.tex:SetAlpha(1 - u)
+        end)
+    end
+
     local function updatePing()
         if not st.active or not native then return end
-        local ping = getglobal("WorldMapPing")
-        if not ping or not ping.SetPoint then return end
+        hideStockPing()
         local x, y = playerMapOffset()
-        if x == nil then return end
-        rememberMarker(ping)
-        local host = WorldMapButton or WorldMapDetailFrame
+        local p = ensureIchaPing()
+        if not p then return end
+        local host = WorldMapButton
         if not host then return end
-        if ping.GetParent and ping:GetParent() ~= host then
-            pcall(function() ping:SetParent(host) end)
+        if p:GetParent() ~= host then p:SetParent(host) end
+        p:ClearAllPoints()
+        local pin = visiblePin()
+        if pin then
+            p:SetPoint("CENTER", pin, "CENTER", 0, 0)
+        elseif x ~= nil then
+            p:SetPoint("CENTER", host, "TOPLEFT", x, y)
+        else
+            p:Hide()
+            p:SetScript("OnUpdate", nil)
+            return
         end
-        if ping.SetScale then ping:SetScale(1) end
-        -- Same relative point Turtle uses, so zoom/pan match the pin and the
-        -- model origin stays 7px left / 9px down of the pin frame centre.
-        local rel = WorldMapDetailFrame or host
-        ping:ClearAllPoints()
-        ping:SetPoint("CENTER", rel, "TOPLEFT", x + PING_OX, y + PING_OY)
-        if ping.SetFrameLevel and zoom.lvButton then
-            pcall(function() ping:SetFrameLevel((zoom.lvButton or 1) + 7) end)
-        end
+        if zoom.lvButton then p:SetFrameLevel((zoom.lvButton or 1) + 9) end
     end
 
     -- The client places its player arrow model in unzoomed units (Blizzard
@@ -679,6 +724,10 @@ local function installIchaUIWorldMap()
     local function zoomReset()
         zoom.z, zoom.h, zoom.v = 1, 0, 0
         zoom.pan, zoom.moved = nil, false
+        if zoom.ichaPing and WorldMapFrame and not WorldMapFrame:IsVisible() then
+            zoom.ichaPing:Hide()
+            zoom.ichaPing:SetScript("OnUpdate", nil)
+        end
         if native and zoom.vp then
             applyZoom()
             zoomChanged()
@@ -827,7 +876,10 @@ local function installIchaUIWorldMap()
         if ping and not zoom.pingHooked then
             zoom.pingHooked = true
             hookScript(ping, "OnShow", function()
-                if st.active then updatePing() end
+                if not st.active then return end
+                hideStockPing()
+                startPingPulse()
+                updatePing()
             end)
         end
 
@@ -1016,8 +1068,13 @@ local function installIchaUIWorldMap()
         st.hookedPingPlayer = true
         local orig = WorldMapFrame_PingPlayerPosition
         WorldMapFrame_PingPlayerPosition = function(a1, a2, a3, a4, a5)
+            if st.active then hideStockPing() end
             orig(a1, a2, a3, a4, a5)
-            if st.active then updatePing() end
+            if st.active then
+                hideStockPing()
+                startPingPulse()
+                updatePing()
+            end
         end
     end
 
@@ -1032,7 +1089,10 @@ local function installIchaUIWorldMap()
             if ping then
                 zoom.pingHooked = true
                 hookScript(ping, "OnShow", function()
-                    if st.active then updatePing() end
+                    if not st.active then return end
+                    hideStockPing()
+                    startPingPulse()
+                    updatePing()
                 end)
             end
         end
@@ -1044,7 +1104,7 @@ local function installIchaUIWorldMap()
         zoom.z, zoom.h, zoom.v = 1, 0, 0
         panStop()
         if zoom.arrow then zoom.arrow:Hide() end
-        restoreMarker(getglobal("WorldMapPing"))
+        restoreStockPing()
         local df, b = WorldMapDetailFrame, WorldMapButton
         local ws = 1
         if not maximized() then ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end
@@ -1485,6 +1545,7 @@ local function installIchaUIWorldMap()
         hookWheels()
         raiseStrata()
         updateZoomLabel()
+        updatePing()
     end
 
     local function setSpecial(on)
@@ -1765,7 +1826,8 @@ local function installIchaUIWorldMap()
         end
         fr("detail", WorldMapDetailFrame)
         fr("button", WorldMapButton)
-        fr("ping", getglobal("WorldMapPing"))
+        fr("stockping", getglobal("WorldMapPing"))
+        fr("ping", zoom.ichaPing)
         fr("player", getglobal("WorldMapPlayer"))
         fr("arrow", zoom.arrow)
         if zoom.model and zoom.model ~= false then fr("model", zoom.model) end
@@ -1773,8 +1835,9 @@ local function installIchaUIWorldMap()
         if GetPlayerMapPosition then
             px, py = GetPlayerMapPosition("player")
         end
-        chat("|cffffd200you|r " .. n(px) .. "," .. n(py))
-        local ping, pin = getglobal("WorldMapPing"), visiblePin()
+        chat("|cffffd200you|r " .. n(px) .. "," .. n(py)
+            .. " frame " .. pt(f))
+        local ping, pin = zoom.ichaPing, visiblePin()
         if ping and pin and ping.GetCenter and pin.GetCenter then
             local pex, pey = ping:GetCenter()
             local nix, niy = pin:GetCenter()
@@ -1783,12 +1846,9 @@ local function installIchaUIWorldMap()
                 local nes = pin:GetEffectiveScale() or 1
                 local dx = pex * pes - nix * nes
                 local dy = pey * pes - niy * nes
-                local bes = (WorldMapButton and WorldMapButton:GetEffectiveScale()) or 1
-                if bes <= 0 then bes = 1 end
                 chat("|cffffd200ping-pin|r screen " .. n(dx) .. "," .. n(dy)
-                    .. " art " .. n(dx / bes) .. "," .. n(dy / bes)
-                    .. " want " .. PING_OX .. "," .. PING_OY
-                    .. " pin=" .. nm(pin))
+                    .. " want 0,0 pin=" .. nm(pin)
+                    .. (ping:IsShown() and "" or " HIDDEN"))
             end
         end
         if WorldMapFrameScrollFrame then fr("magnify", WorldMapFrameScrollFrame) end

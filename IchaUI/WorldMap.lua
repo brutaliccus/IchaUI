@@ -40,12 +40,15 @@ local function installIchaUIWorldMap()
 
     -- Turtle's FrameXML geometry (WorldMapFrame.xml / WorldMapFrame.lua).
     -- Windowed: a 720x521 frame with the 1002x668 art at scale 0.7, TOPLEFT
-    -- 15,-33 in art units. IchaUI keeps the art at scale 1, so the window is
-    -- that frame divided by 0.7 and the art sits at 15,-33 in frame units.
+    -- 15,-33 in art units. IchaUI keeps the art at scale 1 inside the same
+    -- parchment border, whose pieces are fixed-size frame textures: fully
+    -- opaque up to 12 / 25 / 7 / 33 units in from left / top / right /
+    -- bottom. The margins put the art edge 2+ units under that opaque band.
     -- Fullscreen: the art sits at TOP -502,-69 of the 1024x768 positioning guide.
     local ART_W, ART_H = 1002, 668
     local TURTLE_WIN_W, TURTLE_WIN_H = 720, 521
-    local WIN_X, WIN_Y = 15, -33
+    local STOCK_X, STOCK_Y = 15, -33
+    local WIN_L, WIN_T, WIN_R, WIN_B = 10, 23, 5, 30
     local FULL_W, FULL_H = 1024, 768
     local ZOOM_MAX, ZOOM_STEP = 3, 0.25
     local PAN_SLOP = 3
@@ -411,13 +414,14 @@ local function installIchaUIWorldMap()
             table.insert(edges, s)
             return s
         end
-        local top = strip("IchaUIWorldMapDragTop", nil, 32)
+        -- Sized to the frame margin so none of them covers the map art.
+        local top = strip("IchaUIWorldMapDragTop", nil, 26)
         top:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, 4)
         top:SetPoint("TOPRIGHT", parent, "TOPRIGHT", 0, 4)
         local left = strip("IchaUIWorldMapDragLeft", 10, nil)
         left:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, 0)
         left:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, 10)
-        local right = strip("IchaUIWorldMapDragRight", 10, nil)
+        local right = strip("IchaUIWorldMapDragRight", 5, nil)
         right:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT", 0, 0)
         right:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 18)
         local bot = strip("IchaUIWorldMapDragBot", nil, 10)
@@ -485,9 +489,7 @@ local function installIchaUIWorldMap()
     local native = false
 
     local function winSize()
-        local ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7
-        if ws <= 0 then ws = 0.7 end
-        return TURTLE_WIN_W / ws, TURTLE_WIN_H / ws
+        return WIN_L + ART_W + WIN_R, WIN_T + ART_H + WIN_B
     end
 
     local function anchorViewport()
@@ -496,7 +498,7 @@ local function installIchaUIWorldMap()
         if maximized() and WorldMapPositioningGuide then
             vp:SetPoint("TOPLEFT", WorldMapPositioningGuide, "TOP", -502, -69)
         else
-            vp:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", WIN_X, WIN_Y)
+            vp:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", WIN_L, -WIN_T)
         end
         vp:SetWidth(ART_W)
         vp:SetHeight(ART_H)
@@ -851,7 +853,7 @@ local function installIchaUIWorldMap()
         if maximized() then
             df:SetPoint("TOPLEFT", WorldMapPositioningGuide, "TOP", -502, -69)
         else
-            df:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", WIN_X, WIN_Y)
+            df:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", STOCK_X, STOCK_Y)
         end
         b:SetParent(WorldMapFrame)
         b:SetScale(ws)
@@ -1006,6 +1008,60 @@ local function installIchaUIWorldMap()
         for i = 1, table.getn(list) do list[i][1]:SetFrameStrata(list[i][2]) end
     end
 
+    local function setTree(fr, strata, saved)
+        if not fr or not fr.SetFrameStrata then return end
+        if saved[fr] == nil then saved[fr] = fr:GetFrameStrata() or false end
+        fr:SetFrameStrata(strata)
+        if not fr.GetChildren then return end
+        local kids = { fr:GetChildren() }
+        local i
+        for i = 1, table.getn(kids) do setTree(kids[i], strata, saved) end
+    end
+
+    -- The art sits in the canvas at higher levels than WorldMapFrame's own
+    -- children, so the map's controls go one strata above it.
+    local WIDGET_NAMES = {
+        "WorldMapContinentDropDown", "WorldMapZoneDropDown",
+        "WorldMapZoomOutButton", "WorldMapMagnifyingGlassButton",
+        "ModernMapMarkersFind_Panel",
+    }
+
+    local function raiseWidgets()
+        local i
+        for i = 1, table.getn(WIDGET_NAMES) do
+            local w = getglobal(WIDGET_NAMES[i])
+            if w then setTree(w, "FULLSCREEN_DIALOG", st.strataSaved) end
+        end
+    end
+
+    -- DropDownList1..n are shared by the whole UI. While the map is shown
+    -- an opened list goes to TOOLTIP; it is put back when it hides.
+    local function hookMenuLists()
+        if st.listsHooked then return end
+        local n = tonumber(UIDROPDOWNMENU_MAXLEVELS) or 3
+        local i
+        for i = 1, n do
+            local l = getglobal("DropDownList" .. i)
+            if l then
+                st.listsHooked = true
+                hookScript(l, "OnShow", function()
+                    if not (st.active and WorldMapFrame and WorldMapFrame:IsVisible()) then return end
+                    this.ichaSaved = this.ichaSaved or {}
+                    setTree(this, "TOOLTIP", this.ichaSaved)
+                end)
+                hookScript(l, "OnHide", function()
+                    local saved = this.ichaSaved
+                    if not saved then return end
+                    this.ichaSaved = nil
+                    local fr, old
+                    for fr, old in pairs(saved) do
+                        if old then fr:SetFrameStrata(old) end
+                    end
+                end)
+            end
+        end
+    end
+
     raiseStrata = function()
         local f = WorldMapFrame
         if not f or not f.SetFrameStrata then return end
@@ -1016,6 +1072,8 @@ local function installIchaUIWorldMap()
         local high = highKids(f, {})
         liftStrata(f)
         keepHigh(high)
+        raiseWidgets()
+        hookMenuLists()
         st.strataDone = true
     end
 
@@ -1518,6 +1576,14 @@ local function installIchaUIWorldMap()
                     .. " TR=" .. tr .. " " .. tostring(dd:GetFrameStrata()))
             end
         end
+        local function strata(name)
+            local f = getglobal(name)
+            return (f and f.GetFrameStrata and f:GetFrameStrata()) or "-"
+        end
+        chat("|cffffd200menus|r continent=" .. strata("WorldMapContinentDropDown")
+            .. " zone=" .. strata("WorldMapZoneDropDown")
+            .. " list1=" .. strata("DropDownList1")
+            .. " hooked=" .. tostring(st.listsHooked and true or false))
         local lw = st.lastWheel
         chat("|cffffd200wheel|r n=" .. tostring(st.wheelHooked and table.getn(st.wheelHooked) or 0)
             .. (lw and (" last=" .. tostring(lw.frame) .. "/" .. tostring(lw.mod) .. "/" .. n(lw.delta)) or " last=none"))

@@ -1390,7 +1390,7 @@ scan:SetScript("OnEvent", function()
         touchNamedIn(arg1)
     end
 end)
-scan:SetScript("OnUpdate", function()
+local function scanOnUpdate()
     if IchaUI_LEAVING then return end
     this.elapsed = (this.elapsed or 0) + (arg1 or 0)
     if this.elapsed < 0.2 then return end
@@ -1423,7 +1423,11 @@ scan:SetScript("OnUpdate", function()
             end
         end
     end
-end)
+end
+scan:SetScript("OnUpdate", scanOnUpdate)
+if IchaUI_LeavingHold then
+    IchaUI_LeavingHold(scan, scanOnUpdate)
+end
 
 if IchaUI_OnLeaving then
     IchaUI_OnLeaving(function(on)

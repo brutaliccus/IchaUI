@@ -284,6 +284,7 @@ local function pushEngine(guid, unit)
 end
 
 local function paintFocus()
+    if IchaUI_LEAVING then return end
     if not focusFr or focusFr.moving then return end
     local db = focusDb()
     local guid = guidString(db.guid)
@@ -519,7 +520,7 @@ pulse:SetScript("OnEvent", function()
         paintFocus()
     end
 end)
-pulse:SetScript("OnUpdate", function()
+local function pulseOnUpdate()
     if IchaUI_LEAVING then return end
     if not focusFr or not focusFr._focusActive or focusFr.moving then return end
     local dt = arg1 or 0
@@ -531,6 +532,10 @@ pulse:SetScript("OnUpdate", function()
     if this.t < 0.05 then return end
     this.t = 0
     paintFocus()
-end)
+end
+pulse:SetScript("OnUpdate", pulseOnUpdate)
+if IchaUI_LeavingHold then
+    IchaUI_LeavingHold(pulse, pulseOnUpdate)
+end
 
 paintFocus()

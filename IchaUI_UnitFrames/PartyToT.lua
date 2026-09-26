@@ -54,9 +54,29 @@ local function saveDb()
     IchaUIDB.uf = d
 end
 
+local function inParty()
+    if IchaUI_LEAVING then return false end
+    if type(IsInGroup) == "function" then
+        local ok, v = pcall(IsInGroup)
+        if ok and v then return true end
+    end
+    if type(GetNumPartyMembers) == "function" then
+        local ok, n = pcall(GetNumPartyMembers)
+        if ok and tonumber(n) and tonumber(n) > 0 then return true end
+    end
+    if type(GetNumRaidMembers) == "function" then
+        local ok, n = pcall(GetNumRaidMembers)
+        if ok and tonumber(n) and tonumber(n) > 0 then return true end
+    end
+    return false
+end
+
 local function unitLive(unit)
     if IchaUI_LEAVING then return false end
     if not unit or type(UnitExists) ~= "function" then return false end
+    if type(unit) == "string" and string.find(unit, "^party") and not inParty() then
+        return false
+    end
     local exists = false
     pcall(function()
         if UnitExists(unit) then exists = true end
@@ -96,11 +116,13 @@ local function testingParty()
 end
 
 local function shouldShow(i)
+    if IchaUI_LEAVING then return false end
     local p = partyToTDb()
     if p.hidden then return false end
     local host = hostFrame(i)
     if not host or not host.root or not host.root:IsShown() then return false end
     if testingParty() then return true end
+    if not inParty() then return false end
     if not unitLive("party" .. i) then return false end
     return unitLive("party" .. i .. "target")
 end
@@ -174,7 +196,18 @@ local function hideChrome(fr)
     end
 end
 
+local function hideAllPartyToT()
+    burstLeft = 0
+    lastTotStamp = nil
+    local i
+    for i = 1, 4 do
+        lastStamp[i] = false
+        hideChrome(slots[i])
+    end
+end
+
 local function paintOne(i, force)
+    if IchaUI_LEAVING then return end
     local fr = slots[i]
     if not fr then return end
     if not shouldShow(i) then
@@ -194,6 +227,10 @@ local function paintOne(i, force)
 end
 
 function IchaUIUF_LayoutPartyToT()
+    if IchaUI_LEAVING then
+        hideAllPartyToT()
+        return
+    end
     local i
     for i = 1, 4 do
         applySlotSize(slots[i])
@@ -332,6 +369,7 @@ function IchaUIUF_PartyToTNudge(dx, dy)
 end
 
 local function refreshPlayerTot(force)
+    if IchaUI_LEAVING then return end
     if type(IchaUIUF_Get) ~= "function" then return end
     local tot = IchaUIUF_Get("tot")
     if not tot or not tot.update then return end
@@ -351,8 +389,16 @@ local function refreshPlayerTot(force)
 end
 
 function IchaUIUF_RefreshToTFast()
+    if IchaUI_LEAVING then
+        hideAllPartyToT()
+        return
+    end
     burstLeft = 0.40
     refreshPlayerTot(true)
+    if not inParty() and not testingParty() then
+        hideAllPartyToT()
+        return
+    end
     local i
     for i = 1, 4 do
         paintOne(i, true)
@@ -400,8 +446,11 @@ pulse:RegisterEvent("UNIT_NAME_UPDATE")
 pulse:RegisterEvent("UNIT_PORTRAIT_UPDATE")
 pcall(function() pulse:RegisterEvent("UNIT_TARGETTABLE_CHANGED") end)
 pcall(function() pulse:RegisterEvent("PLAYER_FOCUS_CHANGED") end)
-pulse:SetScript("OnEvent", function()
-    if IchaUI_LEAVING and event ~= "PLAYER_ENTERING_WORLD" then return end
+local function pulseOnEvent()
+    if IchaUI_LEAVING and event ~= "PLAYER_ENTERING_WORLD" then
+        hideAllPartyToT()
+        return
+    end
     if event == "PLAYER_TARGET_CHANGED" or event == "UNIT_TARGET"
         or event == "UNIT_TARGETTABLE_CHANGED" then
         IchaUIUF_RefreshToTFast()
@@ -410,6 +459,10 @@ pulse:SetScript("OnEvent", function()
     if event == "PARTY_MEMBERS_CHANGED" or event == "PARTY_MEMBER_ENABLE"
         or event == "PARTY_MEMBER_DISABLE" or event == "RAID_ROSTER_UPDATE"
         or event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        if IchaUI_LEAVING then
+            hideAllPartyToT()
+            return
+        end
         IchaUIUF_LayoutPartyToT()
         refreshPlayerTot(true)
         return
@@ -419,16 +472,32 @@ pulse:SetScript("OnEvent", function()
         if who == "targettarget" or who == "target" then
             refreshPlayerTot(true)
         end
-        local i
-        for i = 1, 4 do
-            if who == ("party" .. i) or who == ("party" .. i .. "target") then
-                paintOne(i, true)
+        if inParty() or testingParty() then
+            local i
+            for i = 1, 4 do
+                if who == ("party" .. i) or who == ("party" .. i .. "target") then
+                    paintOne(i, true)
+                end
             end
         end
     end
-end)
-pulse:SetScript("OnUpdate", function()
+end
+
+local function pulseOnUpdate()
     if IchaUI_LEAVING then return end
+    if not inParty() and not testingParty() then
+        if burstLeft > 0 then
+            burstLeft = burstLeft - (arg1 or 0)
+            refreshPlayerTot(true)
+            return
+        end
+        this.t = (this.t or 0) + (arg1 or 0)
+        if this.t < 0.05 then return end
+        this.t = 0
+        hideAllPartyToT()
+        refreshPlayerTot(false)
+        return
+    end
     local dt = arg1 or 0
     if burstLeft > 0 then
         burstLeft = burstLeft - dt
@@ -457,7 +526,13 @@ pulse:SetScript("OnUpdate", function()
     for i = 1, 4 do
         paintOne(i, false)
     end
-end)
+end
+
+pulse:SetScript("OnEvent", pulseOnEvent)
+pulse:SetScript("OnUpdate", pulseOnUpdate)
+if IchaUI_LeavingHold then
+    IchaUI_LeavingHold(pulse, pulseOnUpdate)
+end
 
 -- Kind helpers (globals). Avoid new UnitFrames.lua column-0 locals.
 do
@@ -573,6 +648,10 @@ do
     local prevLayout = IchaUIUF_layoutParty
     function IchaUIUF_layoutParty()
         if prevLayout then prevLayout() end
+        if IchaUI_LEAVING then
+            hideAllPartyToT()
+            return
+        end
         IchaUIUF_LayoutPartyToT()
     end
 end
@@ -580,6 +659,7 @@ end
 do
     local prevApply = IchaUIUF_ApplyAll
     function IchaUIUF_ApplyAll()
+        if IchaUI_LEAVING then return end
         if prevApply then prevApply() end
         IchaUIUF_LayoutPartyToT()
     end
@@ -588,6 +668,10 @@ end
 do
     local prevRefresh = IchaUIUF_refreshAll
     function IchaUIUF_refreshAll()
+        if IchaUI_LEAVING then
+            hideAllPartyToT()
+            return
+        end
         if prevRefresh then prevRefresh() end
         local i
         for i = 1, 4 do

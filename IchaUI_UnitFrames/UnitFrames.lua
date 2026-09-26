@@ -1283,6 +1283,7 @@ end
 -- Never pass "none", IchaUI* frame names, or character names into unit APIs.
 
 function IchaUI_RoleUnitOk(unit)
+    if IchaUI_LEAVING then return false end
     if not unit or unit == "" or unit == "none" then return false end
     unit = tostring(unit)
     if string.sub(unit, 1, 6) == "IchaUI" then return false end
@@ -1298,6 +1299,7 @@ function IchaUI_RoleUnitOk(unit)
 end
 
 function IchaUI_InPartyOrRaid()
+    if IchaUI_LEAVING then return false, false end
     if type(GetNumRaidMembers) == "function" then
         local ok, v = pcall(GetNumRaidMembers)
         if ok and tonumber(v) and tonumber(v) > 0 then return true, true end
@@ -1515,6 +1517,7 @@ end
 -- OnEnter/OnLeave alone miss exits (child frames, frames hidden under the cursor,
 -- edge rounding), so hover and combat are re-derived here ~10x/s.
 function IchaUIUF_PollRoleFades(elapsed)
+    if IchaUI_LEAVING then return end
     local rf = IchaUIUF_RoleFade
     rf.acc = rf.acc + (tonumber(elapsed) or 0)
     if rf.acc < 0.1 then return end
@@ -1593,6 +1596,7 @@ function IchaUI_RoleHoverEnd(fr)
 end
 
 function IchaUI_UpdateUnitRoleIcons(fr)
+    if IchaUI_LEAVING then return end
     if not fr or (not fr.leaderIcon and not fr.lootIcon) then return end
     local testing = IchaUIUF_GetTestMode and IchaUIUF_GetTestMode()
     if fr.hidden and not testing then
@@ -2430,6 +2434,7 @@ function IchaUI_Swing_RefreshSpeed(fr)
 end
 
 function IchaUI_Swing_Update(fr)
+    if IchaUI_LEAVING then return end
     if not fr or not fr.swingBg or not fr.swingFill or not fr.swingSpark then return end
     local unit = fr.unit
     local bg = fr.swingBg
@@ -4687,6 +4692,7 @@ function IchaUI_Cast_PlayerInfo()
 end
 
 local function getCastInfo(unit)
+    if IchaUI_LEAVING then return nil end
     if not unit then return nil end
     local isPlayer = (unit == "player")
     if (not isPlayer) and unit and UnitIsUnit then
@@ -6644,6 +6650,7 @@ local function createUnitFrame(key, unit, defaults, opts)
     end
 
     function fr:updateCast()
+        if IchaUI_LEAVING then return end
         if self.raidCompact then
             IchaUI_Cast_HidePieces(self)
             self._casting = nil
@@ -8163,6 +8170,14 @@ local function createUnitFrame(key, unit, defaults, opts)
     end
 
     function fr:update(skipAuras)
+        if IchaUI_LEAVING then
+            if IchaUIUF_HidePreviewChrome then
+                IchaUIUF_HidePreviewChrome(self)
+            elseif root then
+                root:Hide()
+            end
+            return
+        end
         if self.hidden and not testMode then
             root:Hide()
             if self.portraitRingFrame then self.portraitRingFrame:Hide() end
@@ -9787,7 +9802,7 @@ tankCaret:SetScript("OnLeave", nil)
 local tankTicker = CreateFrame("Frame")
 local tankElapsed = 0
 local lastTankTw, lastTankTh, lastTankOpen = nil, nil, nil
-tankTicker:SetScript("OnUpdate", function()
+function IchaUIUF_TankTicker_OnUpdate()
     if IchaUI_LEAVING then return end
     tankElapsed = tankElapsed + arg1
     -- Poll ~10Hz while open (or minimal strip) so resists track live
@@ -9816,7 +9831,8 @@ tankTicker:SetScript("OnUpdate", function()
     elseif live then
         IchaUIUF_refreshTankDrawer()
     end
-end)
+end
+tankTicker:SetScript("OnUpdate", IchaUIUF_TankTicker_OnUpdate)
 
 function IchaUIUF_LayoutTargetCluster()
     IchaUIUF_layoutTargetCluster()
@@ -10066,6 +10082,15 @@ function IchaUIUF_HidePreviewChrome(fr)
 end
 
 function IchaUIUF_layoutParty()
+    if IchaUI_LEAVING then
+        local i
+        for i = 1, 4 do
+            local fr = partyFrames[i]
+            if fr then IchaUIUF_HidePreviewChrome(fr) end
+        end
+        if partyRoot then partyRoot:Hide() end
+        return
+    end
     local p = partyDb()
     local scale = clamp(tonumber(p.scale) or 1, 0.4, 3)
     local width = clamp(tonumber(p.width) or BASE_W, 1, 600)
@@ -10262,6 +10287,7 @@ end
 -- ========== RAID FRAMES (2×20, half-width, pad 0, swap with party) ==========
 
 shouldShowRaidFrames = function()
+    if IchaUI_LEAVING then return false end
     -- Test UI: only force raid when the Raid toggle is on
     if testMode then return testShowRaid and true or false end
     local n = 0
@@ -10342,6 +10368,15 @@ function IchaUIUF_restoreRaidRootPos()
 end
 
 layoutRaid = function()
+    if IchaUI_LEAVING then
+        local i
+        for i = 1, 40 do
+            local fr = raidFrames[i]
+            if fr then IchaUIUF_HidePreviewChrome(fr) end
+        end
+        if raidRoot then raidRoot:Hide() end
+        return
+    end
     local r = raidDb()
     local scale = clamp(tonumber(r.scale) or 1, 0.4, 3)
     local width = clamp(tonumber(r.width) or RAID_W, 1, 400)
@@ -10626,6 +10661,7 @@ function IchaUIUF_RefreshGoldChrome()
 end
 
 function IchaUIUF_refreshAll()
+    if IchaUI_LEAVING then return end
     player:update()
     target:update()
     tot:update()
@@ -10726,6 +10762,7 @@ function IchaUIUF_SyncShownAuraTimers()
 end
 
 function IchaUIUF_ApplyAll()
+    if IchaUI_LEAVING then return end
     player:applySize()
     target:applySize()
     tot:applySize()
@@ -12734,7 +12771,7 @@ end
 
 local totWatchId = nil
 local totWatchAccum = 0
-castTicker:SetScript("OnUpdate", function()
+function IchaUIUF_CastTicker_OnUpdate()
     if IchaUI_LEAVING then return end
     IchaUIUF_PollRoleFades(arg1)
     if player then updateManaTicker(player) end
@@ -12809,7 +12846,12 @@ castTicker:SetScript("OnUpdate", function()
         end
         sweepExpiredAuraCache()
     end
-end)
+end
+castTicker:SetScript("OnUpdate", IchaUIUF_CastTicker_OnUpdate)
+if IchaUI_LeavingHold then
+    IchaUI_LeavingHold(castTicker, IchaUIUF_CastTicker_OnUpdate)
+    IchaUI_LeavingHold(tankTicker, IchaUIUF_TankTicker_OnUpdate)
+end
 
 -- Initial party layout (SV may load later on PLAYER_LOGIN)
 IchaUIUF_restorePartyRootPos()

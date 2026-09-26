@@ -1646,6 +1646,7 @@ local function build()
     local function ufBlock(parent, tag, y)
         local pretty = string.upper(string.sub(tag, 1, 1)) .. string.sub(tag, 2)
         if tag == "tot" then pretty = "ToT" end
+        if tag == "partytot" then pretty = "Party ToT" end
         if tag == "combat" then pretty = "In combat" end
         sectionHeader(parent, pretty, PAD, y)
         y = y - 18
@@ -2343,8 +2344,8 @@ local function build()
     local framesSubBtns = {}
     local framesActiveSub = db().framesSubTab or "player"
     if framesActiveSub ~= "player" and framesActiveSub ~= "target" and framesActiveSub ~= "tot"
-        and framesActiveSub ~= "party" and framesActiveSub ~= "raid" and framesActiveSub ~= "combat"
-        and framesActiveSub ~= "focus" then
+        and framesActiveSub ~= "party" and framesActiveSub ~= "partytot" and framesActiveSub ~= "raid"
+        and framesActiveSub ~= "combat" and framesActiveSub ~= "focus" then
         framesActiveSub = "player"
     end
 

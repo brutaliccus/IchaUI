@@ -247,7 +247,7 @@ local function installIchaUIProfiles()
         safe(IchaUI_ReloadLayoutFromDB)
         safe(function()
             local keys = { "player", "target", "tot", "focus" }
-            local kinds = { "player", "target", "tot", "party", "raid", "combat", "focus" }
+            local kinds = { "player", "target", "tot", "party", "partytot", "raid", "combat", "focus" }
             local i, fr
             for i = 1, table.getn(keys) do
                 if type(IchaUIUF_Get) == "function" then

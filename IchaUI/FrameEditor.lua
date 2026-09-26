@@ -1,9 +1,9 @@
 -- Visual unit-frame layout editor, Move/Lock, and the config search box.
 
-local KINDS = { "player", "target", "tot", "party", "raid", "combat", "focus" }
+local KINDS = { "player", "target", "tot", "party", "partytot", "raid", "combat", "focus" }
 local LABELS = {
     player = "Player", target = "Target", tot = "ToT", party = "Party",
-    raid = "Raid", combat = "Combat", focus = "Focus",
+    partytot = "P.ToT", raid = "Raid", combat = "Combat", focus = "Focus",
 }
 local GOLD_R, GOLD_G, GOLD_B = 0.93, 0.78, 0.35
 
@@ -83,6 +83,9 @@ function IchaUI_OptNote(tab, label, sub)
     table.insert(IchaUI_OptCatalog, { tab = tab, label = label, sub = sub })
 end
 
+IchaUI_OptNote("Frames", "Party ToT", "partytot")
+IchaUI_OptNote("Frames", "Party target", "partytot")
+
 local editor
 local lockBtn
 local placeKind
@@ -94,6 +97,7 @@ end
 
 local function metric(kind)
     if kind == "party" and IchaUIUF_PartyGet then return IchaUIUF_PartyGet() end
+    if kind == "partytot" and IchaUIUF_PartyToTGet then return IchaUIUF_PartyToTGet() end
     if kind == "raid" and IchaUIUF_RaidGet then return IchaUIUF_RaidGet() end
     if IchaUIUF_Get then return IchaUIUF_Get(kind) end
     return nil
@@ -102,6 +106,10 @@ end
 local function setField(kind, field, value)
     if kind == "party" and IchaUIUF_PartySet then
         IchaUIUF_PartySet(field, value)
+        return
+    end
+    if kind == "partytot" and IchaUIUF_PartyToTSet then
+        IchaUIUF_PartyToTSet(field, value)
         return
     end
     if kind == "raid" and IchaUIUF_RaidSet then
@@ -113,6 +121,7 @@ end
 
 local function getPos(kind)
     if kind == "party" and IchaUIUF_PartyGetPos then return IchaUIUF_PartyGetPos() end
+    if kind == "partytot" and IchaUIUF_PartyToTGetPos then return IchaUIUF_PartyToTGetPos() end
     if kind == "raid" and IchaUIUF_RaidGetPos then return IchaUIUF_RaidGetPos() end
     if kind == "combat" and IchaUI_CombatGetPos then return IchaUI_CombatGetPos() end
     if IchaUIUF_GetPos then return IchaUIUF_GetPos(kind) end
@@ -122,6 +131,10 @@ end
 local function setPos(kind, x, y)
     if kind == "party" and IchaUIUF_PartySetPos then
         IchaUIUF_PartySetPos(x, y)
+        return
+    end
+    if kind == "partytot" and IchaUIUF_PartyToTSetPos then
+        IchaUIUF_PartyToTSetPos(x, y)
         return
     end
     if kind == "raid" and IchaUIUF_RaidSetPos then
@@ -140,6 +153,10 @@ local function nudge(kind, dx, dy)
         IchaUIUF_PartyNudge(dx, dy)
         return
     end
+    if kind == "partytot" and IchaUIUF_PartyToTNudge then
+        IchaUIUF_PartyToTNudge(dx, dy)
+        return
+    end
     if kind == "raid" and IchaUIUF_RaidGetPos and IchaUIUF_RaidSetPos then
         local x, y = IchaUIUF_RaidGetPos()
         IchaUIUF_RaidSetPos((tonumber(x) or 0) + (tonumber(dx) or 0), (tonumber(y) or 0) + (tonumber(dy) or 0))
@@ -152,6 +169,8 @@ local function stopMove(kind)
     if not kind then return end
     if kind == "party" and IchaUIUF_PartySet then
         IchaUIUF_PartySet("move", false)
+    elseif kind == "partytot" then
+        return
     elseif kind == "raid" and IchaUIUF_RaidSet then
         IchaUIUF_RaidSet("move", false)
     elseif kind == "combat" and IchaUI_CombatSet then
@@ -164,6 +183,11 @@ end
 
 local function placeParent(kind)
     if kind == "party" then return getglobal("IchaUIUF_PartyRoot") end
+    if kind == "partytot" then
+        local fr = IchaUIUF_Get and IchaUIUF_Get("partytot")
+        if fr and fr.root then return fr.root end
+        return getglobal("IchaUIUF_PartyRoot")
+    end
     if kind == "raid" then return getglobal("IchaUIUF_RaidRoot") end
     if kind == "combat" then return getglobal("IchaUICombatList") end
     local fr = IchaUIUF_Get and IchaUIUF_Get(kind)
@@ -199,6 +223,8 @@ end
 
 function IchaUIUF_BeginPlace(kind)
     if not kind or kind == "" then return end
+    -- Party ToT is docked to each party member; X/Y nudge sets the gap.
+    if kind == "partytot" then return end
     if placeKind and placeKind ~= kind then stopMove(placeKind) end
     placeKind = kind
     IchaUI_PlaceKind = kind
@@ -300,13 +326,13 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     local sx = 8
     for i = 1, table.getn(KINDS) do
         local kind = KINDS[i]
-        local b = goldButton(page, LABELS[kind], 72, 20)
+        local b = goldButton(page, LABELS[kind], 64, 20)
         b:SetPoint("TOPLEFT", page, "TOPLEFT", sx, -4)
         b:SetScript("OnClick", function()
             ed.showKind(kind)
         end)
         subBtns[kind] = b
-        sx = sx + 76
+        sx = sx + 68
     end
 
     local preview = CreateFrame("Frame", nil, page)
@@ -591,7 +617,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         mpBg:SetTexture(mpPath)
         mp:SetTexture(mpPath)
         swing:SetTexture("Interface/TargetingFrame/UI-StatusBar")
-        if kind == "target" or kind == "tot" or kind == "focus" then
+        if kind == "target" or kind == "tot" or kind == "partytot" or kind == "focus" then
             hp:SetVertexColor(0.8, 0.15, 0.15, 1)
         else
             hp:SetVertexColor(0.15, 0.7, 0.2, 1)
@@ -1405,6 +1431,16 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     end, partyOnly, function(kind, b)
         local m = metric(kind)
         b.label:SetText("Growth: " .. ((m and m.growth) or "center"))
+    end)
+    local SIDES = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "TOP", "Top" }, { "BOTTOM", "Bottom" } }
+    addChoice("Anchor", 160, function() return SIDES end, function(kind)
+        local m = metric(kind)
+        return idxOf(SIDES, (m and m.anchor) or "RIGHT", 1)
+    end, function(kind, i)
+        setField(kind, "anchor", SIDES[i][1])
+    end, function(kind) return kind == "partytot" end, function(kind, b)
+        local m = metric(kind)
+        b.label:SetText("Anchor: " .. ((m and m.anchor) or "RIGHT"))
     end)
 
     addHeader("Bars", always)

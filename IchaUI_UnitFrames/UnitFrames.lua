@@ -2914,6 +2914,7 @@ end
 function IchaUI_LevelStoreKey(key)
     if not key then return "player" end
     if string.find(key, "^combat") then return "combat" end
+    if key == "partytot" or string.find(key, "^ptot") then return "partytot" end
     if string.find(key, "^party") then return "party" end
     if string.find(key, "^raid") then return "raid" end
     if key == "focus" then return "focus" end
@@ -2938,7 +2939,7 @@ end
 
 function IchaUI_LevelCanPortrait(key)
     local store = IchaUI_LevelStoreKey(key)
-    if store == "player" or store == "target" or store == "tot" or store == "combat" or store == "focus" or store == "party" then return true end
+    if store == "player" or store == "target" or store == "tot" or store == "combat" or store == "focus" or store == "party" or store == "partytot" then return true end
     return false
 end
 
@@ -3214,7 +3215,7 @@ local TEXT_DEFAULTS = {
     debuffAnchor = "BOTTOMLEFT",
 }
 
-local TEXT_KINDS = { "player", "target", "tot", "party", "raid", "combat", "focus" }
+local TEXT_KINDS = { "player", "target", "tot", "party", "partytot", "raid", "combat", "focus" }
 
 local function validAlign(a)
     if a == "LEFT" or a == "RIGHT" or a == "CENTER" then return a end
@@ -3339,8 +3340,11 @@ end
 
 local function textKindForKey(key)
     if key == "focus" then return "focus" end
-    if key == "player" or key == "target" or key == "tot" then
+    if key == "player" or key == "target" or key == "tot" or key == "partytot" then
         return key
+    end
+    if key and string.find(key, "^ptot") then
+        return "partytot"
     end
     if key and string.find(key, "^party") then
         return "party"
@@ -3428,7 +3432,7 @@ end
 
 local function loadTextSettings(kind)
     if not kind or kind == "" then kind = "player" end
-    if kind ~= "player" and kind ~= "target" and kind ~= "tot" and kind ~= "party" and kind ~= "raid" and kind ~= "combat" and kind ~= "focus" then
+    if kind ~= "player" and kind ~= "target" and kind ~= "tot" and kind ~= "party" and kind ~= "partytot" and kind ~= "raid" and kind ~= "combat" and kind ~= "focus" then
         kind = "player"
     end
     local by = ensureTextByType()
@@ -3467,7 +3471,7 @@ end
 local function saveTextSettings(kind, t)
     if not t then return end
     if not kind or kind == "" then kind = "player" end
-    if kind ~= "player" and kind ~= "target" and kind ~= "tot" and kind ~= "party" and kind ~= "raid" and kind ~= "combat" and kind ~= "focus" then
+    if kind ~= "player" and kind ~= "target" and kind ~= "tot" and kind ~= "party" and kind ~= "partytot" and kind ~= "raid" and kind ~= "combat" and kind ~= "focus" then
         kind = "player"
     end
     local d = db()
@@ -5484,7 +5488,7 @@ local function createUnitFrame(key, unit, defaults, opts)
         -- above the portrait ring only. HIGH/DIALOG would cover bags and menus.
         -- Player: combat swords > rest zzz (OOC) > Port level. Target/ToT/combat: Port level.
         -- TrackingBorder is OK on this badge — never on the portrait ring itself.
-        if key == "player" or key == "target" or key == "tot" or key == "focus" or (key and string.find(key, "^combat")) or (key and string.find(key, "^party")) then
+        if key == "player" or key == "target" or key == "tot" or key == "focus" or (key and string.find(key, "^combat")) or (key and string.find(key, "^party")) or (key and string.find(key, "^ptot")) then
             local badge = CreateFrame("Frame", "IchaUIUF_" .. key .. "_Badge", UIParent)
             badge:SetFrameStrata("MEDIUM")
             badge:SetFrameLevel(55)
@@ -5591,7 +5595,7 @@ local function createUnitFrame(key, unit, defaults, opts)
     fr._manaTickMax = nil
 
     -- Melee swing timer bar in the HP–MP gap (player, target, tot, combat plates)
-    if key == "player" or key == "target" or key == "tot" or key == "focus" or (key and string.find(key, "^combat")) then
+    if key == "player" or key == "target" or key == "tot" or key == "focus" or (key and string.find(key, "^combat")) or (key and string.find(key, "^ptot")) then
         local swingBg = makeBar(root, "BACKGROUND")
         swingBg:SetVertexColor(0.08, 0.08, 0.08)
         fr.swingBg = swingBg
@@ -8199,6 +8203,7 @@ local function createUnitFrame(key, unit, defaults, opts)
                 local pretty = key
                 if key == "target" then pretty = "Target"
                 elseif key == "tot" or unit == "targettarget" then pretty = "ToT"
+                elseif key and string.find(key, "^ptot") then pretty = "Party tgt"
                 elseif isPartyUnit(unit) then
                     local _, _, n = string.find(unit, "(%d+)")
                     pretty = "Party" .. (n or "")
@@ -8688,9 +8693,10 @@ end
 function IchaUIUF_BarKind(key)
     if not key then return "player" end
     if key == "player" or key == "target" or key == "tot" or key == "focus"
-        or key == "party" or key == "raid" or key == "combat" then
+        or key == "party" or key == "partytot" or key == "raid" or key == "combat" then
         return key
     end
+    if string.find(key, "^ptot") then return "partytot" end
     if string.find(key, "^party") then return "party" end
     if string.find(key, "^raid") then return "raid" end
     if string.find(key, "^combat") then return "combat" end
@@ -11066,6 +11072,8 @@ function IchaUIUF_refreshTextKind(kind)
         end
     elseif kind == "party" then
         IchaUIUF_layoutParty()
+    elseif kind == "partytot" then
+        if IchaUIUF_LayoutPartyToT then IchaUIUF_LayoutPartyToT() end
     elseif kind == "combat" then
         if IchaUI_CombatLayout then IchaUI_CombatLayout() end
     elseif kind == "raid" then
@@ -11877,6 +11885,7 @@ ev:RegisterEvent("PLAYER_REGEN_DISABLED")
 ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("PLAYER_TARGET_CHANGED")
 ev:RegisterEvent("UNIT_TARGET")
+pcall(function() ev:RegisterEvent("UNIT_TARGETTABLE_CHANGED") end)
 ev:RegisterEvent("PARTY_MEMBERS_CHANGED")
 ev:RegisterEvent("PARTY_MEMBER_ENABLE")
 ev:RegisterEvent("PARTY_MEMBER_DISABLE")
@@ -12116,16 +12125,18 @@ ev:SetScript("OnEvent", function()
         end
         if refreshTankDrawer then IchaUIUF_refreshTankDrawer() end
         if IchaUIUF_layoutTargetCluster then IchaUIUF_layoutTargetCluster() end
+        if IchaUIUF_RefreshToTFast then IchaUIUF_RefreshToTFast() end
         return
     end
     if event == "PLAYER_LEVEL_UP" then
         if IchaUI_RefreshLevelShow then IchaUI_RefreshLevelShow() end
         return
     end
-    if event == "UNIT_TARGET" then
+    if event == "UNIT_TARGET" or event == "UNIT_TARGETTABLE_CHANGED" then
         -- Turtle/SuperWoW may pass GUID or odd tokens — always refresh ToT
         if target then target:update() end
         if tot then tot:update() end
+        if IchaUIUF_RefreshToTFast then IchaUIUF_RefreshToTFast() end
         return
     end
     if event == "UNIT_HEALTH" or event == "UNIT_MAXHEALTH" or event == "UNIT_MANA"
@@ -12735,12 +12746,14 @@ castTicker:SetScript("OnUpdate", function()
     if totWatchAccum >= 0.05 then
         totWatchAccum = 0
         local id = nil
-        if UnitExists and UnitExists("targettarget") then
+        local totLive = UnitExists and UnitExists("targettarget")
+        if totLive then
             id = unitIdentity("targettarget") or (UnitName and UnitName("targettarget")) or "?"
         else
             id = false
         end
-        if id ~= totWatchId then
+        local totShown = tot and tot.root and tot.root.IsShown and tot.root:IsShown()
+        if id ~= totWatchId or (totLive and not totShown) or ((not totLive) and totShown) then
             totWatchId = id
             if tot then
                 tot._swingStart = nil

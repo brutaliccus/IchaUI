@@ -1865,6 +1865,8 @@ function IchaUI_Cast_ToggleDebug()
 end
 
 function IchaUI_Cast_HomeLag()
+    -- Vanilla 1.12 / SuperWoW: GetNetStats() → bandwidthIn, bandwidthOut, latency.
+    -- Same 3rd field SuperAPI AceAddon-2.0 and ShaguTweaks libcast use. No 4th world.
     if type(GetNetStats) ~= "function" then return 0 end
     local _, _, lagHome = GetNetStats()
     local home = tonumber(lagHome) or 0
@@ -1873,15 +1875,17 @@ function IchaUI_Cast_HomeLag()
 end
 
 function IchaUI_Cast_LagMs()
-    -- One-way home ping only. Never leftover, clock-skew, or empty CAST.
-    local home = IchaUI_Cast_HomeLag()
-    local red = home / 2
-    if red < 0 then red = 0 end
-    if red > 250 then red = 250 end
-    IchaUI_Cast_LastHome = home
-    IchaUI_Cast_LastRedMs = red
-    IchaUI_Cast_LastRedSrc = "home/2"
-    return red
+    -- Stock Quartz Latency (non-embed): redWidth = (lag / duration) * barWidth at RIGHT.
+    -- Quartz Latency.lua uses measured SENT→START as lag; 1.12 has no SENT, so lag is
+    -- GetNetStats()[3] as-is (not /2, not leftover/EMA/clock-skew). Those were mistakes.
+    -- Source: https://github.com/Nevcairiel/Quartz/blob/master/modules/Latency.lua
+    --   perc = timeDiff / castlength; SetWidth(barWidth * perc); SetPoint(RIGHT).
+    local lag = IchaUI_Cast_HomeLag()
+    IchaUI_Cast_LastHome = lag
+    IchaUI_Cast_LastRedMs = lag
+    IchaUI_Cast_LastRedSrc = "quartz"
+    IchaUI_Cast_LastLagField = "GetNetStats[3]"
+    return lag
 end
 
 function IchaUI_Cast_AdoptClock(lock, info, source)
@@ -1904,7 +1908,7 @@ function IchaUI_Cast_AdoptClock(lock, info, source)
     if newStart > 0 and oldStart > 0 then dStart = newStart - oldStart end
     IchaUI_Cast_LastClockDelta = dStart
     IchaUI_Cast_Debug(string.format(
-        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redMs=%.0f redSrc=home/2",
+        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redSrc=quartz lagMs=%.0f field=GetNetStats[3]",
         source, oldStart, newStart, dStart, oldFin, newFin, IchaUI_Cast_LagMs()))
 end
 
@@ -1918,7 +1922,7 @@ function IchaUI_Cast_Kill(why, caster)
     local start = lock and tonumber(lock.start) or 0
     local finish = lock and tonumber(lock.finish) or 0
     IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f redMs=%.0f redSrc=home/2 src=%s",
+        "%s t=%.3f spell=%s start=%.0f end=%.0f redSrc=quartz lagMs=%.0f field=GetNetStats[3] src=%s",
         tostring(why or "KILL"),
         now,
         tostring(lock and lock.name or "?"),
@@ -1950,13 +1954,16 @@ function IchaUI_Cast_Capture(info, source)
         source = source or "?",
     }
     IchaUI_Cast_DeadUntil = nil
+    local startMs = tonumber(info.start) or 0
+    local endMs = tonumber(info.finish) or 0
+    local lagMs = IchaUI_Cast_LagMs()
+    local redFrac = 0
+    if endMs > startMs then redFrac = lagMs / (endMs - startMs) end
     IchaUI_Cast_Debug(string.format(
-        "START t=%.3f spell=%s start=%.0f end=%.0f redMs=%.0f redSrc=home/2 src=%s",
+        "START t=%.3f spell=%s start=%.0f end=%.0f redSrc=quartz lagMs=%.0f redFrac=%.3f field=GetNetStats[3] src=%s",
         GetTime and GetTime() or 0,
         tostring(info.name or "?"),
-        tonumber(info.start) or 0,
-        tonumber(info.finish) or 0,
-        IchaUI_Cast_LagMs(),
+        startMs, endMs, lagMs, redFrac,
         tostring(source or "?")))
     if IchaUI_Cast_PeekPair then IchaUI_Cast_PeekPair() end
     return IchaUI_Cast_Lock
@@ -2283,8 +2290,8 @@ function IchaUI_Cast_QuenchEvent(event, arg1)
     IchaUI_Cast_QuenchUnit(who)
 end
 
--- Quartz: red block at the RIGHT end. Width is (lag/realDur)*barWidth.
--- OVERLAY so gold can grow through it without hiding the zone.
+-- Quartz Latency (non-embed): red at RIGHT. Width = (lag/duration)*barWidth.
+-- OVERLAY under the spark so gold fills through the zone.
 function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     local castLag = fr and fr.castLag
     local castFrame = fr and fr.castFrame
@@ -4589,7 +4596,7 @@ function IchaUI_Cast_PeekPair()
     if cStart > 0 and uStart > 0 then
         IchaUI_Cast_LastClockDelta = uStart - cStart
         IchaUI_Cast_Debug(string.format(
-            "clock delta unitcast-classic=%.0fms redMs=%.0f redSrc=home/2",
+            "clock delta unitcast-classic=%.0fms (not red) redSrc=quartz lagMs=%.0f field=GetNetStats[3]",
             IchaUI_Cast_LastClockDelta, IchaUI_Cast_LagMs()))
     end
 end
@@ -6866,7 +6873,7 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if pct < (self._castHoldPct or 0) then
                     if IchaUI_Cast_Debug then
                         IchaUI_Cast_Debug(string.format(
-                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f redMs=%.0f redSrc=home/2 src=%s",
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f (not red) redSrc=quartz lagMs=%.0f field=GetNetStats[3] src=%s",
                             nowSec, holdKey, self._castHoldPct, pct,
                             (finish > now) and (finish - now) or ((1 - pct) * dur),
                             IchaUI_Cast_LagMs(),

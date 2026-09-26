@@ -306,6 +306,7 @@ IchaUI_BakedDefaults = {
         clockX = 4.966333851047466,
         clockY = -68.03339403612665,
         enabled = true,
+        wheelZoom = true,
         point = "TOPLEFT",
         relPoint = "TOPLEFT",
         scale = 1,

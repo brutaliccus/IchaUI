@@ -3248,6 +3248,18 @@ local function build()
         function(v) if IchaUIMinimap_Set then IchaUIMinimap_Set("size", v) end end)
     yMp = yMp - 8
     tip(pageMap, "Shape opens a preview of every minimap frame. Click one to use it. Tint colors that frame art. Move to drag, Lock to freeze. Reset = default position.", PAD, yMp, 520)
+    yMp = yMp - 22
+    pageMap._mmWheel = makeButton(pageMap, "Mouse wheel zoom: On", 170, 20, function()
+        if IchaUIMinimap_Set then
+            local g = IchaUIMinimap_Get and IchaUIMinimap_Get()
+            local on = not (g and g.wheelZoom)
+            IchaUIMinimap_Set("wheelZoom", on)
+            this:SetText(on and "Mouse wheel zoom: On" or "Mouse wheel zoom: Off")
+        end
+    end)
+    pageMap._mmWheel:SetPoint("TOPLEFT", pageMap, "TOPLEFT", PAD, yMp)
+    yMp = yMp - 8
+    tip(pageMap, "Scroll to zoom the minimap.", PAD, yMp, 520)
     yMp = yMp - 24
 
     sectionHeader(pageMap, "Zone title", PAD, yMp); yMp = yMp - 20
@@ -3699,6 +3711,9 @@ local function build()
             local g = IchaUIMinimap_Get()
             mmOn:SetText((g and g.enabled) and "Minimap: On" or "Minimap: Off")
             if mmMove then mmMove:SetText((g and g.mapMoving) and "Lock" or "Move") end
+            if pageMap and pageMap._mmWheel then
+                pageMap._mmWheel:SetText((g and g.wheelZoom) and "Mouse wheel zoom: On" or "Mouse wheel zoom: Off")
+            end
             if IchaUI_MinimapShapeButton and IchaUIMinimap_ShapeName then
                 IchaUI_MinimapShapeButton:SetText("Shape: " .. IchaUIMinimap_ShapeName())
             end

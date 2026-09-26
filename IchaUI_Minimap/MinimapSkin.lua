@@ -1,6 +1,6 @@
 -- IchaUI minimap skin (1.12 / RavenCraft)
 -- Square gold frame, portrait-ring circle, circular frame art, SexyMap masks.
--- Zone title + clock detach/move/scale/hide. Lua 5.0-safe.
+-- Zone title + clock detach/move/scale/hide. Mouse-wheel zoom. Lua 5.0-safe.
 -- SexyMap shapes in that repo are static masks, not flipbooks. No fake spin.
 
 local GOLD = { 0.78, 0.58, 0.16, 1 }
@@ -127,6 +127,8 @@ local zoneShow = true
 local zoneScale = DEFAULT_ZONE_SCALE
 local clockShow = true
 local clockScale = DEFAULT_CLOCK_SCALE
+local wheelZoom = true
+local wheelFn
 local chrome = nil
 local mover = nil
 local zoneMover = nil
@@ -175,6 +177,7 @@ local function loadCfg()
     zoneScale = clamp(d.zoneScale or DEFAULT_ZONE_SCALE, 0.5, 2.5)
     if d.clockShow ~= nil then clockShow = d.clockShow and true or false end
     clockScale = clamp(d.clockScale or DEFAULT_CLOCK_SCALE, 0.5, 2.5)
+    if d.wheelZoom ~= nil then wheelZoom = d.wheelZoom and true or false end
     -- Drop corrupt/legacy non-CENTER point schemas
     if d.zonePoint and not (d.zonePoint == "CENTER" and d.zoneRelPoint == "CENTER") then
         d.zonePoint, d.zoneRelPoint, d.zoneX, d.zoneY, d.zoneAnchor = nil, nil, nil, nil, nil
@@ -234,6 +237,7 @@ local function saveCfg()
     d.zoneScale = zoneScale
     d.clockShow = clockShow
     d.clockScale = clockScale
+    d.wheelZoom = wheelZoom
     if Minimap and Minimap.GetPoint then
         local p, _, rp, x, y = Minimap:GetPoint(1)
         if p then
@@ -777,6 +781,87 @@ local function applyShape()
     return info
 end
 
+-- ShaguTweaks MiniMap Tweaks: wheel over the map calls Minimap_ZoomIn/Out.
+-- Magnify zooms the world map, not the minimap; if a Magnify build already
+-- hooked Minimap, leave that handler so wheel does not double-step.
+local function magnifyOwnsMinimapWheel()
+    if not (IsAddOnLoaded and IsAddOnLoaded("Magnify")) then return false end
+    if not Minimap or not Minimap.GetScript then return false end
+    local s = Minimap:GetScript("OnMouseWheel")
+    if not s or s == wheelFn then return false end
+    return true
+end
+
+local function stepMinimapZoom(delta)
+    if not Minimap or not delta or delta == 0 then return end
+    if delta > 0 then
+        if Minimap_ZoomIn then
+            local ok = pcall(Minimap_ZoomIn)
+            if ok then return end
+        end
+        if not Minimap.GetZoom or not Minimap.SetZoom then return end
+        local z = Minimap:GetZoom() or 0
+        local hi = 5
+        if Minimap.GetZoomLevels then
+            local n = Minimap:GetZoomLevels()
+            if n and n > 0 then hi = n - 1 end
+        end
+        if z < hi then Minimap:SetZoom(z + 1) end
+    else
+        if Minimap_ZoomOut then
+            local ok = pcall(Minimap_ZoomOut)
+            if ok then return end
+        end
+        if not Minimap.GetZoom or not Minimap.SetZoom then return end
+        local z = Minimap:GetZoom() or 0
+        if z > 0 then Minimap:SetZoom(z - 1) end
+    end
+end
+
+wheelFn = function()
+    if not wheelZoom then return end
+    if IsControlKeyDown and IsControlKeyDown() then return end
+    if IsShiftKeyDown and IsShiftKeyDown() then return end
+    local d = tonumber(arg1)
+    if d == nil then return end
+    stepMinimapZoom(d)
+end
+
+local function hookWheel(frame, on)
+    if not frame or not frame.SetScript then return end
+    if on then
+        frame:SetScript("OnMouseWheel", wheelFn)
+        if frame.EnableMouseWheel then frame:EnableMouseWheel(true) end
+    else
+        local cur = frame.GetScript and frame:GetScript("OnMouseWheel")
+        if cur == wheelFn then
+            frame:SetScript("OnMouseWheel", nil)
+            if frame.EnableMouseWheel then frame:EnableMouseWheel(false) end
+        end
+    end
+end
+
+local function applyWheelZoom()
+    local on = wheelZoom and true or false
+    if Minimap then
+        if on and magnifyOwnsMinimapWheel() then
+            -- Magnify already zooms the minimap
+        else
+            hookWheel(Minimap, on)
+        end
+    end
+    hookWheel(chrome, on)
+    hookWheel(shapeRing, on)
+    hookWheel(shapeCover, on)
+    hookWheel(zoneFrame, on)
+    hookWheel(clockFrame, on)
+    hookWheel(mover, on)
+    hookWheel(zoneMover, on)
+    hookWheel(clockMover, on)
+    hookWheel(getglobal("MinimapZoomIn"), on)
+    hookWheel(getglobal("MinimapZoomOut"), on)
+end
+
 local function applySkin()
     if not Minimap then return end
     loadCfg()
@@ -786,6 +871,7 @@ local function applySkin()
         if zoneMover then zoneMover:Hide() end
         if clockMover then clockMover:Hide() end
         hideShapeArt()
+        applyWheelZoom()
         return
     end
 
@@ -882,6 +968,7 @@ local function applySkin()
 
     applyZone()
     applyClock()
+    applyWheelZoom()
 
     saveCfg()
 end
@@ -900,6 +987,7 @@ local function unskin()
         if clockFrame.EnableMouse then clockFrame:EnableMouse(false) end
         clockFrame:Hide()
     end
+    applyWheelZoom()
 end
 
 local function bakedMinimap()
@@ -977,6 +1065,7 @@ function IchaUIMinimap_Get()
         mapMoving = mapMoveOn and true or false,
         zoneMoving = zoneMoveOn and true or false,
         clockMoving = clockMoveOn and true or false,
+        wheelZoom = wheelZoom and true or false,
     }
 end
 
@@ -1024,6 +1113,11 @@ function IchaUIMinimap_Set(field, value)
     elseif field == "clockMove" then
         clockMoveOn = not clockMoveOn
         if enabled then applyClock() end
+        return
+    elseif field == "wheelZoom" then
+        wheelZoom = value and true or false
+        saveCfg()
+        applyWheelZoom()
         return
     elseif field == "reset" then
         IchaUIMinimap_Reset(value or "all")

@@ -27,9 +27,9 @@
 
 local function installIchaUIWorldMap()
     local DEFAULTS = {
-        enabled = true, border = true, scale = 0.85, alpha = 1,
-        point = "CENTER", relPoint = "CENTER", x = 0, y = 30,
-        levels = true, levelInst = true, levelRaids = true, levelPvP = true, levelFish = false,
+        enabled = true, border = false, scale = 0.9000000357627869, alpha = 1,
+        point = "CENTER", relPoint = "CENTER", x = 495.42, y = 191.39,
+        levels = true, levelInst = true, levelRaids = true, levelPvP = true, levelFish = true,
     }
     local LEVEL_KEYS = { levels = true, levelInst = true, levelRaids = true, levelPvP = true, levelFish = true }
     local SCALE_LO, SCALE_HI = 0.4, 1.5

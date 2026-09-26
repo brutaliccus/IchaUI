@@ -11,7 +11,7 @@ local fonts = {}
 local verts = {}
 local fills = {}
 local portFills = {}
-local FILL_R, FILL_G, FILL_B = 0.07, 0.07, 0.08
+local FILL_R, FILL_G, FILL_B = 0.06666666666666667, 0.0392156862745098, 0
 local goldBusy = false
 
 local function clamp01(v)

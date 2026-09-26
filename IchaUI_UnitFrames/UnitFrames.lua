@@ -122,10 +122,9 @@ local function powerColor(unit)
     return 0.2, 0.4, 0.95
 end
 
--- Mana tick spark (pfUI energytick + lock to real regen):
---   mana spend (cost > 0) → 5s FSR sweep
---   when that finishes → rolling 2.000s sweeps (no latency pad)
---   UNIT_MANA increase while not casting / not mid-FSR re-anchors the 2s clock
+-- Mana tick spark: pfUI-turtle/modules/energytick.lua (OnEvent UNIT_MANA).
+--   spend (diff < 0) → 5s FSR; gain only re-anchors to 2s when not in FSR
+--   and diff > (badtick*1.2 or 5). Smaller gains (Mana Spring) set badtick.
 local function tripManaFsr(fr)
     if not fr or fr.unit ~= "player" then return end
     local now = GetTime()
@@ -1875,21 +1874,12 @@ function IchaUI_Cast_HomeLag()
 end
 
 function IchaUI_Cast_LagMs()
-    -- Quartz SENT→START on this client is SuperWoW/unitcast start minus classic start
-    -- (the logged dStart). GetNetStats[3] only if that gap was never measured.
-    -- Not leftover, not EMA, not /2.
-    local lock = IchaUI_Cast_Lock
-    local dStart = lock and tonumber(lock.dStart) or 0
-    if dStart > 0 then
-        IchaUI_Cast_LastRedMs = dStart
-        IchaUI_Cast_LastRedSrc = "dStart"
-        IchaUI_Cast_LastLagField = "dStart"
-        return dStart
-    end
+    -- pfUI/modules/castbar.lua StampBar: local _, _, lag = GetNetStats()
+    -- Width = barWidth / duration * (lag/1000) at the right. RTT as-is, no /2.
     local lag = IchaUI_Cast_HomeLag()
     IchaUI_Cast_LastHome = lag
     IchaUI_Cast_LastRedMs = lag
-    IchaUI_Cast_LastRedSrc = "quartz-fallback"
+    IchaUI_Cast_LastRedSrc = "GetNetStats[3]"
     IchaUI_Cast_LastLagField = "GetNetStats[3]"
     return lag
 end
@@ -1927,9 +1917,9 @@ function IchaUI_Cast_AdoptClock(lock, info, source)
     local redFrac = 0
     if dur > 0 then redFrac = lagMs / dur end
     IchaUI_Cast_Debug(string.format(
-        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redSrc=%s lagMs=%.0f redFrac=%.3f",
+        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redMs=%.0f source=%s redFrac=%.3f",
         source, oldStart, newStart, tonumber(lock.dStart) or 0, oldFin, tonumber(lock.finish) or 0,
-        tostring(IchaUI_Cast_LastRedSrc or "?"), lagMs, redFrac))
+        lagMs, tostring(IchaUI_Cast_LastRedSrc or "?"), redFrac))
 end
 
 function IchaUI_Cast_Kill(why, caster)
@@ -1950,7 +1940,7 @@ function IchaUI_Cast_Kill(why, caster)
         redFrac = lagMs / dur
     end
     IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f lagMs=%.0f redSrc=%s redFrac=%.3f prog=%.3f src=%s",
+        "%s t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f redMs=%.0f source=%s redFrac=%.3f prog=%.3f src=%s",
         tostring(why or "KILL"),
         now,
         tostring(lock and lock.name or "?"),
@@ -1992,7 +1982,7 @@ function IchaUI_Cast_Capture(info, source)
     local redFrac = 0
     if endMs > startMs then redFrac = lagMs / (endMs - startMs) end
     IchaUI_Cast_Debug(string.format(
-        "START t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f lagMs=%.0f redSrc=%s redFrac=%.3f src=%s",
+        "START t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f redMs=%.0f source=%s redFrac=%.3f src=%s",
         GetTime and GetTime() or 0,
         tostring(info.name or "?"),
         startMs, endMs,
@@ -4635,7 +4625,7 @@ function IchaUI_Cast_PeekPair()
         end
         local lagMs = IchaUI_Cast_LagMs()
         IchaUI_Cast_Debug(string.format(
-            "clock delta unitcast-classic=%.0fms dStart=%.0f lagMs=%.0f redSrc=%s",
+            "clock delta unitcast-classic=%.0fms dStart=%.0f redMs=%.0f source=%s",
             d, tonumber(IchaUI_Cast_Lock and IchaUI_Cast_Lock.dStart) or 0,
             lagMs, tostring(IchaUI_Cast_LastRedSrc or "?")))
     end
@@ -6738,8 +6728,10 @@ local function createUnitFrame(key, unit, defaults, opts)
                 local lagW = 0
                 if not locked then
                     local durMs = TEST_CAST_DUR * 1000
-                    if durMs > 0 then
-                        lagW = maxW * (150 / durMs)
+                    local lagMs = 0
+                    if IchaUI_Cast_LagMs then lagMs = IchaUI_Cast_LagMs() end
+                    if durMs > 0 and lagMs > 0 then
+                        lagW = maxW * (lagMs / durMs)
                     end
                 end
                 self._castLagW = lagW
@@ -6913,7 +6905,7 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if pct < (self._castHoldPct or 0) then
                     if IchaUI_Cast_Debug then
                         IchaUI_Cast_Debug(string.format(
-                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f (not red) dStart=%.0f lagMs=%.0f redSrc=%s src=%s",
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f (not red) dStart=%.0f redMs=%.0f source=%s src=%s",
                             nowSec, holdKey, self._castHoldPct, pct,
                             (finish > now) and (finish - now) or ((1 - pct) * dur),
                             tonumber(IchaUI_Cast_Lock and IchaUI_Cast_Lock.dStart) or 0,
@@ -12154,38 +12146,21 @@ ev:SetScript("OnEvent", function()
                 local last = player._lastMana
                 if last ~= nil then
                     local delta = cur - last
-                    -- Spend starts the 5s rule. A real regen increase (not a spend)
-                    -- re-anchors the 2.000s spark so it cannot beat against live ticks.
-                    if delta <= -1 then
+                    -- pfUI-turtle energytick OnEvent: spend → 5s; gain re-anchors
+                    -- only when max ~= 5 and diff > (badtick*1.2 or 5).
+                    if delta < 0 then
                         tripManaFsr(player)
-                    elseif event == "UNIT_MANA" and delta >= 1 then
-                        local busy = player._casting
-                        if not busy and CastingInfo then
-                            local okc, cn = pcall(CastingInfo)
-                            if okc and cn then busy = true end
+                    elseif event == "UNIT_MANA" and delta > 0 then
+                        local maxT = player._manaTickMax
+                        if player._manaTickTarget then maxT = player._manaTickTarget end
+                        local thresh = 5
+                        if player._manaTickBad then
+                            thresh = player._manaTickBad * 1.2
                         end
-                        if not busy and ChannelInfo then
-                            local okc, cn = pcall(ChannelInfo)
-                            if okc and cn then busy = true end
-                        end
-                        if not busy and UnitCastingInfo then
-                            local okc, cn = pcall(UnitCastingInfo, "player")
-                            if okc and cn then busy = true end
-                        end
-                        if not busy and UnitChannelInfo then
-                            local okc, cn = pcall(UnitChannelInfo, "player")
-                            if okc and cn then busy = true end
-                        end
-                        local inFsr = false
-                        if player._manaTickTarget == 5 then
-                            inFsr = true
-                        elseif player._manaTickMax and player._manaTickMax >= 4.5 and player._manaTickStart then
-                            if (GetTime() - player._manaTickStart) < 4.5 then
-                                inFsr = true
-                            end
-                        end
-                        if (not busy) and (not inFsr) then
+                        if maxT ~= 5 and delta > thresh then
                             player._manaTickTarget = 2
+                        else
+                            player._manaTickBad = delta
                         end
                     end
                 end

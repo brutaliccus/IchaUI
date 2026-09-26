@@ -2,7 +2,7 @@
 ## Title: IchaUI - Chat
 ## Notes: Chat: edit box, timestamps, names, channel tags, URLs, link tooltips, name clicks, scrolling, history, copy, tabs, fonts, meter dock.
 ## Dependencies: IchaUI
-## Version: 3.4.3
+## Version: 3.4.4
 
 Core.lua
 Pipeline.lua

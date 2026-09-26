@@ -59,7 +59,7 @@ local function installIchaUIWorldMap()
         border = nil, noticed = false,
     }
     -- Assigned later: dragStop/gripStop run before those local function lines.
-    local raiseStrata, hookWheels, updateZoomLabel, ensureArt
+    local raiseStrata, hookWheels, updateZoomLabel, ensureArt, repairCenter, hookMapRepair
 
     local function clamp(v, lo, hi)
         v = tonumber(v) or lo
@@ -758,20 +758,14 @@ local function installIchaUIWorldMap()
             if moved and st.active then return end
             if prevUp then prevUp(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
         end)
-        local acc = 0
-        hookScript(WorldMapButton, "OnUpdate", function()
-            if not st.active then return end
-            updateArrow()
-            acc = acc + (arg1 or 0)
-            if acc < 0.25 then return end
-            acc = 0
-            if ensureArt then ensureArt(true) end
-        end)
+        -- OnUpdate is wrapped in hookMapRepair so GetCenter() is repaired
+        -- before Turtle's WorldMapButton_OnUpdate (FrameXML ~493) can crash.
         hookScript(WorldMapFrame, "OnHide", zoomReset)
 
         local ev = CreateFrame("Frame")
         ev:RegisterEvent("WORLD_MAP_UPDATE")
         ev:SetScript("OnEvent", function()
+            if st.active and repairCenter then repairCenter() end
             local id = tostring(GetCurrentMapContinent and GetCurrentMapContinent() or 0) .. ":"
                 .. tostring(GetCurrentMapZone and GetCurrentMapZone() or 0)
             if id ~= zoom.map then
@@ -836,6 +830,103 @@ local function installIchaUIWorldMap()
         zoom.overlay:Show()
         applyZoom()
         placeDropdowns()
+    end
+
+    -- pfQuest /db object|unit|track calls pfMap:ShowMapID, which ToggleWorldMap
+    -- (or SetMapZoom if the map is already open) and attaches pins on that
+    -- same frame. Turtle WorldMapButton_OnUpdate then does arithmetic on
+    -- GetCenter(); a missing point or size makes centerY nil. The 0.25s
+    -- drift pass is too late, so repair before that math runs.
+    repairCenter = function()
+        if not st.active or not WorldMapButton then return false end
+        if WorldMapButton:GetCenter() then return true end
+        if WorldMapFrame and WorldMapFrame.IsVisible and not WorldMapFrame:IsVisible() then
+            return false
+        end
+        if not maximized() then applyAnchor() end
+        if native and ensureArt then ensureArt() end
+        return WorldMapButton:GetCenter() ~= nil
+    end
+
+    local function wrapButtonOnUpdate()
+        if not WorldMapButton or not WorldMapButton.GetScript then return end
+        local cur = WorldMapButton:GetScript("OnUpdate")
+        if cur and cur == zoom.guardUpdate then return end
+        zoom.innerUpdate = cur
+        if not zoom.guardUpdate then
+            local acc = 0
+            zoom.guardUpdate = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+                if st.active then
+                    if not WorldMapButton:GetCenter() then
+                        if repairCenter then repairCenter() end
+                    end
+                    if not WorldMapButton:GetCenter() then
+                        updateArrow()
+                        return
+                    end
+                end
+                local inner = zoom.innerUpdate
+                if inner then inner(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
+                if not st.active then return end
+                updateArrow()
+                acc = acc + (arg1 or 0)
+                if acc < 0.25 then return end
+                acc = 0
+                if ensureArt then ensureArt(true) end
+            end
+        end
+        WorldMapButton:SetScript("OnUpdate", zoom.guardUpdate)
+    end
+
+    local function wrapButtonOnUpdateFn()
+        if st.wrappedOnUpdateFn or type(WorldMapButton_OnUpdate) ~= "function" then return end
+        st.wrappedOnUpdateFn = true
+        local orig = WorldMapButton_OnUpdate
+        WorldMapButton_OnUpdate = function(elapsed)
+            if st.active and WorldMapButton and not WorldMapButton:GetCenter() then
+                if repairCenter then repairCenter() end
+                if not WorldMapButton:GetCenter() then return end
+            end
+            return orig(elapsed)
+        end
+    end
+
+    local function hookSetMapZoom()
+        if st.hookedZoom or type(SetMapZoom) ~= "function" then return end
+        st.hookedZoom = true
+        local orig = SetMapZoom
+        SetMapZoom = function(a1, a2, a3, a4, a5)
+            orig(a1, a2, a3, a4, a5)
+            if repairCenter then repairCenter() end
+        end
+    end
+
+    local function hookPfQuestTrack()
+        if type(pfMap) ~= "table" then return end
+        if not st.hookedShowMap and type(pfMap.ShowMapID) == "function" then
+            st.hookedShowMap = true
+            local orig = pfMap.ShowMapID
+            pfMap.ShowMapID = function(self, map)
+                local r = orig(self, map)
+                if repairCenter then repairCenter() end
+                return r
+            end
+        end
+        if not st.hookedSetMap and type(pfMap.SetMapByID) == "function" then
+            st.hookedSetMap = true
+            local orig = pfMap.SetMapByID
+            pfMap.SetMapByID = function(self, id)
+                orig(self, id)
+                if repairCenter then repairCenter() end
+            end
+        end
+    end
+
+    hookMapRepair = function()
+        wrapButtonOnUpdate()
+        wrapButtonOnUpdateFn()
+        hookSetMapZoom()
+        hookPfQuestTrack()
     end
 
     -- Back to Turtle's stock art layout (IchaUI map switched off).
@@ -1280,6 +1371,7 @@ local function installIchaUIWorldMap()
             showChrome(true)
         end
         ensureArt()
+        if hookMapRepair then hookMapRepair() end
         hookWheels()
         raiseStrata()
         updateZoomLabel()
@@ -1319,10 +1411,12 @@ local function installIchaUIWorldMap()
                 WorldMapFrame:Hide()
             else
                 WorldMapFrame:Show()
+                if repairCenter then repairCenter() end
             end
         end
 
         if native then setupNative() end
+        if hookMapRepair then hookMapRepair() end
         -- Turtle's Minimize/Maximize rescale and re-point the detail frame and
         -- WorldMapButton; layout() takes them back into the viewport.
         if type(WorldMapFrame_Maximize) == "function" then

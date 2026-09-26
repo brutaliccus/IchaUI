@@ -1875,15 +1875,21 @@ function IchaUI_Cast_HomeLag()
 end
 
 function IchaUI_Cast_LagMs()
-    -- Stock Quartz Latency (non-embed): redWidth = (lag / duration) * barWidth at RIGHT.
-    -- Quartz Latency.lua uses measured SENT→START as lag; 1.12 has no SENT, so lag is
-    -- GetNetStats()[3] as-is (not /2, not leftover/EMA/clock-skew). Those were mistakes.
-    -- Source: https://github.com/Nevcairiel/Quartz/blob/master/modules/Latency.lua
-    --   perc = timeDiff / castlength; SetWidth(barWidth * perc); SetPoint(RIGHT).
+    -- Quartz SENT→START on this client is SuperWoW/unitcast start minus classic start
+    -- (the logged dStart). GetNetStats[3] only if that gap was never measured.
+    -- Not leftover, not EMA, not /2.
+    local lock = IchaUI_Cast_Lock
+    local dStart = lock and tonumber(lock.dStart) or 0
+    if dStart > 0 then
+        IchaUI_Cast_LastRedMs = dStart
+        IchaUI_Cast_LastRedSrc = "dStart"
+        IchaUI_Cast_LastLagField = "dStart"
+        return dStart
+    end
     local lag = IchaUI_Cast_HomeLag()
     IchaUI_Cast_LastHome = lag
     IchaUI_Cast_LastRedMs = lag
-    IchaUI_Cast_LastRedSrc = "quartz"
+    IchaUI_Cast_LastRedSrc = "quartz-fallback"
     IchaUI_Cast_LastLagField = "GetNetStats[3]"
     return lag
 end
@@ -1898,18 +1904,32 @@ function IchaUI_Cast_AdoptClock(lock, info, source)
     local newFin = tonumber(info.finish) or 0
     local oldStart = tonumber(lock.start) or 0
     local oldFin = tonumber(lock.finish) or 0
-    if newFin <= oldFin then return end
-    -- Later clock: stretch the end only. Keep start so fill cannot rewind.
-    lock.finish = newFin
-    lock.noInferDelay = true
+    -- Keep classic/local start (button press). Record SENT→START gap.
+    local changed = false
+    if newStart > oldStart and oldStart > 0 then
+        local d = newStart - oldStart
+        if (tonumber(lock.dStart) or 0) ~= d then
+            lock.dStart = d
+            IchaUI_Cast_LastClockDelta = d
+            changed = true
+        end
+    end
+    if newFin > oldFin then
+        lock.finish = newFin
+        lock.noInferDelay = true
+        changed = true
+    end
     if info.spellId then lock.spellId = info.spellId end
     if info.texture and info.texture ~= "" then lock.texture = info.texture end
-    local dStart = 0
-    if newStart > 0 and oldStart > 0 then dStart = newStart - oldStart end
-    IchaUI_Cast_LastClockDelta = dStart
+    if not changed then return end
+    local lagMs = IchaUI_Cast_LagMs()
+    local dur = (tonumber(lock.finish) or 0) - oldStart
+    local redFrac = 0
+    if dur > 0 then redFrac = lagMs / dur end
     IchaUI_Cast_Debug(string.format(
-        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redSrc=quartz lagMs=%.0f field=GetNetStats[3]",
-        source, oldStart, newStart, dStart, oldFin, newFin, IchaUI_Cast_LagMs()))
+        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redSrc=%s lagMs=%.0f redFrac=%.3f",
+        source, oldStart, newStart, tonumber(lock.dStart) or 0, oldFin, tonumber(lock.finish) or 0,
+        tostring(IchaUI_Cast_LastRedSrc or "?"), lagMs, redFrac))
 end
 
 function IchaUI_Cast_Kill(why, caster)
@@ -1921,13 +1941,24 @@ function IchaUI_Cast_Kill(why, caster)
     local lock = IchaUI_Cast_Lock
     local start = lock and tonumber(lock.start) or 0
     local finish = lock and tonumber(lock.finish) or 0
+    local lagMs = IchaUI_Cast_LagMs()
+    local dur = finish - start
+    local prog = 0
+    local redFrac = 0
+    if dur > 0 then
+        prog = ((now * 1000) - start) / dur
+        redFrac = lagMs / dur
+    end
     IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f redSrc=quartz lagMs=%.0f field=GetNetStats[3] src=%s",
+        "%s t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f lagMs=%.0f redSrc=%s redFrac=%.3f prog=%.3f src=%s",
         tostring(why or "KILL"),
         now,
         tostring(lock and lock.name or "?"),
         start, finish,
-        IchaUI_Cast_LagMs(),
+        tonumber(lock and lock.dStart) or 0,
+        lagMs,
+        tostring(IchaUI_Cast_LastRedSrc or "?"),
+        redFrac, prog,
         tostring(lock and lock.source or "?")))
     IchaUI_Cast_Lock = nil
     IchaUI_Cast_DeadUntil = now + 1.25
@@ -1954,16 +1985,19 @@ function IchaUI_Cast_Capture(info, source)
         source = source or "?",
     }
     IchaUI_Cast_DeadUntil = nil
+    IchaUI_Cast_LastClockDelta = nil
     local startMs = tonumber(info.start) or 0
     local endMs = tonumber(info.finish) or 0
     local lagMs = IchaUI_Cast_LagMs()
     local redFrac = 0
     if endMs > startMs then redFrac = lagMs / (endMs - startMs) end
     IchaUI_Cast_Debug(string.format(
-        "START t=%.3f spell=%s start=%.0f end=%.0f redSrc=quartz lagMs=%.0f redFrac=%.3f field=GetNetStats[3] src=%s",
+        "START t=%.3f spell=%s start=%.0f end=%.0f dStart=%.0f lagMs=%.0f redSrc=%s redFrac=%.3f src=%s",
         GetTime and GetTime() or 0,
         tostring(info.name or "?"),
-        startMs, endMs, lagMs, redFrac,
+        startMs, endMs,
+        tonumber(IchaUI_Cast_Lock.dStart) or 0,
+        lagMs, tostring(IchaUI_Cast_LastRedSrc or "?"), redFrac,
         tostring(source or "?")))
     if IchaUI_Cast_PeekPair then IchaUI_Cast_PeekPair() end
     return IchaUI_Cast_Lock
@@ -4593,11 +4627,17 @@ function IchaUI_Cast_PeekPair()
     end
     local uinfo = IchaUI_Cast_FromUnitAPI("player", false)
     if uinfo then uStart = tonumber(uinfo.start) or 0 end
-    if cStart > 0 and uStart > 0 then
-        IchaUI_Cast_LastClockDelta = uStart - cStart
+    if cStart > 0 and uStart > 0 and uStart > cStart then
+        local d = uStart - cStart
+        IchaUI_Cast_LastClockDelta = d
+        if IchaUI_Cast_Lock and (tonumber(IchaUI_Cast_Lock.dStart) or 0) <= 0 then
+            IchaUI_Cast_Lock.dStart = d
+        end
+        local lagMs = IchaUI_Cast_LagMs()
         IchaUI_Cast_Debug(string.format(
-            "clock delta unitcast-classic=%.0fms (not red) redSrc=quartz lagMs=%.0f field=GetNetStats[3]",
-            IchaUI_Cast_LastClockDelta, IchaUI_Cast_LagMs()))
+            "clock delta unitcast-classic=%.0fms dStart=%.0f lagMs=%.0f redSrc=%s",
+            d, tonumber(IchaUI_Cast_Lock and IchaUI_Cast_Lock.dStart) or 0,
+            lagMs, tostring(IchaUI_Cast_LastRedSrc or "?")))
     end
 end
 
@@ -6873,10 +6913,12 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if pct < (self._castHoldPct or 0) then
                     if IchaUI_Cast_Debug then
                         IchaUI_Cast_Debug(string.format(
-                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f (not red) redSrc=quartz lagMs=%.0f field=GetNetStats[3] src=%s",
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f (not red) dStart=%.0f lagMs=%.0f redSrc=%s src=%s",
                             nowSec, holdKey, self._castHoldPct, pct,
                             (finish > now) and (finish - now) or ((1 - pct) * dur),
+                            tonumber(IchaUI_Cast_Lock and IchaUI_Cast_Lock.dStart) or 0,
                             IchaUI_Cast_LagMs(),
+                            tostring(IchaUI_Cast_LastRedSrc or "?"),
                             tostring(info.source or "?")))
                     end
                     pct = self._castHoldPct

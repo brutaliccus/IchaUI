@@ -122,19 +122,10 @@ local function powerColor(unit)
     return 0.2, 0.4, 0.95
 end
 
--- Mana tick spark (pfUI energytick model):
+-- Mana tick spark (pfUI energytick + lock to real regen):
 --   mana spend (cost > 0) → 5s FSR sweep
---   when that finishes → rolling 2s sweeps (+ world latency)
---   mana gains never re-anchor (totems / spirit ticks / pots stay ignored)
-local function manaTickLagSec()
-    if not GetNetStats then return 0 end
-    local _, _, lagHome, lagWorld = GetNetStats()
-    local lagMs = tonumber(lagWorld) or tonumber(lagHome) or 0
-    if lagMs < 0 then lagMs = 0 end
-    if lagMs > 750 then lagMs = 750 end
-    return lagMs / 1000
-end
-
+--   when that finishes → rolling 2.000s sweeps (no latency pad)
+--   UNIT_MANA increase while not casting / not mid-FSR re-anchors the 2s clock
 local function tripManaFsr(fr)
     if not fr or fr.unit ~= "player" then return end
     local now = GetTime()
@@ -176,7 +167,7 @@ local function updateManaTicker(fr)
     if w < 2 then spark:Hide() return end
 
     local now = GetTime()
-    -- Arm a new sweep (FSR)
+    -- Arm a new sweep (FSR spend or a detected spirit/mp5 tick)
     if fr._manaTickTarget then
         fr._manaTickStart = now
         fr._manaTickMax = fr._manaTickTarget
@@ -184,15 +175,15 @@ local function updateManaTicker(fr)
     end
     if not fr._manaTickStart then
         fr._manaTickStart = now
-        fr._manaTickMax = 2 + manaTickLagSec()
+        fr._manaTickMax = 2
     end
 
     local elapsed = now - fr._manaTickStart
-    local maxT = fr._manaTickMax or (2 + manaTickLagSec())
+    local maxT = fr._manaTickMax or 2
     if elapsed > maxT then
-        -- pfUI: roll into a fresh 2s tick when the current sweep ends
+        -- Predicted wrap at exactly 2s; a real UNIT_MANA gain re-anchors.
         fr._manaTickStart = now
-        fr._manaTickMax = 2 + manaTickLagSec()
+        fr._manaTickMax = 2
         elapsed = 0
         maxT = fr._manaTickMax
     end
@@ -12120,10 +12111,39 @@ ev:SetScript("OnEvent", function()
                 local last = player._lastMana
                 if last ~= nil then
                     local delta = cur - last
-                    -- Only mana *spend* (spell cost) starts FSR. Gains from spirit,
-                    -- Mana Spring, pots, etc. must not touch the spark clock.
+                    -- Spend starts the 5s rule. A real regen increase (not a spend)
+                    -- re-anchors the 2.000s spark so it cannot beat against live ticks.
                     if delta <= -1 then
                         tripManaFsr(player)
+                    elseif event == "UNIT_MANA" and delta >= 1 then
+                        local busy = player._casting
+                        if not busy and CastingInfo then
+                            local okc, cn = pcall(CastingInfo)
+                            if okc and cn then busy = true end
+                        end
+                        if not busy and ChannelInfo then
+                            local okc, cn = pcall(ChannelInfo)
+                            if okc and cn then busy = true end
+                        end
+                        if not busy and UnitCastingInfo then
+                            local okc, cn = pcall(UnitCastingInfo, "player")
+                            if okc and cn then busy = true end
+                        end
+                        if not busy and UnitChannelInfo then
+                            local okc, cn = pcall(UnitChannelInfo, "player")
+                            if okc and cn then busy = true end
+                        end
+                        local inFsr = false
+                        if player._manaTickTarget == 5 then
+                            inFsr = true
+                        elseif player._manaTickMax and player._manaTickMax >= 4.5 and player._manaTickStart then
+                            if (GetTime() - player._manaTickStart) < 4.5 then
+                                inFsr = true
+                            end
+                        end
+                        if (not busy) and (not inFsr) then
+                            player._manaTickTarget = 2
+                        end
                     end
                 end
                 player._lastMana = cur

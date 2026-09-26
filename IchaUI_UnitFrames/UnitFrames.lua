@@ -1882,13 +1882,8 @@ function IchaUI_Cast_HomeLag()
 end
 
 function IchaUI_Cast_LagMs()
-    -- One-way only. Never add home RTT on top of leftover (that triples the zone).
-    -- redMs = min(home/2, leftover) once a SUCCESS sample exists; leftover/2 if home is 0.
-    local home = IchaUI_Cast_HomeLag()
-    local oneWay = home / 2
-    if oneWay > 250 then oneWay = 250 end
-    IchaUI_Cast_LastHome = home
-    IchaUI_Cast_LastOneWay = oneWay
+    -- Red = observed leftover at first rewind-block / STOP. Already one-way.
+    -- Empty late CAST must not feed this. GetNetStats does not size the zone.
     if (IchaUI_Cast_LagEmaN or 0) < 1 then
         IchaUI_Cast_LastRedMs = 0
         return 0
@@ -1896,30 +1891,18 @@ function IchaUI_Cast_LagMs()
     local leftover = tonumber(IchaUI_Cast_LagEma) or 0
     if leftover < 0 then leftover = 0 end
     if leftover > 400 then leftover = 400 end
-    local red = leftover / 2
-    if oneWay > 0 then
-        red = oneWay
-        if leftover < red then red = leftover end
-    end
-    if red > 250 then red = 250 end
-    IchaUI_Cast_LastRedMs = red
-    return red
+    IchaUI_Cast_LastRedMs = leftover
+    return leftover
 end
 
-function IchaUI_Cast_NoteSafe(lock, nowSec)
-    if not lock or lock.channel then return end
-    local start = tonumber(lock.start) or 0
-    local finish = tonumber(lock.finish) or 0
-    local dur = finish - start
-    if dur < 50 then return end
-    local elapsed = ((nowSec or 0) * 1000) - start
-    local leftover = dur - elapsed
-    if leftover < 0 then leftover = 0 end
-    if leftover > 400 then leftover = 400 end
-    local prog = 0
-    if dur > 0 then prog = elapsed / dur end
-    if prog < 0 then prog = 0 end
-    if prog > 1 then prog = 1 end
+function IchaUI_Cast_NoteLeftover(leftover, prog, dur, why)
+    leftover = tonumber(leftover) or 0
+    if leftover < 20 then return end
+    if leftover > 400 then return end
+    if IchaUI_Cast_Lock and IchaUI_Cast_Lock.notedSafe then return end
+    if IchaUI_Cast_Lock then IchaUI_Cast_Lock.notedSafe = true end
+    dur = tonumber(dur) or 0
+    prog = tonumber(prog) or 0
     IchaUI_Cast_LastProg = prog
     IchaUI_Cast_LastLeft = leftover
     IchaUI_Cast_LastDur = dur
@@ -1933,6 +1916,9 @@ function IchaUI_Cast_NoteSafe(lock, nowSec)
     local redFrac = 0
     if dur > 0 then redFrac = redMs / dur end
     IchaUI_Cast_LastRedFrac = redFrac
+    IchaUI_Cast_Debug(string.format(
+        "%s leftover=%.0fms redMs=%.0f redFrac=%.3f prog=%.3f dur=%.0f",
+        tostring(why or "sample"), leftover, redMs, redFrac, prog, dur))
 end
 
 function IchaUI_Cast_Kill(why, caster)
@@ -1942,29 +1928,25 @@ function IchaUI_Cast_Kill(why, caster)
     local now = 0
     if GetTime then now = GetTime() end
     local lock = IchaUI_Cast_Lock
-    if why == "CAST" and lock then
-        IchaUI_Cast_NoteSafe(lock, now)
-        IchaUI_Cast_Debug(string.format(
-            "SUCCESS start=%.0f end=%.0f t=%.3f prog=%.3f homeLag=%.0f oneWay=%.0f leftover=%.0f redMs=%.0f redFrac=%.3f",
-            tonumber(lock.start) or 0,
-            tonumber(lock.finish) or 0,
-            now,
-            tonumber(IchaUI_Cast_LastProg) or 0,
-            tonumber(IchaUI_Cast_LastHome) or 0,
-            tonumber(IchaUI_Cast_LastOneWay) or 0,
-            tonumber(IchaUI_Cast_LastLeft) or 0,
-            tonumber(IchaUI_Cast_LastRedMs) or 0,
-            tonumber(IchaUI_Cast_LastRedFrac) or 0))
-    else
-        IchaUI_Cast_Debug(string.format(
-            "%s t=%.3f spell=%s start=%.0f end=%.0f src=%s",
-            tostring(why or "KILL"),
-            now,
-            tostring(lock and lock.name or "?"),
-            tonumber(lock and lock.start) or 0,
-            tonumber(lock and lock.finish) or 0,
-            tostring(lock and lock.source or "?")))
+    local start = lock and tonumber(lock.start) or 0
+    local finish = lock and tonumber(lock.finish) or 0
+    -- Empty late CAST (start=0) cannot teach the red zone. STOP / rewind-block can.
+    if lock and (not lock.channel) and finish > start and why == "STOP" then
+        local leftover = finish - (now * 1000)
+        local dur = finish - start
+        local prog = 1
+        if dur > 0 then prog = ((now * 1000) - start) / dur end
+        IchaUI_Cast_NoteLeftover(leftover, prog, dur, why)
     end
+    IchaUI_Cast_Debug(string.format(
+        "%s t=%.3f spell=%s start=%.0f end=%.0f leftover=%.0f redMs=%.0f src=%s",
+        tostring(why or "KILL"),
+        now,
+        tostring(lock and lock.name or "?"),
+        start, finish,
+        tonumber(IchaUI_Cast_LastLeft) or 0,
+        tonumber(IchaUI_Cast_LastRedMs) or 0,
+        tostring(lock and lock.source or "?")))
     IchaUI_Cast_Lock = nil
     IchaUI_Cast_DeadUntil = now + 1.25
 end
@@ -6889,10 +6871,17 @@ local function createUnitFrame(key, unit, defaults, opts)
             if info.channel then holdKey = "c:" .. holdKey end
             if self._castHoldKey == holdKey then
                 if pct < (self._castHoldPct or 0) then
+                    if finish > now then
+                        IchaUI_Cast_NoteLeftover(finish - now, pct, dur, "rewind-block")
+                    elseif dur > 0 then
+                        IchaUI_Cast_NoteLeftover((1 - pct) * dur, pct, dur, "rewind-block")
+                    end
                     if IchaUI_Cast_Debug then
                         IchaUI_Cast_Debug(string.format(
-                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f src=%s",
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f redMs=%.0f src=%s",
                             nowSec, holdKey, self._castHoldPct, pct,
+                            (finish > now) and (finish - now) or ((1 - pct) * dur),
+                            tonumber(IchaUI_Cast_LastRedMs) or 0,
                             tostring(info.source or "?")))
                     end
                     pct = self._castHoldPct

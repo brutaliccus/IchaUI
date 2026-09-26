@@ -1777,6 +1777,8 @@ function IchaUI_Cast_ClearPin(fr)
     fr._castPinKey = nil
     fr._castPinStart = nil
     fr._castPinDur = nil
+    fr._castHoldPct = nil
+    fr._castHoldKey = nil
 end
 
 -- After UNIT_CASTEVENT CAST / SPELLCAST_STOP: ignore leftover ClassicAPI times
@@ -1804,14 +1806,18 @@ function IchaUI_Cast_IsStale(key, spellID, startMs)
         IchaUI_Cast_Done[tostring(key)] = nil
         return false
     end
+    -- Leftover CastingInfo after SUCCESS has an old start. A real recast
+    -- started in the last 0.25s. Do not compare start stamps (they drift).
     startMs = tonumber(startMs) or 0
-    if (d.start or 0) > 0 then
-        if startMs > (d.start + 80) then return false end
-    elseif (now - (d.marked or 0)) >= 0.35 then
-        return false
+    if startMs > 0 then
+        local age = (now * 1000) - startMs
+        if age >= 0 and age < 250 then return false end
     end
     if spellID and d.spellId and tonumber(spellID) ~= tonumber(d.spellId) then
-        return false
+        if startMs > 0 then
+            local age2 = (now * 1000) - startMs
+            if age2 >= 0 and age2 < 250 then return false end
+        end
     end
     return true
 end
@@ -1883,34 +1889,29 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
         else
             orig = tonumber(fr._castPinDur) or raw
             if orig < 50 then orig = raw end
+            -- Infer pushback only before the safe (latency) zone. A later
+            -- end time after SUCCESS / near full is leftover, not delay.
             if delay <= 0 and raw > orig + 20 then
-                delay = raw - orig
+                local elapsed0 = nowMs - start
+                local lag = 0
+                if fr then lag = tonumber(fr._castDispLag) or 0 end
+                if elapsed0 < orig - lag - 50 then
+                    delay = raw - orig
+                end
             end
         end
     end
     if orig < 50 then orig = raw end
 
-    -- Outgoing player casts: shorten display so the fill hits 100% when the
-    -- server accepts (GetNetStats lag). Incoming / channels keep real duration.
-    local disp = orig
-    if fr and not info.channel then
-        local lag = tonumber(fr._castDispLag) or 0
-        if lag > 0 then
-            disp = orig - lag
-            if disp < 100 then disp = 100 end
-            if disp > orig then disp = orig end
-        end
-    end
-
     local pct = 0
-    if disp > 0 then
+    if orig > 0 then
         if info.channel then
             pct = (finish - nowMs) / orig
         else
             local elapsed = nowMs - start - delay
             if elapsed < 0 then elapsed = 0 end
-            if elapsed > disp then elapsed = disp end
-            pct = elapsed / disp
+            if elapsed > orig then elapsed = orig end
+            pct = elapsed / orig
         end
     end
     if pct < 0 then pct = 0 end
@@ -2148,12 +2149,16 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     local maxW = tonumber(fr._castFillMax) or 1
     if maxW < 1 then maxW = 1 end
     local w = tonumber(lagW) or 0
-    if w > maxW then w = maxW end
-    fr._castLagW = w
-    if w < 2 then
+    -- Incoming / no lag computed: do not paint a fake mark on target bars.
+    if w <= 0 then
+        fr._castLagW = 0
         castLag:Hide()
         return
     end
+    if w < 4 then w = 4 end
+    if w > maxW * 0.35 then w = maxW * 0.35 end
+    if w > maxW then w = maxW end
+    fr._castLagW = w
     local il = tonumber(fr._castFillInsetL) or 0
     local iy = tonumber(fr._castFillInsetY) or 0
     castLag:ClearAllPoints()
@@ -2168,6 +2173,7 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
         castLag:SetPoint("BOTTOMLEFT", castFrame, "BOTTOMLEFT", x, iy)
     end
     castLag:SetWidth(math.max(0.001, w))
+    if castLag.SetDrawLayer then castLag:SetDrawLayer("OVERLAY") end
     castLag:SetVertexColor(0.85, 0.12, 0.12, 1)
     castLag:Show()
 end
@@ -4217,6 +4223,8 @@ function swCastRemember(caster, castEvent, spellID, durMs)
         elseif IchaUI_Cast_MarkDone then
             IchaUI_Cast_MarkDone(guid, spellID, nil)
         end
+        -- Hide now. A later OnUpdate with leftover CastingInfo must not rewind.
+        if IchaUI_Cast_QuenchUnit then IchaUI_Cast_QuenchUnit(guid) end
         return
     end
     if et == "DELAY" or et == "DELAYED" then
@@ -4457,10 +4465,18 @@ end
 
 local function getCastLatencyMs()
     -- 1.12: down, up, lag. SuperWoW / later may add lagWorld as a 4th return.
-    if type(GetNetStats) ~= "function" then return 0 end
-    local _, _, lagHome, lagWorld = GetNetStats()
-    local lag = tonumber(lagWorld) or tonumber(lagHome) or 0
-    if lag < 0 then lag = 0 end
+    -- Lua 0 is truthy, so "world or home" must not prefer a 0 world ping.
+    local home, world = 0, 0
+    if type(GetNetStats) == "function" then
+        local _, _, lagHome, lagWorld = GetNetStats()
+        home = tonumber(lagHome) or 0
+        world = tonumber(lagWorld) or 0
+    end
+    if home < 0 then home = 0 end
+    if world < 0 then world = 0 end
+    local lag = home
+    if world > lag then lag = world end
+    if lag < 1 then lag = 100 end
     if lag > 1000 then lag = 1000 end
     return lag
 end
@@ -6629,6 +6645,16 @@ local function createUnitFrame(key, unit, defaults, opts)
                 lagFrac = lagMs / dur
                 if lagFrac > 0.35 then lagFrac = 0.35 end
             end
+            -- Same cast: never draw backward (SUCCESS leftover / late START / pin).
+            local holdKey = tostring(info.spellId or "") .. "\t" .. tostring(info.name or "")
+            if info.channel then holdKey = "c:" .. holdKey end
+            if self._castHoldKey == holdKey then
+                if pct < (self._castHoldPct or 0) then pct = self._castHoldPct end
+            else
+                self._castHoldKey = holdKey
+                self._castHoldPct = 0
+            end
+            if pct > (self._castHoldPct or 0) then self._castHoldPct = pct end
             local maxW = self._castFillMax or 1
             local lagW = maxW * lagFrac
             self._castLagW = lagW
@@ -6637,11 +6663,13 @@ local function createUnitFrame(key, unit, defaults, opts)
             IchaUI_SeatCastFill(castFill, castFrame, self._castFillX or 6, self._castFillY or -7, math.max(0.001, maxW * pct), self._castFillH or 8)
             if castFill then castFill:Show() end
             if castBg then castBg:Show() end
-            IchaUI_Cast_PlaceSpark(self, maxW * pct)
-            local remain = (finish - now) / 1000
-            if lagMs > 0 and not info.channel then
-                remain = remain - (lagMs / 1000)
+            local sparkW = maxW * pct
+            if outgoing and (not info.channel) and lagW >= 4 then
+                local safeW = maxW - lagW
+                if safeW > 0 and sparkW > safeW then sparkW = safeW end
             end
+            IchaUI_Cast_PlaceSpark(self, sparkW)
+            local remain = (finish - now) / 1000
             if remain < 0 then remain = 0 end
             if castTime then
                 if remain >= 10 then
@@ -12008,8 +12036,10 @@ ev:SetScript("OnEvent", function()
             do
                 local pg = IchaUI_Swing_Guid and IchaUI_Swing_Guid("player")
                 local pinfo = pg and swCastByGuid[pg]
-                if IchaUI_Cast_MarkDone and pinfo and not pinfo.channel then
-                    IchaUI_Cast_MarkDone("player", spellID, pinfo.start)
+                local skipCh = pinfo and pinfo.channel
+                if (not skipCh) and IchaUI_Cast_MarkDone then
+                    IchaUI_Cast_MarkDone("player", spellID, pinfo and pinfo.start)
+                    if IchaUI_Cast_QuenchUnit then IchaUI_Cast_QuenchUnit("player") end
                 end
             end
             local sname = spellNameFromId(spellID) or pendingCastName

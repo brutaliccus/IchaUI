@@ -2,7 +2,7 @@
 ## Title: IchaUI - Unit Frames
 ## Notes: Player, target, party, and raid frames, including cast bars, swing timers, and resists.
 ## Dependencies: IchaUI
-## Version: 3.4.1
+## Version: 3.4.2
 
 UnitFrames.lua
 Focus.lua

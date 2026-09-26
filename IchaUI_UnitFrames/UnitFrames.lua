@@ -1873,43 +1873,39 @@ function IchaUI_Cast_HomeLag()
 end
 
 function IchaUI_Cast_LagMs()
-    -- Red = observed leftover at first rewind-block / STOP. Already one-way.
-    -- Empty late CAST must not feed this. GetNetStats does not size the zone.
-    if (IchaUI_Cast_LagEmaN or 0) < 1 then
-        IchaUI_Cast_LastRedMs = 0
-        return 0
-    end
-    local leftover = tonumber(IchaUI_Cast_LagEma) or 0
-    if leftover < 0 then leftover = 0 end
-    if leftover > 400 then leftover = 400 end
-    IchaUI_Cast_LastRedMs = leftover
-    return leftover
+    -- One-way home ping only. Never leftover, clock-skew, or empty CAST.
+    local home = IchaUI_Cast_HomeLag()
+    local red = home / 2
+    if red < 0 then red = 0 end
+    if red > 250 then red = 250 end
+    IchaUI_Cast_LastHome = home
+    IchaUI_Cast_LastRedMs = red
+    IchaUI_Cast_LastRedSrc = "home/2"
+    return red
 end
 
-function IchaUI_Cast_NoteLeftover(leftover, prog, dur, why)
-    leftover = tonumber(leftover) or 0
-    if leftover < 20 then return end
-    if leftover > 400 then return end
-    if IchaUI_Cast_Lock and IchaUI_Cast_Lock.notedSafe then return end
-    if IchaUI_Cast_Lock then IchaUI_Cast_Lock.notedSafe = true end
-    dur = tonumber(dur) or 0
-    prog = tonumber(prog) or 0
-    IchaUI_Cast_LastProg = prog
-    IchaUI_Cast_LastLeft = leftover
-    IchaUI_Cast_LastDur = dur
-    if IchaUI_Cast_LagEma then
-        IchaUI_Cast_LagEma = IchaUI_Cast_LagEma * 0.55 + leftover * 0.45
-    else
-        IchaUI_Cast_LagEma = leftover
+function IchaUI_Cast_AdoptClock(lock, info, source)
+    if not lock or not info or lock.channel then return end
+    source = tostring(source or "")
+    if source ~= "unitcast" and source ~= "superwow" and source ~= "unitchannel" then
+        return
     end
-    IchaUI_Cast_LagEmaN = (IchaUI_Cast_LagEmaN or 0) + 1
-    local redMs = IchaUI_Cast_LagMs()
-    local redFrac = 0
-    if dur > 0 then redFrac = redMs / dur end
-    IchaUI_Cast_LastRedFrac = redFrac
+    local newStart = tonumber(info.start) or 0
+    local newFin = tonumber(info.finish) or 0
+    local oldStart = tonumber(lock.start) or 0
+    local oldFin = tonumber(lock.finish) or 0
+    if newFin <= oldFin then return end
+    -- Later clock: stretch the end only. Keep start so fill cannot rewind.
+    lock.finish = newFin
+    lock.noInferDelay = true
+    if info.spellId then lock.spellId = info.spellId end
+    if info.texture and info.texture ~= "" then lock.texture = info.texture end
+    local dStart = 0
+    if newStart > 0 and oldStart > 0 then dStart = newStart - oldStart end
+    IchaUI_Cast_LastClockDelta = dStart
     IchaUI_Cast_Debug(string.format(
-        "%s leftover=%.0fms redMs=%.0f redFrac=%.3f prog=%.3f dur=%.0f",
-        tostring(why or "sample"), leftover, redMs, redFrac, prog, dur))
+        "clock extend src=%s classicStart=%.0f otherStart=%.0f dStart=%.0f oldEnd=%.0f newEnd=%.0f redMs=%.0f redSrc=home/2",
+        source, oldStart, newStart, dStart, oldFin, newFin, IchaUI_Cast_LagMs()))
 end
 
 function IchaUI_Cast_Kill(why, caster)
@@ -1921,22 +1917,13 @@ function IchaUI_Cast_Kill(why, caster)
     local lock = IchaUI_Cast_Lock
     local start = lock and tonumber(lock.start) or 0
     local finish = lock and tonumber(lock.finish) or 0
-    -- Empty late CAST (start=0) cannot teach the red zone. STOP / rewind-block can.
-    if lock and (not lock.channel) and finish > start and why == "STOP" then
-        local leftover = finish - (now * 1000)
-        local dur = finish - start
-        local prog = 1
-        if dur > 0 then prog = ((now * 1000) - start) / dur end
-        IchaUI_Cast_NoteLeftover(leftover, prog, dur, why)
-    end
     IchaUI_Cast_Debug(string.format(
-        "%s t=%.3f spell=%s start=%.0f end=%.0f leftover=%.0f redMs=%.0f src=%s",
+        "%s t=%.3f spell=%s start=%.0f end=%.0f redMs=%.0f redSrc=home/2 src=%s",
         tostring(why or "KILL"),
         now,
         tostring(lock and lock.name or "?"),
         start, finish,
-        tonumber(IchaUI_Cast_LastLeft) or 0,
-        tonumber(IchaUI_Cast_LastRedMs) or 0,
+        IchaUI_Cast_LagMs(),
         tostring(lock and lock.source or "?")))
     IchaUI_Cast_Lock = nil
     IchaUI_Cast_DeadUntil = now + 1.25
@@ -1946,6 +1933,7 @@ function IchaUI_Cast_Capture(info, source)
     if not info then return nil end
     if IchaUI_Cast_Lock then
         local lock = IchaUI_Cast_Lock
+        IchaUI_Cast_AdoptClock(lock, info, source)
         if info.texture and info.texture ~= "" then lock.texture = info.texture end
         if info.locked then lock.locked = true end
         return lock
@@ -1963,13 +1951,14 @@ function IchaUI_Cast_Capture(info, source)
     }
     IchaUI_Cast_DeadUntil = nil
     IchaUI_Cast_Debug(string.format(
-        "START t=%.3f spell=%s start=%.0f end=%.0f lag=%s src=%s",
+        "START t=%.3f spell=%s start=%.0f end=%.0f redMs=%.0f redSrc=home/2 src=%s",
         GetTime and GetTime() or 0,
         tostring(info.name or "?"),
         tonumber(info.start) or 0,
         tonumber(info.finish) or 0,
-        tostring(info._lag or "?"),
+        IchaUI_Cast_LagMs(),
         tostring(source or "?")))
+    if IchaUI_Cast_PeekPair then IchaUI_Cast_PeekPair() end
     return IchaUI_Cast_Lock
 end
 
@@ -2033,7 +2022,7 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
             if orig < 50 then orig = raw end
             -- Infer pushback only before the safe (latency) zone. A later
             -- end time after SUCCESS / near full is leftover, not delay.
-            if delay <= 0 and raw > orig + 20 then
+            if delay <= 0 and raw > orig + 20 and not info.noInferDelay then
                 local elapsed0 = nowMs - start
                 local lag = 0
                 if fr then lag = tonumber(fr._castDispLag) or 0 end
@@ -4577,37 +4566,48 @@ function IchaUI_Cast_FromClassic(unit, channel)
     return castInfoFromParts(r1, r3, r4, r5, false, r9, r8, r11)
 end
 
-function IchaUI_Cast_PollPlayer()
+function IchaUI_Cast_FromUnitAPI(unit, channel)
+    local fn = channel and UnitChannelInfo or UnitCastingInfo
+    if type(fn) ~= "function" then return nil end
+    local ok, r1, r2, r3, r4, r5, r6 = pcall(fn, unit)
+    if not ok or not r1 then return nil end
+    local texture, startMs, endMs = r4, r5, r6
+    if type(r3) == "string" and (string.find(r3, "Interface") or string.find(r3, "Icons")) then
+        texture, startMs, endMs = r3, r4, r5
+    end
+    return castInfoFromParts(r1, texture, startMs, endMs, channel and true or false, nil, false)
+end
+
+function IchaUI_Cast_PeekPair()
+    local cStart, uStart = 0, 0
     if C_Spell and type(C_Spell) == "table" then
         local ok, info = pcall(IchaUI_Cast_FromClassic, "player", false)
-        if ok and info then return info, "classic" end
-        ok, info = pcall(IchaUI_Cast_FromClassic, "player", true)
-        if ok and info then return info, "classic-ch" end
+        if ok and info then cStart = tonumber(info.start) or 0 end
     end
-    if type(UnitCastingInfo) == "function" then
-        local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitCastingInfo, "player")
-        if ok and r1 then
-            local texture, startMs, endMs = r4, r5, r6
-            if type(r3) == "string" and (string.find(r3, "Interface") or string.find(r3, "Icons")) then
-                texture, startMs, endMs = r3, r4, r5
-            end
-            local info = castInfoFromParts(r1, texture, startMs, endMs, false, nil, false)
-            if info then return info, "unitcast" end
-        end
+    local uinfo = IchaUI_Cast_FromUnitAPI("player", false)
+    if uinfo then uStart = tonumber(uinfo.start) or 0 end
+    if cStart > 0 and uStart > 0 then
+        IchaUI_Cast_LastClockDelta = uStart - cStart
+        IchaUI_Cast_Debug(string.format(
+            "clock delta unitcast-classic=%.0fms redMs=%.0f redSrc=home/2",
+            IchaUI_Cast_LastClockDelta, IchaUI_Cast_LagMs()))
     end
-    if type(UnitChannelInfo) == "function" then
-        local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitChannelInfo, "player")
-        if ok and r1 then
-            local texture, startMs, endMs = r4, r5, r6
-            if type(r3) == "string" and (string.find(r3, "Interface") or string.find(r3, "Icons")) then
-                texture, startMs, endMs = r3, r4, r5
-            end
-            local info = castInfoFromParts(r1, texture, startMs, endMs, true, nil, false)
-            if info then return info, "unitchannel" end
-        end
-    end
+end
+
+function IchaUI_Cast_PollPlayer()
+    -- SuperWoW / unitcast clock first. ClassicAPI is often 100-200ms early.
     local sw = getSwCastInfo("player")
     if sw then return sw, "superwow" end
+    local info = IchaUI_Cast_FromUnitAPI("player", false)
+    if info then return info, "unitcast" end
+    info = IchaUI_Cast_FromUnitAPI("player", true)
+    if info then return info, "unitchannel" end
+    if C_Spell and type(C_Spell) == "table" then
+        local ok, cinfo = pcall(IchaUI_Cast_FromClassic, "player", false)
+        if ok and cinfo then return cinfo, "classic" end
+        ok, cinfo = pcall(IchaUI_Cast_FromClassic, "player", true)
+        if ok and cinfo then return cinfo, "classic-ch" end
+    end
     return nil, nil
 end
 
@@ -4632,6 +4632,8 @@ function IchaUI_Cast_PlayerInfo()
         return nil
     end
     if IchaUI_Cast_Lock then
+        local raw, src = IchaUI_Cast_PollPlayer()
+        if raw then IchaUI_Cast_AdoptClock(IchaUI_Cast_Lock, raw, src) end
         if (tonumber(IchaUI_Cast_Lock.finish) or 0) <= nowMs then
             IchaUI_Cast_Lock = nil
             return nil
@@ -6862,17 +6864,12 @@ local function createUnitFrame(key, unit, defaults, opts)
             if info.channel then holdKey = "c:" .. holdKey end
             if self._castHoldKey == holdKey then
                 if pct < (self._castHoldPct or 0) then
-                    if finish > now then
-                        IchaUI_Cast_NoteLeftover(finish - now, pct, dur, "rewind-block")
-                    elseif dur > 0 then
-                        IchaUI_Cast_NoteLeftover((1 - pct) * dur, pct, dur, "rewind-block")
-                    end
                     if IchaUI_Cast_Debug then
                         IchaUI_Cast_Debug(string.format(
-                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f redMs=%.0f src=%s",
+                            "rewind blocked t=%.3f spell=%s %.3f -> %.3f leftover=%.0f redMs=%.0f redSrc=home/2 src=%s",
                             nowSec, holdKey, self._castHoldPct, pct,
                             (finish > now) and (finish - now) or ((1 - pct) * dur),
-                            tonumber(IchaUI_Cast_LastRedMs) or 0,
+                            IchaUI_Cast_LagMs(),
                             tostring(info.source or "?")))
                     end
                     pct = self._castHoldPct
@@ -6889,9 +6886,6 @@ local function createUnitFrame(key, unit, defaults, opts)
             if outgoing and (not info.channel) then
                 if lagMs > 0 and dur > 0 then
                     lagW = maxW * (lagMs / dur)
-                else
-                    -- No SUCCESS sample yet: 3px tick, not a fat GetNetStats zone.
-                    lagW = 3
                 end
             end
             self._castLagW = lagW

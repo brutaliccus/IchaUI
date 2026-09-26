@@ -229,6 +229,7 @@ local function windowInfo(i)
 end
 
 local function stripHost(cf)
+    if not cf then return end
     local list = cf.messageTypeList
     if type(list) == "table" and table.getn(list) > 0 then
         if ChatFrame_RemoveAllMessageGroups then
@@ -256,6 +257,7 @@ local function stripHost(cf)
 end
 
 local function setupHost(cf, i, t)
+    if not cf then return end
     if FCF_SetWindowName then pcall(function() FCF_SetWindowName(cf, t.name) end) end
     stripHost(cf)
     if cf.Clear then cf:Clear() end
@@ -284,14 +286,16 @@ function D.findHost(ti)
     local id = tonumber(t.hostId) or 0
     if id >= 4 and id <= n and not claimedBy(id, ti) then
         local name, shown, docked = windowInfo(id)
-        if name == want and (shown or docked or M.frame(id).isDocked) then return M.frame(id), id end
+        local f = M.frame(id)
+        if f and name == want and (shown or docked or f.isDocked) then return f, id end
     end
     local i
     for i = 4, n do
         local name, shown, docked = windowInfo(i)
-        if name == want and (shown or docked) and not claimedBy(i, ti) then
+        local f = M.frame(i)
+        if f and name == want and (shown or docked) and not claimedBy(i, ti) then
             t.hostId = i
-            return M.frame(i), i
+            return f, i
         end
     end
     return nil
@@ -1173,6 +1177,7 @@ end
 D.showsGroup = showsGroup
 
 local function groupCount(cf)
+    if not cf then return 0 end
     local n = 0
     if type(cf.messageTypeList) == "table" then n = n + table.getn(cf.messageTypeList) end
     if type(cf.channelList) == "table" then n = n + table.getn(cf.channelList) end
@@ -1242,67 +1247,146 @@ ev:SetScript("OnUpdate", function()
 end)
 
 ------------------------------------------------------------------------
--- Dock repair: one shown docked frame (the selected one), the rest
--- anchored on ChatFrame1, windows saved as docked back in the dock.
+-- Dock repair: at most one shown docked frame (the selected tab). The
+-- rest stay hidden and on ChatFrame1. Nil holes in DOCKED_CHAT_FRAMES
+-- are dropped so stock FCF_SelectDockFrame / FCF_Tab_OnClick can Hide()
+-- without erroring (which left every tab visible and clickable).
 ------------------------------------------------------------------------
+local function dockCount(dock)
+    if type(dock) ~= "table" then return 0 end
+    local n = table.getn(dock)
+    if type(dock.n) == "number" and dock.n > n then n = dock.n end
+    return n
+end
+
+local function compactDock(dock)
+    local n = dockCount(dock)
+    local i, removed = 1, 0
+    while i <= n do
+        if dock[i] then
+            i = i + 1
+        else
+            table.remove(dock, i)
+            removed = removed + 1
+            n = dockCount(dock)
+        end
+    end
+    return removed
+end
+
+local function inDock(dock, f)
+    if not f or type(dock) ~= "table" then return false end
+    local i
+    for i = 1, dockCount(dock) do
+        if dock[i] == f then return true end
+    end
+    return false
+end
+
+-- Visible tab: the selected dock (meter host included), never a hidden
+-- SELECTED_CHAT_FRAME sitting behind a meter tab.
+local function pickSelected(dock, cf1)
+    local sel = SELECTED_DOCK_FRAME
+    if inDock(dock, sel) then return sel end
+    sel = SELECTED_CHAT_FRAME
+    if inDock(dock, sel) then return sel end
+    if dock[1] then return dock[1] end
+    return DEFAULT_CHAT_FRAME or cf1
+end
+
+-- Hide extras only. Never Show() here; FCF_SelectDockFrame does that.
+local function hideUnselected(sel)
+    local n, i = 0
+    local dock = DOCKED_CHAT_FRAMES
+    if type(dock) == "table" then
+        for i = 1, dockCount(dock) do
+            local cf = dock[i]
+            if cf and cf ~= sel and cf.IsShown and cf:IsShown() then
+                cf:Hide()
+                n = n + 1
+            end
+        end
+    end
+    for i = 1, M.numWindows() do
+        local cf = M.frame(i)
+        if cf and cf ~= sel and cf.isDocked and cf.IsShown and cf:IsShown() then
+            cf:Hide()
+            n = n + 1
+        end
+    end
+    return n
+end
+
 local function offDock(cf, base)
+    if not cf or not base or not cf.GetLeft or not base.GetLeft then return false end
     local l, t, bl, bt = cf:GetLeft(), cf:GetTop(), base:GetLeft(), base:GetTop()
     if not l or not t or not bl or not bt then return false end
     return math.abs(l - bl) > 2 or math.abs(t - bt) > 2
 end
 
+local function snapToBase(cf, base)
+    if not cf or not base or cf == base then return end
+    if cf.resizing or base.resizing then return end
+    if not cf.ClearAllPoints or not cf.SetPoint then return end
+    cf:ClearAllPoints()
+    cf:SetPoint("TOPLEFT", base, "TOPLEFT", 0, 0)
+    cf:SetPoint("BOTTOMRIGHT", base, "BOTTOMRIGHT", 0, 0)
+end
+
 -- full: also re-dock saved-docked windows and put ChatFrame1 first (login).
 function D.repairDock(full)
     local dock = DOCKED_CHAT_FRAMES
-    if type(dock) ~= "table" or not FCF_DockUpdate or not FCF_SelectDockFrame then return 0 end
+    if type(dock) ~= "table" then return 0 end
     local cf1 = getglobal("ChatFrame1")
-    local sel = SELECTED_DOCK_FRAME
-    local fixed = 0
+    local fixed = compactDock(dock)
+    if fixed > 0 and FCF_SaveDock then pcall(FCF_SaveDock) end
+    dock = DOCKED_CHAT_FRAMES
+    if type(dock) ~= "table" then return fixed end
     local i
     if full and FCF_DockFrame then
         for i = 1, M.numWindows() do
             local cf = M.frame(i)
             local _, _, docked = windowInfo(i)
             if cf and docked and cf ~= cf1 then
-                local inDock = false
-                local j
-                for j = 1, table.getn(dock) do
-                    if dock[j] == cf then inDock = true end
-                end
-                if not inDock then
+                if not inDock(dock, cf) then
                     cf.isDocked = nil
-                    FCF_DockFrame(cf)
+                    pcall(function() FCF_DockFrame(cf) end)
                     dock = DOCKED_CHAT_FRAMES
+                    if type(dock) ~= "table" then return fixed + 1 end
+                    compactDock(dock)
+                    if cf ~= SELECTED_DOCK_FRAME and cf.Hide then cf:Hide() end
                     fixed = fixed + 1
                 end
             end
         end
         if cf1 and dock[1] ~= cf1 then
-            for i = table.getn(dock), 2, -1 do
+            for i = dockCount(dock), 2, -1 do
                 if dock[i] == cf1 then
                     table.remove(dock, i)
                     table.insert(dock, 1, cf1)
-                    if FCF_SaveDock then FCF_SaveDock() end
+                    if FCF_SaveDock then pcall(FCF_SaveDock) end
                     dock = DOCKED_CHAT_FRAMES
                     fixed = fixed + 1
                 end
             end
         end
     end
-    local selIn = false
-    for i = 1, table.getn(dock) do
-        if dock[i] == sel then selIn = true end
-    end
-    local bad = not selIn or fixed > 0
+    local sel = pickSelected(dock, cf1)
+    local hidden = hideUnselected(sel)
+    if hidden > 0 then fixed = fixed + hidden end
     local base = DEFAULT_CHAT_FRAME or cf1
-    for i = 1, table.getn(dock) do
-        local cf = dock[i]
-        if cf ~= sel and cf:IsShown() then bad = true end
-        if i > 1 and base and not (base.resizing or cf.resizing) and offDock(cf, base) then bad = true end
+    if base then
+        for i = 1, dockCount(dock) do
+            local cf = dock[i]
+            if cf and cf ~= base and not (base.resizing or cf.resizing) and offDock(cf, base) then
+                snapToBase(cf, base)
+                fixed = fixed + 1
+            end
+        end
     end
-    if bad then
-        if not selIn then sel = dock[1] end
-        if sel then FCF_SelectDockFrame(sel) else FCF_DockUpdate() end
+    if sel and sel.IsShown and not sel:IsShown() and FCF_SelectDockFrame then
+        pcall(function() FCF_SelectDockFrame(sel) end)
+        hideUnselected(sel)
         fixed = fixed + 1
     end
     return fixed

@@ -25,6 +25,107 @@ local function db()
     return IchaUIDB.buffBars
 end
 
+-- Retail-style consolidated buffs: helpful auras >= 10 min (or until cancelled)
+-- hide in one drawer slot. New keys on IchaUIDB.buffBars only.
+local LONG_SECS = 600
+local ARROW_TEX = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
+local CONS_ICON = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude"
+
+local function consolidateOn()
+    if db().consolidate == false then return false end
+    return true
+end
+
+local function consolidateOpen()
+    return db().consolidatedExpanded and true or false
+end
+
+-- Session snapshots of starting duration, keyed by folded buff name (or texture).
+-- Persisted in IchaUIDB.buffBars.baseDur so a /reload mid-buff keeps the start time.
+local baseSeen = {}
+local nameByTex = {}
+
+local function foldName(s)
+    if not s or s == "" then return "" end
+    s = string.gsub(s, "^%s+", "")
+    s = string.gsub(s, "%s+$", "")
+    s = string.gsub(s, "%s+", " ")
+    return string.lower(s)
+end
+
+local function nameList(which)
+    local d = db()
+    local key = "neverConsolidate"
+    if which == "always" then key = "alwaysConsolidate" end
+    if type(d[key]) ~= "table" then d[key] = {} end
+    return d[key]
+end
+
+local function listHas(which, name)
+    local fold = foldName(name)
+    if fold == "" then return false end
+    local list = nameList(which)
+    local i
+    for i = 1, table.getn(list) do
+        if foldName(list[i]) == fold then return true end
+    end
+    return false
+end
+
+local function auraKey(e)
+    if e and e.name and e.name ~= "" then return foldName(e.name) end
+    if e and e.texture then return string.lower(e.texture) end
+    return "i:" .. tostring(e and e.index or "")
+end
+
+local function persistBase()
+    local d = db()
+    if type(d.baseDur) ~= "table" then d.baseDur = {} end
+    return d.baseDur
+end
+
+local function snapBase(e)
+    local key = auraKey(e)
+    local left = e.timeLeft
+    if not left then left = 0 end
+    local rec = baseSeen[key]
+    local store = persistBase()
+    if not rec or not rec.live then
+        if rec and not rec.live then
+            rec.base = left
+        elseif store[key] and left > 0 and store[key] > 0 and left <= (store[key] + 1) then
+            rec = { base = store[key], last = left, live = true }
+        else
+            rec = { base = left, last = left, live = true }
+        end
+        rec.last = left
+        rec.live = true
+        baseSeen[key] = rec
+    else
+        if left > rec.last + 0.5 then
+            rec.base = left
+        elseif left > rec.base then
+            rec.base = left
+        end
+        rec.last = left
+        rec.live = true
+    end
+    store[key] = rec.base
+    e.baseDur = rec.base
+end
+
+local function shouldConsolidate(e)
+    if not e then return false end
+    if listHas("never", e.name) then return false end
+    if listHas("always", e.name) then return true end
+    local left = e.timeLeft
+    if not left or left <= 0 then return true end
+    local base = e.baseDur
+    if not base then base = left end
+    if base <= 0 then return true end
+    return base >= LONG_SECS
+end
+
 local function iconW()
     return math.floor(BASE_W * cfgScale + 0.5)
 end
@@ -86,6 +187,14 @@ local function nameFromPlayerBuff(buffId)
     return nil
 end
 
+local function auraName(id)
+    if type(GetPlayerBuffName) == "function" then
+        local ok, n = pcall(GetPlayerBuffName, id)
+        if ok and type(n) == "string" and n ~= "" then return n end
+    end
+    return nameFromPlayerBuff(id)
+end
+
 local function resolveDebuffDtype(buffId)
     -- Official dispel school (Magic / Curse / Disease / Poison)
     if type(GetPlayerBuffDispelType) == "function" then
@@ -142,7 +251,7 @@ local function writeStack(btn, count, auraKey)
         btn.stack:Hide()
         btn._auraKey = auraKey
     end
-    if count > 1 then
+    if count > 1 or (btn.consolidated and count > 0) then
         btn.stack:ClearAllPoints()
         btn.stack:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
         btn.stack:SetText(tostring(math.floor(count)))
@@ -198,6 +307,8 @@ local function saveCfg()
     d.rowGap = cfgRowGap
     d.cols = cfgCols
     d.text = cfgText
+    if d.consolidate == nil then d.consolidate = true end
+    if d.consolidatedExpanded == nil then d.consolidatedExpanded = false end
     if buffRoot then
         local p, _, rp, x, y = buffRoot:GetPoint(1)
         d.buffPoint, d.buffRel, d.buffX, d.buffY = p, rp, x, y
@@ -247,10 +358,89 @@ local function applyAspect(tex, w, h)
     end
 end
 
+local function goldRGB()
+    local r, g, b = 0.75, 0.52, 0.04
+    if IchaUI_Gold then r, g, b = IchaUI_Gold() end
+    return r, g, b
+end
+
+local function paintConsArrow(btn)
+    local a = btn and btn.arrowBtn
+    if not a then return end
+    local tex = a.tex
+    if not tex then return end
+    tex:SetTexture(ARROW_TEX)
+    if btn._consOpen then
+        tex:SetTexCoord(1, 0, 0, 1)
+    else
+        tex:SetTexCoord(0, 1, 0, 1)
+    end
+    local r, g, b = goldRGB()
+    tex:SetVertexColor(r, g, b, 1)
+end
+
+local function ensureConsChrome(btn)
+    if not btn or btn.arrowBtn then return end
+    local a = CreateFrame("Button", nil, btn)
+    a:EnableMouse(true)
+    a:RegisterForClicks("LeftButtonUp")
+    a:SetFrameLevel((btn:GetFrameLevel() or 1) + 10)
+    local tex = a:CreateTexture(nil, "OVERLAY")
+    tex:SetAllPoints(a)
+    a.tex = tex
+    a:SetScript("OnClick", function()
+        if IchaUIBuffBars_Set then
+            IchaUIBuffBars_Set("consolidatedExpanded", not consolidateOpen())
+        end
+    end)
+    a:SetScript("OnEnter", function()
+        local p = this:GetParent()
+        if p and p.GetScript then
+            local fn = p:GetScript("OnEnter")
+            if fn then fn() end
+        end
+    end)
+    a:SetScript("OnLeave", function()
+        if GameTooltip then GameTooltip:Hide() end
+    end)
+    btn.arrowBtn = a
+    a:Hide()
+end
+
+local function tipConsolidated(btn)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(btn, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:SetText("Consolidated Buffs", 1, 0.92, 0.7)
+    local n = btn._longCount or 0
+    if n == 1 then
+        GameTooltip:AddLine("1 long buff", 1, 1, 1)
+    else
+        GameTooltip:AddLine(n .. " long buffs", 1, 1, 1)
+    end
+    local names = btn._longNames
+    if names then
+        local i
+        local limit = table.getn(names)
+        if limit > 16 then limit = 16 end
+        for i = 1, limit do
+            GameTooltip:AddLine(names[i], 0.93, 0.78, 0.35)
+        end
+        if table.getn(names) > 16 then
+            GameTooltip:AddLine("...", 0.7, 0.7, 0.7)
+        end
+    end
+    if btn._consOpen then
+        GameTooltip:AddLine("Click the arrow to hide them on the bar.", 0.7, 0.7, 0.7)
+    else
+        GameTooltip:AddLine("Click the arrow to show them on the bar.", 0.7, 0.7, 0.7)
+    end
+    GameTooltip:Show()
+end
+
 local function makeIcon(parent, name)
     local btn = CreateFrame("Button", name, parent)
     btn:EnableMouse(true)
-    btn:RegisterForClicks("RightButtonUp")
+    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 
     local icon = btn:CreateTexture(nil, "ARTWORK")
     icon:SetPoint("TOPLEFT", btn, "TOPLEFT", 1, -1)
@@ -287,6 +477,10 @@ local function makeIcon(parent, name)
     btn.dur = dur
 
     btn:SetScript("OnEnter", function()
+        if this.consolidated then
+            tipConsolidated(this)
+            return
+        end
         if this.index == nil then return end
         GameTooltip:SetOwner(this, "ANCHOR_BOTTOMLEFT")
         if this.filter == "HELPFUL" then
@@ -299,6 +493,12 @@ local function makeIcon(parent, name)
     end)
     btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
     btn:SetScript("OnClick", function()
+        if this.consolidated then
+            if IchaUIBuffBars_Set then
+                IchaUIBuffBars_Set("consolidatedExpanded", not consolidateOpen())
+            end
+            return
+        end
         if arg1 == "RightButton" and this.filter == "HELPFUL" and this.index ~= nil then
             CancelPlayerBuff(this.index)
         end
@@ -329,6 +529,16 @@ local function sizeIcon(btn)
     btn.dur:ClearAllPoints()
     btn.dur:SetPoint("TOP", btn, "BOTTOM", 0, -1)
     btn.dur:SetWidth(w + 8)
+    if btn.arrowBtn then
+        local aw = math.floor(h * 0.42 + 0.5)
+        if aw < 10 then aw = 10 end
+        if aw > 16 then aw = 16 end
+        btn.arrowBtn:SetWidth(aw)
+        btn.arrowBtn:SetHeight(aw)
+        btn.arrowBtn:ClearAllPoints()
+        btn.arrowBtn:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 1)
+        paintConsArrow(btn)
+    end
 end
 
 local function ensureIcons(list, root, prefix, n)
@@ -373,10 +583,20 @@ local function layoutRow(root, icons, count)
             btn.dur:Show()
             -- After SetFont in sizeIcon, so the label is this aura's count, not the slot's last text.
             writeStack(btn, btn._auraCount, btn._auraKeyPending)
+            if btn.consolidated and btn.arrowBtn then
+                btn.arrowBtn:Show()
+            elseif btn.arrowBtn then
+                btn.arrowBtn:Hide()
+            end
         else
             btn._auraCount = nil
             btn._auraKeyPending = nil
+            btn.consolidated = nil
+            btn._longNames = nil
+            btn._longCount = nil
+            btn._consOpen = nil
             writeStack(btn, 0, nil)
+            if btn.arrowBtn then btn.arrowBtn:Hide() end
             btn:Hide()
             btn.dur:SetText("")
             btn.dur:Hide()
@@ -384,11 +604,12 @@ local function layoutRow(root, icons, count)
     end
 end
 
--- Returns list of { index=, texture=, timeLeft=, count=, filter= }
+-- Returns list of { index=, texture=, timeLeft=, count=, filter=, name=, baseDur= }
 local function collectBuffs(filter)
     local out = {}
     local byTex = stackMap(filter)
     local i = 0
+    local cons = (filter == "HELPFUL" and consolidateOn())
     -- Scan past MAX in case API skips holes; stop once we have MAX_ICONS
     while i < 64 and table.getn(out) < MAX_ICONS do
         local id = GetPlayerBuff(i, filter)
@@ -409,6 +630,14 @@ local function collectBuffs(filter)
             if filter == "HARMFUL" then
                 dtype = resolveDebuffDtype(id)
             end
+            local nm = nil
+            if cons then
+                nm = nameByTex[tex]
+                if not nm then
+                    nm = auraName(id)
+                    if nm then nameByTex[tex] = nm end
+                end
+            end
             table.insert(out, {
                 index = id,
                 texture = tex,
@@ -417,15 +646,67 @@ local function collectBuffs(filter)
                 filter = filter,
                 slot = i,
                 dtype = dtype,
+                name = nm,
             })
         end
         i = i + 1
+    end
+    if cons then
+        local present = {}
+        local j
+        for j = 1, table.getn(out) do
+            snapBase(out[j])
+            present[auraKey(out[j])] = true
+        end
+        local k, rec
+        for k, rec in pairs(baseSeen) do
+            if rec and not present[k] then rec.live = nil end
+        end
     end
     return out
 end
 
 local function paintList(icons, root, filter)
     local list = collectBuffs(filter)
+    local opened = false
+    if filter == "HELPFUL" and consolidateOn() then
+        local short, long, shown = {}, {}, {}
+        local i
+        for i = 1, table.getn(list) do
+            local e = list[i]
+            if shouldConsolidate(e) then
+                table.insert(long, e)
+            else
+                table.insert(short, e)
+            end
+        end
+        if table.getn(long) > 0 then
+            opened = consolidateOpen()
+            local names = {}
+            for i = 1, table.getn(long) do
+                local nm = long[i].name
+                if not nm or nm == "" then nm = "Buff" end
+                table.insert(names, nm)
+            end
+            table.insert(shown, {
+                consolidated = true,
+                texture = (long[1] and long[1].texture) or CONS_ICON,
+                count = table.getn(long),
+                names = names,
+                filter = filter,
+            })
+            if opened then
+                for i = 1, table.getn(list) do
+                    table.insert(shown, list[i])
+                end
+            else
+                for i = 1, table.getn(short) do
+                    table.insert(shown, short[i])
+                end
+            end
+            list = shown
+        end
+    end
     local n = table.getn(list)
     if n > MAX_ICONS then n = MAX_ICONS end
     ensureIcons(icons, root, filter == "HELPFUL" and "Buff" or "Debuff", MAX_ICONS)
@@ -433,17 +714,38 @@ local function paintList(icons, root, filter)
     for i = 1, n do
         local e = list[i]
         local btn = icons[i]
-        btn.index = e.index
-        btn.filter = filter
-        btn.dtype = (filter == "HARMFUL") and e.dtype or nil
-        btn.icon:SetTexture(e.texture)
-        applyAspect(btn.icon, iconW(), iconH())
-        btn._auraCount = e.count or 0
-        btn._auraKeyPending = e.texture or ""
-        if e.timeLeft and e.timeLeft > 0 then
-            btn.dur:SetText(formatDur(e.timeLeft))
-        else
+        if e.consolidated then
+            ensureConsChrome(btn)
+            btn.consolidated = true
+            btn.index = nil
+            btn.filter = filter
+            btn.dtype = nil
+            btn._consOpen = opened
+            btn._longCount = e.count or 0
+            btn._longNames = e.names
+            btn.icon:SetTexture(e.texture or CONS_ICON)
+            applyAspect(btn.icon, iconW(), iconH())
+            btn._auraCount = e.count or 0
+            btn._auraKeyPending = "consolidated"
             btn.dur:SetText("")
+            paintConsArrow(btn)
+        else
+            btn.consolidated = nil
+            btn._consOpen = nil
+            btn._longCount = nil
+            btn._longNames = nil
+            btn.index = e.index
+            btn.filter = filter
+            btn.dtype = (filter == "HARMFUL") and e.dtype or nil
+            btn.icon:SetTexture(e.texture)
+            applyAspect(btn.icon, iconW(), iconH())
+            btn._auraCount = e.count or 0
+            btn._auraKeyPending = e.texture or ""
+            if e.timeLeft and e.timeLeft > 0 then
+                btn.dur:SetText(formatDur(e.timeLeft))
+            else
+                btn.dur:SetText("")
+            end
         end
         -- Color debuff chrome by type; buffs stay gold
         local eSz = math.floor(11 * cfgScale + 0.5)
@@ -479,6 +781,8 @@ local function paintTestPlaceholders(icons, root, filter)
         local btn = icons[i]
         btn.index = nil
         btn.filter = filter
+        btn.consolidated = nil
+        if btn.arrowBtn then btn.arrowBtn:Hide() end
         if filter == "HARMFUL" then
             btn.dtype = cycle[math.mod(i - 1, table.getn(cycle)) + 1]
         else
@@ -600,7 +904,40 @@ function IchaUIBuffBars_Get()
         cols = cfgCols,
         text = cfgText,
         moving = moving,
+        consolidate = consolidateOn(),
+        consolidatedExpanded = consolidateOpen(),
+        neverConsolidate = nameList("never"),
+        alwaysConsolidate = nameList("always"),
     }
+end
+
+function IchaUIBuffBars_List(which, action, name)
+    if which ~= "always" then which = "never" end
+    local list = nameList(which)
+    if action == "get" or not action then return list end
+    name = tostring(name or "")
+    name = string.gsub(name, "^%s+", "")
+    name = string.gsub(name, "%s+$", "")
+    name = string.gsub(name, "%s+", " ")
+    if name == "" then return list end
+    local fold = foldName(name)
+    if action == "add" then
+        local i
+        for i = 1, table.getn(list) do
+            if foldName(list[i]) == fold then return list end
+        end
+        table.insert(list, name)
+    elseif action == "remove" then
+        local i
+        for i = table.getn(list), 1, -1 do
+            if foldName(list[i]) == fold then
+                table.remove(list, i)
+            end
+        end
+    end
+    saveCfg()
+    refresh()
+    return list
 end
 
 function IchaUIBuffBars_Set(field, value)
@@ -623,6 +960,10 @@ function IchaUIBuffBars_Set(field, value)
         cfgText = tonumber(value) or cfgText
         if cfgText < 8 then cfgText = 8 end
         if cfgText > 20 then cfgText = 20 end
+    elseif field == "consolidate" then
+        db().consolidate = value and true or false
+    elseif field == "consolidatedExpanded" then
+        db().consolidatedExpanded = value and true or false
     elseif field == "moving" then
         setMoving(value and true or false)
         return

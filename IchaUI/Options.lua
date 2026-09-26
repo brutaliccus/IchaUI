@@ -2231,6 +2231,102 @@ local function build()
     bfMove:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", COL2, yBf)
     tip(pageBuffs, "Right-click a buff to cancel it", COL2 + 64, yBf - 2, 280)
     yBf = yBf - 30
+    do
+        local bfCons = makeGoldToggle(pageBuffs, "Consolidate long buffs: On", 200, 20)
+        bfCons:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", PAD, yBf)
+        local function consOn()
+            if IchaUIBuffBars_Get then
+                local t = IchaUIBuffBars_Get()
+                if t and t.consolidate == false then return false end
+            end
+            return true
+        end
+        local function paintCons()
+            local on = consOn()
+            if bfCons._label then
+                bfCons._label:SetText(on and "Consolidate long buffs: On" or "Consolidate long buffs: Off")
+            end
+            paintGoldToggle(bfCons, on)
+        end
+        bfCons:SetScript("OnClick", function()
+            if IchaUIBuffBars_Set then IchaUIBuffBars_Set("consolidate", not consOn()) end
+            paintCons()
+        end)
+        yBf = yBf - 20
+        tip(pageBuffs, "Buffs whose starting duration is 10 minutes or more hide in one icon. Click the arrow to show them on the bar.", PAD, yBf, 720)
+        yBf = yBf - 22
+        tip(pageBuffs, "Names match your buffs (ignore case). Never wins if a name is on both lists.", PAD, yBf, 720)
+        yBf = yBf - 20
+
+        local function makeNameList(title, which, x, y)
+            sectionHeader(pageBuffs, title, x, y)
+            y = y - 16
+            local ed = makeEdit(pageBuffs, 176, 18)
+            ed:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", x, y)
+            ed:SetMaxLetters(48)
+            local function addName()
+                local t = ed:GetText() or ""
+                if IchaUIBuffBars_List then IchaUIBuffBars_List(which, "add", t) end
+                ed:SetText("")
+                ed:ClearFocus()
+                if pages._buffsRefresh then pages._buffsRefresh() end
+            end
+            local add = makeButton(pageBuffs, "Add", 40, 18, addName)
+            add:SetPoint("LEFT", ed, "RIGHT", 4, 0)
+            ed:SetScript("OnEnterPressed", addName)
+            y = y - 20
+            local rows = {}
+            local r
+            for r = 1, 8 do
+                local fs = pageBuffs:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                fs:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", x, y)
+                fs:SetWidth(176)
+                fs:SetJustifyH("LEFT")
+                IchaUI_DyeFs(fs, 1, 1, 1)
+                local rm = makeButton(pageBuffs, "x", 18, 16, function()
+                    if this._name and IchaUIBuffBars_List then
+                        IchaUIBuffBars_List(which, "remove", this._name)
+                    end
+                    if pages._buffsRefresh then pages._buffsRefresh() end
+                end)
+                rm:SetPoint("LEFT", fs, "RIGHT", 4, 0)
+                table.insert(rows, { fs = fs, rm = rm })
+                y = y - 16
+            end
+            return rows
+        end
+        local neverRows = makeNameList("Never consolidate", "never", PAD, yBf)
+        local alwaysRows = makeNameList("Always consolidate", "always", COL2, yBf)
+        local function paintLists()
+            local function paint(rows, which)
+                local list = {}
+                if IchaUIBuffBars_List then list = IchaUIBuffBars_List(which, "get") or {} end
+                local i
+                for i = 1, table.getn(rows) do
+                    local name = list[i]
+                    if name then
+                        rows[i].fs:SetText(name)
+                        IchaUI_DyeFs(rows[i].fs, 1, 1, 1)
+                        rows[i].fs:Show()
+                        rows[i].rm._name = name
+                        rows[i].rm:Show()
+                    else
+                        rows[i].fs:SetText("")
+                        rows[i].fs:Hide()
+                        rows[i].rm._name = nil
+                        rows[i].rm:Hide()
+                    end
+                end
+            end
+            paint(neverRows, "never")
+            paint(alwaysRows, "always")
+        end
+        pages._buffsRefresh = function()
+            paintCons()
+            paintLists()
+        end
+        pages._buffsRefresh()
+    end
 
 
 
@@ -3637,6 +3733,7 @@ local function build()
         if IchaUI_HeroPickRefresh then IchaUI_HeroPickRefresh() end
         if IchaUI_ActionAddRefresh then IchaUI_ActionAddRefresh() end
         if pages._drawersRefresh then pages._drawersRefresh() end
+        if pages._buffsRefresh then pages._buffsRefresh() end
         if pages._mapRefresh then pages._mapRefresh() end
         if IchaUIUF_GetRaidDebuffsText and raidEdit then
             raidEdit:SetText(IchaUIUF_GetRaidDebuffsText())

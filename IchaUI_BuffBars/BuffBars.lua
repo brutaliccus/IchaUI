@@ -29,7 +29,8 @@ end
 -- hide in one drawer slot. New keys on IchaUIDB.buffBars only.
 local LONG_SECS = 600
 local ARROW_TEX = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
-local CONS_ICON = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude"
+local CONS_ICON = "Interface\\AddOns\\IchaUI_BuffBars\\media\\ConsolidatedBuffs.tga"
+local consUI = { icons = {}, grace = 0 }
 
 local function consolidateOn()
     if db().consolidate == false then return false end
@@ -401,40 +402,25 @@ local function ensureConsChrome(btn)
         end
     end)
     a:SetScript("OnLeave", function()
-        if GameTooltip then GameTooltip:Hide() end
+        local p = this:GetParent()
+        if p and p.GetScript then
+            local fn = p:GetScript("OnLeave")
+            if fn then fn() end
+        end
     end)
     btn.arrowBtn = a
     a:Hide()
 end
 
 local function tipConsolidated(btn)
-    if not GameTooltip then return end
-    GameTooltip:SetOwner(btn, "ANCHOR_BOTTOMLEFT")
-    GameTooltip:SetText("Consolidated Buffs", 1, 0.92, 0.7)
-    local n = btn._longCount or 0
-    if n == 1 then
-        GameTooltip:AddLine("1 long buff", 1, 1, 1)
-    else
-        GameTooltip:AddLine(n .. " long buffs", 1, 1, 1)
+    if GameTooltip then GameTooltip:Hide() end
+    if not btn or not btn.consolidated or btn._consOpen then
+        if consUI.fly then consUI.fly:Hide() end
+        return
     end
-    local names = btn._longNames
-    if names then
-        local i
-        local limit = table.getn(names)
-        if limit > 16 then limit = 16 end
-        for i = 1, limit do
-            GameTooltip:AddLine(names[i], 0.93, 0.78, 0.35)
-        end
-        if table.getn(names) > 16 then
-            GameTooltip:AddLine("...", 0.7, 0.7, 0.7)
-        end
-    end
-    if btn._consOpen then
-        GameTooltip:AddLine("Click the arrow to hide them on the bar.", 0.7, 0.7, 0.7)
-    else
-        GameTooltip:AddLine("Click the arrow to show them on the bar.", 0.7, 0.7, 0.7)
-    end
-    GameTooltip:Show()
+    consUI.host = btn
+    consUI.grace = 0.25
+    if consUI.open then consUI.open() end
 end
 
 local function makeIcon(parent, name)
@@ -491,7 +477,13 @@ local function makeIcon(parent, name)
         end
         GameTooltip:Show()
     end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    btn:SetScript("OnLeave", function()
+        if this.consolidated then
+            consUI.grace = 0.2
+            return
+        end
+        GameTooltip:Hide()
+    end)
     btn:SetScript("OnClick", function()
         if this.consolidated then
             if IchaUIBuffBars_Set then
@@ -512,7 +504,13 @@ local function sizeIcon(btn)
     local w, h = iconW(), iconH()
     btn:SetWidth(w)
     btn:SetHeight(h)
-    applyAspect(btn.icon, w, h)
+    if btn.consolidated then
+        btn.icon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
+        if btn.roundMask then btn.roundMask:Hide() end
+    else
+        applyAspect(btn.icon, w, h)
+        if btn.roundMask then btn.roundMask:Show() end
+    end
     local e = math.floor(11 * cfgScale + 0.5)
     if e < 8 then e = 8 end
     if e > 18 then e = 18 end
@@ -593,6 +591,7 @@ local function layoutRow(root, icons, count)
             btn._auraKeyPending = nil
             btn.consolidated = nil
             btn._longNames = nil
+            btn._longList = nil
             btn._longCount = nil
             btn._consOpen = nil
             writeStack(btn, 0, nil)
@@ -601,6 +600,111 @@ local function layoutRow(root, icons, count)
             btn.dur:SetText("")
             btn.dur:Hide()
         end
+    end
+end
+
+local function overFrame(f)
+    if not f or not f.IsVisible or not f:IsVisible() then return false end
+    if type(MouseIsOver) == "function" then
+        local ok, v = pcall(MouseIsOver, f)
+        if ok and v then return true end
+    end
+    return false
+end
+
+local function hideConsFly()
+    if consUI.fly then consUI.fly:Hide() end
+end
+
+local function paintConsFly()
+    local host = consUI.host
+    if not host or not host.consolidated or host._consOpen then
+        hideConsFly()
+        return
+    end
+    local list = host._longList
+    if not list or table.getn(list) == 0 then
+        hideConsFly()
+        return
+    end
+    if not consUI.fly then
+        local f = CreateFrame("Frame", "IchaUIConsFly", UIParent)
+        f:SetFrameStrata("DIALOG")
+        f:SetFrameLevel(80)
+        f:EnableMouse(true)
+        f:SetBackdrop({
+            bgFile = "Interface/Tooltips/UI-Tooltip-Background",
+            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        f:SetBackdropColor(0.04, 0.04, 0.05, 0.94)
+        f:SetScript("OnEnter", function() consUI.grace = 0.25 end)
+        f:SetScript("OnLeave", function() consUI.grace = 0.2 end)
+        consUI.fly = f
+    end
+    local f = consUI.fly
+    local r, g, b = goldRGB()
+    f:SetBackdropBorderColor(r, g, b, 1)
+    if IchaUI_Fill then
+        local fr, fg, fb = IchaUI_Fill()
+        f:SetBackdropColor(fr or 0.04, fg or 0.04, fb or 0.05, 0.94)
+    end
+    local n = table.getn(list)
+    if n > 24 then n = 24 end
+    ensureIcons(consUI.icons, f, "ConsFly", n)
+    local i
+    for i = 1, n do
+        local e = list[i]
+        local btn = consUI.icons[i]
+        btn.consolidated = nil
+        btn._consOpen = nil
+        btn._longList = nil
+        btn.index = e.index
+        btn.filter = "HELPFUL"
+        btn.dtype = nil
+        btn.icon:SetTexture(e.texture)
+        applyAspect(btn.icon, iconW(), iconH())
+        if btn.roundMask then btn.roundMask:Show() end
+        btn._auraCount = e.count or 0
+        btn._auraKeyPending = e.texture or ""
+        if e.timeLeft and e.timeLeft > 0 then
+            btn.dur:SetText(formatDur(e.timeLeft))
+        else
+            btn.dur:SetText("")
+        end
+        local eSz = math.floor(11 * cfgScale + 0.5)
+        if eSz < 8 then eSz = 8 end
+        if eSz > 18 then eSz = 18 end
+        applyBorder(btn.border, eSz, nil)
+    end
+    local cols = n
+    if cols > 8 then cols = 8 end
+    if cols < 1 then cols = 1 end
+    local saveCols = cfgCols
+    cfgCols = cols
+    layoutRow(f, consUI.icons, n)
+    cfgCols = saveCols
+    local pad = 8
+    f:SetWidth((f:GetWidth() or iconW()) + pad)
+    f:SetHeight((f:GetHeight() or iconH()) + pad)
+    f:ClearAllPoints()
+    f:SetPoint("TOPRIGHT", host, "BOTTOMRIGHT", 4, -6)
+    f:Show()
+end
+
+consUI.open = paintConsFly
+
+local function tickConsFly(dt)
+    local host = consUI.host
+    local fly = consUI.fly
+    if overFrame(host) or (host and overFrame(host.arrowBtn)) or overFrame(fly) then
+        consUI.grace = 0.25
+        return
+    end
+    if fly and fly:IsShown() then
+        consUI.grace = (consUI.grace or 0) - (dt or 0)
+        if consUI.grace <= 0 then hideConsFly() end
     end
 end
 
@@ -690,9 +794,10 @@ local function paintList(icons, root, filter)
             end
             table.insert(shown, {
                 consolidated = true,
-                texture = (long[1] and long[1].texture) or CONS_ICON,
+                texture = CONS_ICON,
                 count = table.getn(long),
                 names = names,
+                longs = long,
                 filter = filter,
             })
             if opened then
@@ -723,17 +828,26 @@ local function paintList(icons, root, filter)
             btn._consOpen = opened
             btn._longCount = e.count or 0
             btn._longNames = e.names
-            btn.icon:SetTexture(e.texture or CONS_ICON)
-            applyAspect(btn.icon, iconW(), iconH())
+            btn._longList = e.longs
+            btn.icon:SetTexture(CONS_ICON)
+            btn.icon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
+            if btn.roundMask then btn.roundMask:Hide() end
             btn._auraCount = e.count or 0
             btn._auraKeyPending = "consolidated"
             btn.dur:SetText("")
             paintConsArrow(btn)
+            consUI.host = btn
+            if opened then
+                hideConsFly()
+            elseif consUI.fly and consUI.fly:IsShown() then
+                paintConsFly()
+            end
         else
             btn.consolidated = nil
             btn._consOpen = nil
             btn._longCount = nil
             btn._longNames = nil
+            btn._longList = nil
             btn.index = e.index
             btn.filter = filter
             btn.dtype = (filter == "HARMFUL") and e.dtype or nil
@@ -754,6 +868,12 @@ local function paintList(icons, root, filter)
         applyBorder(btn.border, eSz, btn.dtype)
     end
     layoutRow(root, icons, n)
+    if filter == "HELPFUL" then
+        local host = consUI.host
+        if not host or not host.consolidated or host._consOpen then
+            hideConsFly()
+        end
+    end
 end
 
 local buffTestMode = false
@@ -1017,6 +1137,7 @@ evt:SetScript("OnEvent", function()
 end)
 
 evt:SetScript("OnUpdate", function()
+    tickConsFly(arg1 or 0)
     if not this._acc then this._acc = 0 end
     this._acc = this._acc + (arg1 or 0)
     if this._acc < 0.2 then return end
@@ -1027,6 +1148,7 @@ end)
 
 function IchaUIBuffBars_SetTestMode(on)
     buffTestMode = on and true or false
+    if buffTestMode then hideConsFly() end
     if buffRoot then
         if buffTestMode then
             buffRoot:Show()

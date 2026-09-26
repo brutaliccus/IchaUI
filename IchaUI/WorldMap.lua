@@ -1,11 +1,14 @@
 -- IchaUI WorldMap: the world map as a movable, scalable window (Lua 5.0 / 1.12).
 -- <Ctrl> + mouse wheel scales it, <Shift> + mouse wheel changes its opacity,
+-- plain mouse wheel zooms the map art, left-drag pans it while zoomed,
 -- drag the frame edge to move it. Esc closes it. Settings live in IchaUIDB.worldmap.
 --
 -- Based on ShaguTweaks by Eric Mauser (Shagu), MIT License
 -- (mods/worldmap-window.lua and the WorldMap part of mods/turtle-wow.lua).
+-- Map zoom and pan follow Magnify by lookino, MIT License (main.lua).
 --
 -- Copyright (c) 2021 Eric Mauser (Shagu)
+-- Copyright (c) 2026 lookino
 -- Permission is hereby granted, free of charge, to any person obtaining a copy
 -- of this software and associated documentation files (the "Software"), to deal
 -- in the Software without restriction, including without limitation the rights
@@ -33,6 +36,19 @@ local function installIchaUIWorldMap()
     local ALPHA_LO, ALPHA_HI = 0.2, 1
     -- Pixels of the title bar that must stay on screen after release / scale.
     local TITLE_KEEP = 40
+    local FULL_MARGIN = 2
+
+    -- Turtle's FrameXML geometry (WorldMapFrame.xml / WorldMapFrame.lua).
+    -- Windowed: a 720x521 frame with the 1002x668 art at scale 0.7, TOPLEFT
+    -- 15,-33 in art units. IchaUI keeps the art at scale 1, so the window is
+    -- that frame divided by 0.7 and the art sits at 15,-33 in frame units.
+    -- Fullscreen: the art sits at TOP -502,-69 of the 1024x768 positioning guide.
+    local ART_W, ART_H = 1002, 668
+    local TURTLE_WIN_W, TURTLE_WIN_H = 720, 521
+    local WIN_X, WIN_Y = 15, -33
+    local FULL_W, FULL_H = 1024, 768
+    local ZOOM_MAX, ZOOM_STEP = 3, 0.25
+    local PAN_SLOP = 3
 
     local st = {
         installed = false, active = false, blocked = nil,
@@ -40,8 +56,7 @@ local function installIchaUIWorldMap()
         border = nil, noticed = false,
     }
     -- Assigned later: dragStop/gripStop run before those local function lines.
-    local raiseStrata, hookWheels, updateZoomLabel, snapshotArt, keepMapArt, reloadMapTiles
-    local FULL_MARGIN = 2
+    local raiseStrata, hookWheels, updateZoomLabel, ensureArt
 
     local function clamp(v, lo, hi)
         v = tonumber(v) or lo
@@ -108,6 +123,12 @@ local function installIchaUIWorldMap()
         return false
     end
 
+    -- Magnify ships WorldMapFrameScrollFrame; when it is loaded it owns zoom
+    -- and the art layout, and IchaUI only moves, scales and fades the window.
+    local function magnifyLoaded()
+        return WorldMapFrameScrollFrame ~= nil
+    end
+
     local function maximized()
         return WORLDMAP_WINDOWED ~= 1
     end
@@ -122,7 +143,7 @@ local function installIchaUIWorldMap()
 
     local function getAnchor(f)
         local p, rel, rp, x, y
-        local ok = pcall(function()
+        pcall(function()
             p, rel, rp, x, y = f:GetPoint(1)
         end)
         if not p then
@@ -298,14 +319,11 @@ local function installIchaUIWorldMap()
         if maximized() then return end
         s = scaleFor(s)
         db().scale = s
-        if snapshotArt then snapshotArt() end
         f:SetScale(s)
-        st.needArtRestore = true
         local nes = f:GetEffectiveScale() or 1
         if nes <= 0 then nes = 1 end
         f:ClearAllPoints()
         f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", g._left / nes, g._top / nes)
-        if keepMapArt then keepMapArt() end
         if updateZoomLabel then updateZoomLabel() end
     end
 
@@ -316,9 +334,8 @@ local function installIchaUIWorldMap()
         g:SetScript("OnUpdate", nil)
         nudgeTitle()
         saveAnchor()
-        if keepMapArt then keepMapArt() end
+        if ensureArt then ensureArt() end
         if raiseStrata then raiseStrata() end
-        if reloadMapTiles then reloadMapTiles() end
         if updateZoomLabel then updateZoomLabel() end
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
@@ -353,7 +370,6 @@ local function installIchaUIWorldMap()
             this._left = left * es
             this._top = top * es
             this._sizing = true
-            if snapshotArt then snapshotArt() end
             this:SetScript("OnUpdate", gripUpdate)
         end)
         g:SetScript("OnMouseUp", gripStop)
@@ -368,8 +384,8 @@ local function installIchaUIWorldMap()
         return g
     end
 
-    -- Invisible title and edge hit-rects above Magnify's scroll frame so
-    -- dragging still works when the map art covers WorldMapFrame.
+    -- Invisible title and edge hit-rects in the frame margin, outside the
+    -- map viewport, so dragging works while the art covers WorldMapFrame.
     local function bindDrag(fr)
         fr:EnableMouse(true)
         fr:SetScript("OnMouseDown", function()
@@ -382,11 +398,7 @@ local function installIchaUIWorldMap()
     end
 
     local function ensureEdges()
-        if st.edges then
-            local i
-            for i = 1, table.getn(st.edges) do st.edges[i]:Show() end
-            return
-        end
+        if st.edges then return end
         local parent = WorldMapFrame
         local lv = (parent:GetFrameLevel() or 1) + 10
         local edges = {}
@@ -425,12 +437,16 @@ local function installIchaUIWorldMap()
         end
     end
 
-    local function hookRelease(fr)
-        if not fr or not fr.GetScript or fr._ichaRel then return end
-        fr._ichaRel = true
-        hookScript(fr, "OnMouseUp", function()
-            dragStop(true)
-        end)
+    local function showChrome(on)
+        if st.grip then
+            if on then st.grip:Show() else st.grip:Hide() end
+        end
+        if st.edges then
+            local i
+            for i = 1, table.getn(st.edges) do
+                if on then st.edges[i]:Show() else st.edges[i]:Hide() end
+            end
+        end
     end
 
     -- Ctrl + wheel scales, Shift + wheel fades. Returns true when it used the event.
@@ -450,420 +466,420 @@ local function installIchaUIWorldMap()
     end
 
     ------------------------------------------------------------------
-    -- Built-in zoom, only when Magnify is not installed. The detail frame
-    -- (map art, WorldMapButton and every pin on it) becomes the scroll child
-    -- of a clip frame and is scaled toward the cursor. Maximized map only:
-    -- it is detached again before Turtle's Minimize lays the map out.
+    -- Native map zoom (used when Magnify is not loaded).
+    --
+    --   WorldMapFrame
+    --     IchaUIWorldMapViewport  ScrollFrame, 1002x668, at the stock art spot
+    --       IchaUIWorldMapCanvas  scroll child, anchored to the viewport; its
+    --                             scale is the zoom
+    --         WorldMapDetailFrame TOPLEFT of the canvas, scale 1
+    --         WorldMapButton      TOPLEFT of the detail frame, scale 1
+    --     IchaUIWorldMapOverlay   same rect as the viewport, never scaled:
+    --                             pfQuest / ModernMapMarkers dropdowns, zone label
+    --
+    -- Every frame in that chain always has a point on a sized frame, so
+    -- WorldMapButton:GetCenter() never returns nil. Scroll offsets are in canvas
+    -- units; 1.12 horizontal scroll is negative (as in Magnify).
     ------------------------------------------------------------------
-    local ZOOM_MAX, ZOOM_STEP = 2.5, 0.25
-    -- Vanilla WorldMapDetailFrame size. Magnify's windowed 702x468 is Turtle's
-    -- small map; IchaUI's window is this full map, scaled.
-    local MAP_ART_W, MAP_ART_H = 1002, 668
-    local zoom = { frame = nil, attached = false, pan = nil, moved = false, marker = nil, model = nil, map = nil }
+    local zoom = { z = 1, h = 0, v = 0, pan = nil, moved = false, map = nil }
+    local native = false
 
-    local function zoomScale()
-        return WorldMapDetailFrame:GetScale() or 1
+    local function winSize()
+        local ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7
+        if ws <= 0 then ws = 0.7 end
+        return TURTLE_WIN_W / ws, TURTLE_WIN_H / ws
     end
 
-    local function zoomed()
-        return zoom.attached and zoomScale() > 1.001
-    end
-
-    local function zoomScroll(x, y, s)
-        local zf = zoom.frame
-        local maxX = ((WorldMapDetailFrame:GetWidth() or 0) * s - (zf:GetWidth() or 0)) / s
-        local maxY = ((WorldMapDetailFrame:GetHeight() or 0) * s - (zf:GetHeight() or 0)) / s
-        if maxX < 0 then maxX = 0 end
-        if maxY < 0 then maxY = 0 end
-        -- 1.12 scroll frames: horizontal scroll is negative, vertical positive.
-        zf:SetHorizontalScroll(-clamp(x, 0, maxX))
-        zf:SetVerticalScroll(clamp(y, 0, maxY))
-    end
-
-    -- The player arrow model is placed by the client in unscaled map units,
-    -- so it drifts when zoomed. Swap it for a dot on WorldMapButton meanwhile.
-    local function zoomMarker(on)
-        if zoom.model and zoom.model.SetModelScale then
-            if on then zoom.model:SetModelScale(0) else zoom.model:SetModelScale(1) end
+    local function anchorViewport()
+        local vp = zoom.vp
+        vp:ClearAllPoints()
+        if maximized() and WorldMapPositioningGuide then
+            vp:SetPoint("TOPLEFT", WorldMapPositioningGuide, "TOP", -502, -69)
+        else
+            vp:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", WIN_X, WIN_Y)
         end
-        if zoom.marker then
-            if on then zoom.marker:Show() else zoom.marker:Hide() end
-        end
+        vp:SetWidth(ART_W)
+        vp:SetHeight(ART_H)
     end
 
-    local function zoomReset()
-        if not zoom.frame then return end
-        zoom.pan = nil
-        zoom.moved = false
-        if zoom.attached then
-            WorldMapDetailFrame:SetScale(1)
-            zoom.frame:SetHorizontalScroll(0)
-            zoom.frame:SetVerticalScroll(0)
-        end
-        zoomMarker(false)
+    local function panLimits(z)
+        local vw = zoom.vp:GetWidth() or ART_W
+        local vh = zoom.vp:GetHeight() or ART_H
+        if vw < 1 then vw = ART_W end
+        if vh < 1 then vh = ART_H end
+        local mx = ART_W - vw / z
+        local my = ART_H - vh / z
+        if mx < 0 then mx = 0 end
+        if my < 0 then my = 0 end
+        return mx, my
     end
 
-    local function zoomAttach()
-        -- Magnify already owns WorldMapDetailFrame as its scroll child.
-        if WorldMapFrameScrollFrame then return end
-        local df = WorldMapDetailFrame
-        if not zoom.frame or zoom.attached or not df or not df.GetPoint then return end
-        local p, rel, rp, x, y = df:GetPoint(1)
-        local zf = zoom.frame
-        local dw, dh = df:GetWidth() or 0, df:GetHeight() or 0
-        if dw < 1 then dw = MAP_ART_W end
-        if dh < 1 then dh = MAP_ART_H end
-        zf:ClearAllPoints()
-        zf:SetPoint(p or "TOP", rel or WorldMapFrame, rp or p or "TOP", x or 0, y or 0)
-        zf:SetWidth(dw)
-        zf:SetHeight(dh)
-        zoom.parent = df:GetParent()
-        zoom.points = { p, rel, rp, x, y }
-        df:SetWidth(dw)
-        df:SetHeight(dh)
-        if df.Show then df:Show() end
-        zf:SetScrollChild(df)
-        zf:Show()
-        zoom.attached = true
-        zoomReset()
+    local function applyZoom()
+        local z = clamp(zoom.z, 1, ZOOM_MAX)
+        zoom.z = z
+        local mx, my = panLimits(z)
+        zoom.h = clamp(zoom.h, 0, mx)
+        zoom.v = clamp(zoom.v, 0, my)
+        local c = zoom.canvas
+        if math.abs((c:GetScale() or 1) - z) > 0.0001 then c:SetScale(z) end
+        zoom.vp:SetHorizontalScroll(-zoom.h)
+        zoom.vp:SetVerticalScroll(zoom.v)
     end
 
-    local function zoomDetach()
-        if not zoom.attached then return end
-        zoomReset()
-        local df = WorldMapDetailFrame
-        local pt = zoom.points
-        df:SetParent(zoom.parent or WorldMapFrame)
-        df:ClearAllPoints()
-        if pt and pt[1] then
-            df:SetPoint(pt[1], pt[2] or WorldMapFrame, pt[3] or pt[1], pt[4] or 0, pt[5] or 0)
+    local function arrowModel()
+        if zoom.model ~= nil then return zoom.model or nil end
+        zoom.model = false
+        if WorldMapFrame.GetChildren then
+            local kids = { WorldMapFrame:GetChildren() }
+            local i
+            for i = 1, table.getn(kids) do
+                local k = kids[i]
+                if k and k.GetFrameType and k:GetFrameType() == "Model" and not k:GetName() then
+                    zoom.model = k
+                    break
+                end
+            end
         end
-        zoom.frame:Hide()
-        zoom.attached = false
-    end
-
-    local function magnifyFrame()
-        local sf = WorldMapFrameScrollFrame
-        if sf and sf.GetScrollChild then
-            local ch = sf:GetScrollChild()
-            if ch then return ch end
+        local m = zoom.model
+        if m then
+            hookScript(m, "OnShow", function()
+                if st.active and native and zoom.z > 1.001 then this:Hide() end
+            end)
+            return m
         end
-        return WorldMapDetailFrame
-    end
-
-    -- Magnify scales WorldMapDetailFrame (the scroll child). Read that
-    -- frame's GetScale(), not a cached value or the window scale.
-    local function liveZoom()
-        local df = magnifyFrame()
-        if df and df.GetScale then
-            local z = tonumber(df:GetScale()) or 0
-            if z > 0 then return z end
-        end
-        df = WorldMapDetailFrame
-        if df and df.GetScale then
-            local z = tonumber(df:GetScale()) or 0
-            if z > 0 then return z end
-        end
-        if MAGNIFY_MIN_ZOOM then return MAGNIFY_MIN_ZOOM end
-        return 1
-    end
-
-    local function mapScroll()
-        if WorldMapFrameScrollFrame then return WorldMapFrameScrollFrame end
-        if zoom.attached and zoom.frame then return zoom.frame end
         return nil
     end
 
-    local function showMapTiles()
-        local n = NUM_WORLDMAP_DETAIL_TILES or 12
-        local i
-        for i = 1, n do
-            local t = getglobal("WorldMapDetailTile" .. i)
-            if t then
-                if t.SetAlpha then t:SetAlpha(1) end
-                if t.Show then t:Show() end
-            end
-        end
-    end
-
-    reloadMapTiles = function()
-        showMapTiles()
-        local tile = getglobal("WorldMapDetailTile1")
-        local tex
-        if tile and tile.GetTexture then tex = tile:GetTexture() end
-        if (not tex or tex == "") and SetMapToCurrentZone then
-            SetMapToCurrentZone()
-        end
-        if WorldMapFrame_Update then
-            local o = this
-            this = WorldMapFrame
-            pcall(WorldMapFrame_Update)
-            this = o
-        end
-        showMapTiles()
-        local df = WorldMapDetailFrame
-        if df and df.Show then df:Show() end
-        if WorldMapButton and WorldMapButton.Show then WorldMapButton:Show() end
-    end
-
-    -- Parent SetScale on a 1.12 ScrollFrame can drop the child (zero size,
-    -- scale 1, scroll 0). Snapshot before the scale change; restore after.
-    snapshotArt = function()
-        local df = WorldMapDetailFrame
-        local sf = mapScroll()
-        local snap = { z = liveZoom(), h = 0, v = 0, dw = MAP_ART_W, dh = MAP_ART_H, sw = MAP_ART_W, sh = MAP_ART_H }
-        if df then
-            local dw, dh = df:GetWidth() or 0, df:GetHeight() or 0
-            if dw >= 1 then snap.dw = dw end
-            if dh >= 1 then snap.dh = dh end
-        end
-        if sf then
-            snap.h = sf:GetHorizontalScroll() or 0
-            snap.v = sf:GetVerticalScroll() or 0
-            local sw, sh = sf:GetWidth() or 0, sf:GetHeight() or 0
-            if sw >= 1 then snap.sw = sw end
-            if sh >= 1 then snap.sh = sh end
-        end
-        st.artSnap = snap
-    end
-
-    -- Magnify owns WorldMapFrameScrollFrame size/anchor (702x468 windowed,
-    -- 1002x668 fullscreen). IchaUI must not retarget it.
-    local function fitMapScroll()
-        if WorldMapFrameScrollFrame then return end
-        local sf = mapScroll()
-        if not sf then return end
-        sf:SetWidth(MAP_ART_W)
-        sf:SetHeight(MAP_ART_H)
-        if sf.ClearAllPoints then sf:ClearAllPoints() end
-        sf:SetPoint("TOP", WorldMapFrame, "TOP", 0, -36)
-        if sf.Show then sf:Show() end
-    end
-
-    -- Recover from 1.12 parent-SetScale dropping the scroll child. Magnify
-    -- owns WorldMapDetailFrame:SetScale and pan; do not overwrite them.
-    keepMapArt = function(restoreZoom)
-        if restoreZoom == nil then restoreZoom = true end
-        local df = WorldMapDetailFrame
-        if not df then return end
-        local sf = mapScroll()
-        local snap = st.artSnap
-        local mag = WorldMapFrameScrollFrame and true or false
-        local dw = df:GetWidth() or 0
-        local dh = df:GetHeight() or 0
-        if dw < 1 then
-            dw = MAP_ART_W
-            if snap and snap.dw and snap.dw > 0 then dw = snap.dw end
-            df:SetWidth(dw)
-        end
-        if dh < 1 then
-            dh = MAP_ART_H
-            if snap and snap.dh and snap.dh > 0 then dh = snap.dh end
-            df:SetHeight(dh)
-        end
-        if df.Show then df:Show() end
-        if WorldMapButton and WorldMapButton.Show then WorldMapButton:Show() end
-        if mag then
-            if sf then
-                local par = df.GetParent and df:GetParent()
-                if par ~= sf then
-                    if df.SetParent then df:SetParent(sf) end
-                    if sf.SetScrollChild then sf:SetScrollChild(df) end
-                end
-                -- Turtle leftover TOPLEFT 12,-70 double-offsets Magnify's child.
-                -- Do not SetPoint; a 1.12 scroll child must have no extra point.
-                if not maximized() and df.ClearAllPoints then df:ClearAllPoints() end
-                if (sf:GetWidth() or 0) < 1 then
-                    local sw = MAP_ART_W
-                    if snap and snap.sw and snap.sw > 0 then sw = snap.sw end
-                    sf:SetWidth(sw)
-                end
-                if (sf:GetHeight() or 0) < 1 then
-                    local sh = MAP_ART_H
-                    if snap and snap.sh and snap.sh > 0 then sh = snap.sh end
-                    sf:SetHeight(sh)
-                end
-                if sf.Show then sf:Show() end
-            end
-            -- Only put Magnify's zoom back after IchaUI SetScale'd the window
-            -- (1.12 resets the child). Never clamp Magnify to 1.0x otherwise.
-            if st.needArtRestore and restoreZoom and snap and snap.z and snap.z > 0 then
-                df:SetScale(snap.z)
-                if sf then
-                    sf:SetHorizontalScroll(snap.h or 0)
-                    sf:SetVerticalScroll(snap.v or 0)
-                end
-            end
-            st.needArtRestore = nil
-            showMapTiles()
+    -- The client places its player arrow model in unzoomed units (Blizzard
+    -- scales by WorldMapDetailFrame:GetScale(), which stays 1), and the model
+    -- is not clipped. While zoomed, hide it and draw an arrow on WorldMapButton.
+    local function updateArrow()
+        local a = zoom.arrow
+        if not a then return end
+        if not st.active or zoom.z <= 1.001 then
+            a:Hide()
             return
         end
-        local z = liveZoom()
-        if restoreZoom and snap and snap.z and snap.z > 0 then z = snap.z end
-        if z < 1 then z = 1 end
-        if WorldMapButton then
-            if (WorldMapButton:GetWidth() or 0) < 1 then WorldMapButton:SetWidth(MAP_ART_W) end
-            if (WorldMapButton:GetHeight() or 0) < 1 then WorldMapButton:SetHeight(MAP_ART_H) end
-            if sf and WorldMapButton.SetParent then
-                local bp = WorldMapButton.GetParent and WorldMapButton:GetParent()
-                if bp ~= df then WorldMapButton:SetParent(df) end
-            end
+        local px, py = GetPlayerMapPosition("player")
+        if not px or (px == 0 and py == 0) then
+            a:Hide()
+            return
         end
-        df:SetScale(z)
-        if sf then
-            if df.SetParent then df:SetParent(sf) end
-            if sf.SetScrollChild then sf:SetScrollChild(df) end
-            if df.ClearAllPoints then df:ClearAllPoints() end
-            local sw = sf:GetWidth() or 0
-            local sh = sf:GetHeight() or 0
-            if sw < 1 then
-                sw = MAP_ART_W
-                if snap and snap.sw and snap.sw > 0 then sw = snap.sw end
-                sf:SetWidth(sw)
-            end
-            if sh < 1 then
-                sh = MAP_ART_H
-                if snap and snap.sh and snap.sh > 0 then sh = snap.sh end
-                sf:SetHeight(sh)
-            end
-            if sf.Show then sf:Show() end
-            dw = df:GetWidth() or 0
-            dh = df:GetHeight() or 0
-            sw = sf:GetWidth() or 0
-            sh = sf:GetHeight() or 0
-            local maxX, maxY = 0, 0
-            if z > 0 then
-                maxX = (dw * z - sw) / z
-                maxY = (dh * z - sh) / z
-            end
-            if maxX < 0 then maxX = 0 end
-            if maxY < 0 then maxY = 0 end
-            local h, v = 0, 0
-            if snap then h, v = snap.h or 0, snap.v or 0 end
-            local absH = -h
-            if absH < 0 then absH = 0 end
-            if absH > maxX then absH = maxX end
-            if v < 0 then v = 0 end
-            if v > maxY then v = maxY end
-            sf:SetHorizontalScroll(-absH)
-            sf:SetVerticalScroll(v)
-            sf.maxX, sf.maxY = maxX, maxY
-            sf.zoomedIn = z > 1.001
+        local b = WorldMapButton
+        a:ClearAllPoints()
+        a:SetPoint("CENTER", b, "TOPLEFT", px * (b:GetWidth() or ART_W), -py * (b:GetHeight() or ART_H))
+        local size = 28 / zoom.z
+        a.tex:SetWidth(size)
+        a.tex:SetHeight(size)
+        local m = arrowModel()
+        if m and m.GetFacing then
+            local r = m:GetFacing() or 0
+            local s2 = math.sqrt(2)
+            local q = math.pi / 4
+            a.tex:SetTexCoord(
+                0.5 + math.cos(r + 5 * q) / s2, 0.5 + math.sin(r + 5 * q) / s2,
+                0.5 + math.cos(r + 3 * q) / s2, 0.5 + math.sin(r + 3 * q) / s2,
+                0.5 + math.cos(r - q) / s2, 0.5 + math.sin(r - q) / s2,
+                0.5 + math.cos(r + q) / s2, 0.5 + math.sin(r + q) / s2)
         end
-        showMapTiles()
+        a:Show()
     end
 
-    local function packFrame(f)
-        if not f then return nil end
-        local p, rel, rp, x, y = getAnchor(f)
-        local pn, rn
-        if f.GetParent then
-            local par = f:GetParent()
-            if par and par.GetName then pn = par:GetName() end
-        end
-        if rel and rel.GetName then rn = rel:GetName() end
-        return {
-            p = p, rp = rp, x = x or 0, y = y or 0, rn = rn, pn = pn,
-            w = f:GetWidth() or 0, h = f:GetHeight() or 0,
-        }
-    end
-
-    local function unpackFrame(f, s)
-        if not f or not s then return end
-        if s.pn then
-            local par = getglobal(s.pn)
-            if par and f.SetParent then f:SetParent(par) end
-        end
-        if s.w and s.w >= 1 then f:SetWidth(s.w) end
-        if s.h and s.h >= 1 then f:SetHeight(s.h) end
-        if f.ClearAllPoints then f:ClearAllPoints() end
-        if s.p then
-            local rel = WorldMapFrame
-            if s.rn then rel = getglobal(s.rn) or rel end
-            f:SetPoint(s.p, rel, s.rp or s.p, s.x or 0, s.y or 0)
-        end
-    end
-
-    local function captureWinLayout()
-        local sf = WorldMapFrameScrollFrame
-        st.winLayout = {
-            frameW = WorldMapFrame:GetWidth(),
-            frameH = WorldMapFrame:GetHeight(),
-            scroll = packFrame(sf),
-            detail = packFrame(WorldMapDetailFrame),
-            button = packFrame(WorldMapButton),
-            drop = packFrame(getglobal("pfQuestMapDropdown")),
-            dropLevel = packFrame(getglobal("pfQuestMapLevelDropdown")),
-            dropFilter = packFrame(getglobal("ModernMapMarkersFilter_Blizz")),
-            dropFind = packFrame(getglobal("ModernMapMarkersFind_Blizz")),
-            guide = packFrame(WorldMapPositioningGuide),
-            h = 0, v = 0,
-        }
-        if sf then
-            st.winLayout.h = sf:GetHorizontalScroll() or 0
-            st.winLayout.v = sf:GetVerticalScroll() or 0
-        end
-    end
-
-    local function applyWinLayout()
-        local L = st.winLayout
-        if not L then return end
-        if L.frameW then WorldMapFrame:SetWidth(L.frameW) end
-        if L.frameH then WorldMapFrame:SetHeight(L.frameH) end
-        unpackFrame(WorldMapPositioningGuide, L.guide)
-        unpackFrame(WorldMapFrameScrollFrame, L.scroll)
-        local sf = WorldMapFrameScrollFrame
-        local df = WorldMapDetailFrame
-        if sf then
-            -- Magnify owns the scroll child; never SetPoint it (double-offset).
-            if df then
-                if df.SetParent then df:SetParent(sf) end
-                if sf.SetScrollChild then sf:SetScrollChild(df) end
-                if df.ClearAllPoints then df:ClearAllPoints() end
-            end
-            unpackFrame(WorldMapButton, L.button)
-            unpackFrame(getglobal("pfQuestMapDropdown"), L.drop)
-            unpackFrame(getglobal("pfQuestMapLevelDropdown"), L.dropLevel)
-            unpackFrame(getglobal("ModernMapMarkersFilter_Blizz"), L.dropFilter)
-            unpackFrame(getglobal("ModernMapMarkersFind_Blizz"), L.dropFind)
-            sf:SetHorizontalScroll(L.h or 0)
-            sf:SetVerticalScroll(L.v or 0)
-        else
-            unpackFrame(WorldMapDetailFrame, L.detail)
-            unpackFrame(WorldMapButton, L.button)
-            unpackFrame(getglobal("pfQuestMapDropdown"), L.drop)
-            unpackFrame(getglobal("pfQuestMapLevelDropdown"), L.dropLevel)
-            unpackFrame(getglobal("ModernMapMarkersFilter_Blizz"), L.dropFilter)
-            unpackFrame(getglobal("ModernMapMarkersFind_Blizz"), L.dropFind)
-        end
-    end
-
-    local function finishMapLayout()
-        local df = WorldMapDetailFrame
-        if st.holdArt then
-            st.artSnap = st.holdArt
-            st.holdArt = nil
-        end
-        if maximized() then
-            -- Do not rewrite Turtle/Magnify fullscreen geometry.
-            keepMapArt(true)
-        else
-            if st.winLayout then
-                applyWinLayout()
-                st.needArtRestore = true
-                keepMapArt(true)
-            else
-                keepMapArt(true)
-                captureWinLayout()
-            end
-        end
-        reloadMapTiles()
-        if df and (df:GetWidth() or 0) < 1 then
-            df:SetWidth(MAP_ART_W)
-            df:SetHeight(MAP_ART_H)
-            keepMapArt(true)
-        end
+    local function zoomChanged()
+        local m = arrowModel()
+        if m and zoom.z > 1.001 then m:Hide() end
+        updateArrow()
+        -- pfQuest-turtle sizes its continent pins from WorldMapButton's
+        -- effective scale inside its WorldMapDetailFrame.SetScale hook.
+        if WorldMapDetailFrame then WorldMapDetailFrame:SetScale(1) end
         if updateZoomLabel then updateZoomLabel() end
+    end
+
+    local function zoomReset()
+        zoom.z, zoom.h, zoom.v = 1, 0, 0
+        zoom.pan, zoom.moved = nil, false
+        if native and zoom.vp then
+            applyZoom()
+            zoomChanged()
+        end
+    end
+
+    local function zoomAt(delta)
+        local vp = zoom.vp
+        if not vp then return end
+        local old = zoom.z
+        local new = clamp(old + (tonumber(delta) or 0) * ZOOM_STEP, 1, ZOOM_MAX)
+        if math.abs(new - old) < 0.001 then return end
+        local left, top = vp:GetLeft(), vp:GetTop()
+        if not left or not top then return end
+        local es = vp:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        local cx, cy = GetCursorPosition()
+        local fx = clamp(cx / es - left, 0, vp:GetWidth() or ART_W)
+        local fy = clamp(top - cy / es, 0, vp:GetHeight() or ART_H)
+        local ox = zoom.h + fx / old
+        local oy = zoom.v + fy / old
+        zoom.z = new
+        zoom.h = ox - fx / new
+        zoom.v = oy - fy / new
+        applyZoom()
+        zoomChanged()
+    end
+
+    local function panStop()
+        zoom.pan = nil
+        if zoom.panTicker then zoom.panTicker:SetScript("OnUpdate", nil) end
+    end
+
+    local function panUpdate()
+        local p = zoom.pan
+        if not p then return panStop() end
+        if not leftHeld() then return panStop() end
+        local x, y = GetCursorPosition()
+        if not zoom.moved and (math.abs(x - p.x) >= PAN_SLOP or math.abs(y - p.y) >= PAN_SLOP) then
+            zoom.moved = true
+        end
+        if not zoom.moved then return end
+        local es = zoom.canvas:GetEffectiveScale() or 1
+        if es <= 0 then es = 1 end
+        zoom.h = p.h + (p.x - x) / es
+        zoom.v = p.v + (y - p.y) / es
+        applyZoom()
+        updateArrow()
+    end
+
+    local function panStart()
+        zoom.moved = false
+        zoom.pan = nil
+        if not st.active or not native or zoom.z <= 1.001 then return end
+        local x, y = GetCursorPosition()
+        zoom.pan = { x = x, y = y, h = zoom.h, v = zoom.v }
+        if not zoom.panTicker then zoom.panTicker = CreateFrame("Frame") end
+        zoom.panTicker:SetScript("OnUpdate", panUpdate)
+        zoom.panTicker:Show()
+    end
+
+    local DROP_NAMES = { "ModernMapMarkersFilter_Blizz", "ModernMapMarkersFind_Blizz" }
+
+    local function hostDrop(f)
+        if f:GetParent() ~= zoom.overlay then f:SetParent(zoom.overlay) end
+        f:SetFrameStrata("FULLSCREEN_DIALOG")
+        local btn = f.GetName and f:GetName() and getglobal(f:GetName() .. "Button")
+        if btn and btn.SetFrameStrata then btn:SetFrameStrata("FULLSCREEN_DIALOG") end
+    end
+
+    -- pfQuest parents its dropdown to WorldMapButton (TOPRIGHT 0,-10) and
+    -- ModernMapMarkers copies that parent; the zone label is a WorldMapButton
+    -- child too. All of them would zoom and clip, so they live on the overlay.
+    local function placeDropdowns()
+        local ov = zoom.overlay
+        local dd = getglobal("pfQuestMapDropdown")
+        if dd then
+            hostDrop(dd)
+            dd:ClearAllPoints()
+            dd:SetPoint("TOPRIGHT", ov, "TOPRIGHT", 0, -10)
+        end
+        local lv = getglobal("pfQuestMapLevelDropdown")
+        if lv then
+            lv:SetFrameStrata("FULLSCREEN_DIALOG")
+            local lb = getglobal("pfQuestMapLevelDropdownButton")
+            if lb then lb:SetFrameStrata("FULLSCREEN_DIALOG") end
+        end
+        local i
+        for i = 1, table.getn(DROP_NAMES) do
+            local f = getglobal(DROP_NAMES[i])
+            if f then
+                local par = f:GetParent()
+                if par == WorldMapButton or par == ov then
+                    zoom.hosted = zoom.hosted or {}
+                    zoom.hosted[DROP_NAMES[i]] = true
+                    hostDrop(f)
+                end
+            end
+        end
+        local area = WorldMapFrameAreaFrame
+        if area then
+            if area:GetParent() ~= ov then area:SetParent(ov) end
+            area:ClearAllPoints()
+            area:SetPoint("TOP", ov, "TOP", 0, -10)
+        end
+    end
+
+    local function setupNative()
+        if zoom.vp then return end
+        local vp = CreateFrame("ScrollFrame", "IchaUIWorldMapViewport", WorldMapFrame)
+        vp:SetWidth(ART_W)
+        vp:SetHeight(ART_H)
+        vp:EnableMouse(false)
+        zoom.vp = vp
+        anchorViewport()
+        local c = CreateFrame("Frame", "IchaUIWorldMapCanvas", vp)
+        c:SetWidth(ART_W)
+        c:SetHeight(ART_H)
+        c:SetPoint("TOPLEFT", vp, "TOPLEFT", 0, 0)
+        vp:SetScrollChild(c)
+        zoom.canvas = c
+
+        local ov = CreateFrame("Frame", "IchaUIWorldMapOverlay", WorldMapFrame)
+        ov:SetAllPoints(vp)
+        ov:EnableMouse(false)
+        ov:SetFrameStrata("FULLSCREEN_DIALOG")
+        zoom.overlay = ov
+
+        -- Keep the stock stacking: pins were leveled off WorldMapButton's level.
+        zoom.lvDetail = WorldMapDetailFrame:GetFrameLevel()
+        zoom.lvButton = WorldMapButton:GetFrameLevel()
+        vp:SetFrameLevel(zoom.lvDetail)
+        c:SetFrameLevel(zoom.lvDetail)
+
+        local a = CreateFrame("Frame", "IchaUIWorldMapArrow", WorldMapButton)
+        a:SetWidth(1)
+        a:SetHeight(1)
+        a:SetFrameLevel((WorldMapButton:GetFrameLevel() or 1) + 8)
+        a.tex = a:CreateTexture(nil, "OVERLAY")
+        a.tex:SetTexture("Interface\\Minimap\\MinimapArrow")
+        a.tex:SetPoint("CENTER", a, "CENTER", 0, 0)
+        a:Hide()
+        zoom.arrow = a
+
+        hookScript(WorldMapButton, "OnMouseDown", function()
+            if arg1 == "LeftButton" then panStart() end
+        end)
+        -- WorldMapButton clicks run from OnMouseUp (WorldMapButton_OnClick).
+        -- A pan ends there and must not also click into a zone.
+        local prevUp = WorldMapButton:GetScript("OnMouseUp")
+        WorldMapButton:SetScript("OnMouseUp", function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            dragStop(true)
+            local moved = zoom.moved
+            panStop()
+            zoom.moved = false
+            if moved and st.active then return end
+            if prevUp then prevUp(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
+        end)
+        local acc = 0
+        hookScript(WorldMapButton, "OnUpdate", function()
+            if not st.active then return end
+            updateArrow()
+            acc = acc + (arg1 or 0)
+            if acc < 0.25 then return end
+            acc = 0
+            if ensureArt then ensureArt(true) end
+        end)
+        hookScript(WorldMapFrame, "OnHide", zoomReset)
+
+        local ev = CreateFrame("Frame")
+        ev:RegisterEvent("WORLD_MAP_UPDATE")
+        ev:SetScript("OnEvent", function()
+            local id = tostring(GetCurrentMapContinent and GetCurrentMapContinent() or 0) .. ":"
+                .. tostring(GetCurrentMapZone and GetCurrentMapZone() or 0)
+            if id ~= zoom.map then
+                zoom.map = id
+                if st.active then zoomReset() end
+            end
+        end)
+    end
+
+    local function pointIs(f, p, rel, rp)
+        local ok, fp, frel, frp, fx, fy = pcall(f.GetPoint, f, 1)
+        if not ok or fp ~= p or frel ~= rel or frp ~= rp then return false end
+        if math.abs(fx or 0) > 0.01 or math.abs(fy or 0) > 0.01 then return false end
+        if f.GetNumPoints and f:GetNumPoints() ~= 1 then return false end
+        return true
+    end
+
+    -- True when something (Turtle's Minimize/Maximize, another addon) moved,
+    -- rescaled or reparented a frame in the viewport chain.
+    local function artDrifted()
+        local c, df, b = zoom.canvas, WorldMapDetailFrame, WorldMapButton
+        if df:GetParent() ~= c or b:GetParent() ~= c then return true end
+        if math.abs((df:GetScale() or 1) - 1) > 0.001 then return true end
+        if math.abs((b:GetScale() or 1) - 1) > 0.001 then return true end
+        if math.abs((c:GetScale() or 1) - zoom.z) > 0.001 then return true end
+        if not pointIs(df, "TOPLEFT", c, "TOPLEFT") then return true end
+        if not pointIs(b, "TOPLEFT", df, "TOPLEFT") then return true end
+        local dd = getglobal("pfQuestMapDropdown")
+        if dd and dd:GetParent() ~= zoom.overlay then return true end
+        if not b:GetCenter() then return true end
+        return false
+    end
+
+    -- Idempotent: puts the whole viewport chain back. Each ClearAllPoints is
+    -- followed at once by a point on a sized frame.
+    ensureArt = function(onlyIfDrifted)
+        if not native or not zoom.vp or not st.active then return end
+        if onlyIfDrifted and not artDrifted() then return end
+        local vp, c, df, b = zoom.vp, zoom.canvas, WorldMapDetailFrame, WorldMapButton
+        anchorViewport()
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", vp, "TOPLEFT", 0, 0)
+        c:SetWidth(ART_W)
+        c:SetHeight(ART_H)
+        vp:SetScrollChild(c)
+        if df:GetParent() ~= c then df:SetParent(c) end
+        if math.abs((df:GetScale() or 1) - 1) > 0.001 then df:SetScale(1) end
+        df:SetWidth(ART_W)
+        df:SetHeight(ART_H)
+        df:ClearAllPoints()
+        df:SetPoint("TOPLEFT", c, "TOPLEFT", 0, 0)
+        if b:GetParent() ~= c then b:SetParent(c) end
+        if math.abs((b:GetScale() or 1) - 1) > 0.001 then b:SetScale(1) end
+        b:SetWidth(ART_W)
+        b:SetHeight(ART_H)
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", df, "TOPLEFT", 0, 0)
+        if zoom.lvDetail and df:GetFrameLevel() ~= zoom.lvDetail then df:SetFrameLevel(zoom.lvDetail) end
+        if zoom.lvButton and b:GetFrameLevel() ~= zoom.lvButton then b:SetFrameLevel(zoom.lvButton) end
+        vp:Show()
+        c:Show()
+        zoom.overlay:Show()
+        applyZoom()
+        placeDropdowns()
+    end
+
+    -- Back to Turtle's stock art layout (IchaUI map switched off).
+    local function restoreArt()
+        if not native or not zoom.vp then return end
+        zoom.z, zoom.h, zoom.v = 1, 0, 0
+        panStop()
+        if zoom.arrow then zoom.arrow:Hide() end
+        local df, b = WorldMapDetailFrame, WorldMapButton
+        local ws = 1
+        if not maximized() then ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end
+        df:SetParent(WorldMapFrame)
+        df:SetScale(ws)
+        df:ClearAllPoints()
+        if maximized() then
+            df:SetPoint("TOPLEFT", WorldMapPositioningGuide, "TOP", -502, -69)
+        else
+            df:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", WIN_X, WIN_Y)
+        end
+        b:SetParent(WorldMapFrame)
+        b:SetScale(ws)
+        b:ClearAllPoints()
+        b:SetPoint("TOPLEFT", df, "TOPLEFT", 0, 0)
+        if zoom.lvDetail then df:SetFrameLevel(zoom.lvDetail) end
+        if zoom.lvButton then b:SetFrameLevel(zoom.lvButton) end
+        local dd = getglobal("pfQuestMapDropdown")
+        if dd then
+            dd:SetParent(b)
+            dd:ClearAllPoints()
+            dd:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, -10)
+        end
+        if zoom.hosted then
+            local name
+            for name in pairs(zoom.hosted) do
+                local f = getglobal(name)
+                if f then f:SetParent(b) end
+            end
+        end
+        local area = WorldMapFrameAreaFrame
+        if area then
+            area:SetParent(b)
+            area:ClearAllPoints()
+            area:SetPoint("TOP", b, "TOP", 0, -10)
+        end
+        zoom.vp:Hide()
+        zoom.overlay:Hide()
     end
 
     local function runMagnifyWheel()
@@ -876,146 +892,21 @@ local function installIchaUIWorldMap()
         return true
     end
 
-    local function zoomAt(delta)
-        if not zoom.attached then return end
-        local zf = zoom.frame
-        local old = zoomScale()
-        local new = clamp(old + (delta or 0) * ZOOM_STEP, 1, ZOOM_MAX)
-        if math.abs(new - old) < 0.001 then return end
-        local left, top = zf:GetLeft(), zf:GetTop()
-        if not left or not top then return end
-        local es = zf:GetEffectiveScale() or 1
-        local cx, cy = GetCursorPosition()
-        local fx = clamp(cx / es - left, 0, zf:GetWidth() or 0)
-        local fy = clamp(top - cy / es, 0, zf:GetHeight() or 0)
-        local ox = -zf:GetHorizontalScroll() + fx / old
-        local oy = zf:GetVerticalScroll() + fy / old
-        WorldMapDetailFrame:SetScale(new)
-        zoomScroll(ox - fx / new, oy - fy / new, new)
-        zoomMarker(new > 1.001)
-    end
-
-    local function zoomUpdate()
-        if not zoom.attached then return end
-        local p = zoom.pan
-        if p then
-            local x, y = GetCursorPosition()
-            local es = WorldMapDetailFrame:GetEffectiveScale() or 1
-            local dx = (p.x - x) / es
-            local dy = (y - p.y) / es
-            if math.abs(dx) >= 1 or math.abs(dy) >= 1 then zoom.moved = true end
-            if zoom.moved then zoomScroll(p.h + dx, p.v + dy, zoomScale()) end
-        end
-        local m = zoom.marker
-        if m and m:IsShown() then
-            local px, py = GetPlayerMapPosition("player")
-            local s = zoomScale()
-            if not px or (px == 0 and py == 0) then
-                m.tex:Hide()
-            else
-                m.tex:Show()
-                m.tex:SetWidth(16 / s)
-                m.tex:SetHeight(16 / s)
-                m:ClearAllPoints()
-                m:SetPoint("CENTER", WorldMapButton, "TOPLEFT",
-                    px * (WorldMapButton:GetWidth() or 0), -py * (WorldMapButton:GetHeight() or 0))
-            end
-        end
-    end
-
-    local function setupZoom()
-        if zoom.frame or WorldMapFrameScrollFrame or not WorldMapDetailFrame then return end
-        local zf = CreateFrame("ScrollFrame", "IchaUIWorldMapZoom", WorldMapFrame)
-        zf:Hide()
-        zoom.frame = zf
-
-        local m = CreateFrame("Frame", "IchaUIWorldMapZoomPlayer", WorldMapButton)
-        m:SetWidth(1)
-        m:SetHeight(1)
-        m:SetFrameLevel((WorldMapButton:GetFrameLevel() or 1) + 6)
-        m.tex = m:CreateTexture(nil, "OVERLAY")
-        m.tex:SetTexture("Interface\\WorldMap\\WorldMapPartyIcon")
-        m.tex:SetVertexColor(1, 0.82, 0, 1)
-        m.tex:SetPoint("CENTER", m, "CENTER", 0, 0)
-        m:Hide()
-        zoom.marker = m
-
-        if WorldMapFrame.GetChildren then
-            local kids = { WorldMapFrame:GetChildren() }
-            local i
-            for i = 1, table.getn(kids) do
-                local k = kids[i]
-                if k and k.GetFrameType and k:GetFrameType() == "Model" and not k:GetName() then
-                    zoom.model = k
-                    break
-                end
-            end
-        end
-
-        hookScript(WorldMapButton, "OnMouseDown", function()
-            zoom.moved = false
-            zoom.pan = nil
-            if not st.active or arg1 ~= "LeftButton" or not zoomed() then return end
-            local x, y = GetCursorPosition()
-            zoom.pan = { x = x, y = y, h = -zoom.frame:GetHorizontalScroll(), v = zoom.frame:GetVerticalScroll() }
-        end)
-        hookScript(WorldMapButton, "OnMouseUp", function()
-            zoom.pan = nil
-        end)
-        local oldClick = WorldMapButton:GetScript("OnClick")
-        WorldMapButton:SetScript("OnClick", function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
-            -- A pan ends on mouse up; don't let it also click into a zone.
-            if zoom.moved then
-                zoom.moved = false
-                return
-            end
-            if oldClick then oldClick(a1, a2, a3, a4, a5, a6, a7, a8, a9) end
-        end)
-        hookScript(WorldMapButton, "OnUpdate", zoomUpdate)
-        hookScript(WorldMapFrame, "OnHide", zoomReset)
-
-        local ev = CreateFrame("Frame")
-        ev:RegisterEvent("WORLD_MAP_UPDATE")
-        ev:SetScript("OnEvent", function()
-            local id = tostring(GetCurrentMapContinent and GetCurrentMapContinent() or 0) .. ":"
-                .. tostring(GetCurrentMapZone and GetCurrentMapZone() or 0)
-            if id ~= zoom.map then
-                zoom.map = id
-                zoomReset()
-            end
-        end)
-    end
-
-    -- Plain wheel: Magnify's zoom when it is installed, else the built-in one.
-    local function zoomWheel()
-        if runMagnifyWheel() then return end
-        zoomAt(arg1)
-    end
-
-    -- 1.12 sends the wheel to the topmost mouse-enabled frame under the cursor.
-    -- A hit-rect with EnableMouse but no wheel handler swallows Ctrl/Shift.
-    -- Chain every mouse frame in the window: Ctrl/Shift are ours, plain zooms.
+    -- 1.12 sends the wheel to the topmost wheel-enabled frame under the cursor.
+    -- A fixed set of map frames is routed: Ctrl/Shift are the window's,
+    -- plain wheel zooms. Each frame is wrapped once.
     local wheelWrap = {}
-    local function wrapWheel(f, isMagnify)
+    local function wrapWheel(f)
         if not f or not f.GetScript then return end
         local name = "?"
         if f.GetName then name = f:GetName() or "?" end
-        if name ~= "?" and name ~= "" then
-            st.wheelHooked = st.wheelHooked or {}
-            local i, seen
-            seen = false
-            for i = 1, table.getn(st.wheelHooked) do
-                if st.wheelHooked[i] == name then seen = true end
-            end
-            if not seen then table.insert(st.wheelHooked, name) end
-        end
         local cur = f:GetScript("OnMouseWheel")
         if cur and cur == wheelWrap[f] then
             if f.EnableMouseWheel then f:EnableMouseWheel(1) end
             return
         end
         local prev = cur
-        if isMagnify then st.magnifyWheel = prev end
+        local isMagnify = WorldMapFrameScrollFrame and f == WorldMapFrameScrollFrame
         local w = function(a1, a2, a3, a4, a5, a6, a7, a8, a9)
             if arg1 == nil and a1 ~= nil then arg1 = a1 end
             local mod = "none"
@@ -1029,14 +920,12 @@ local function installIchaUIWorldMap()
                 if updateZoomLabel then updateZoomLabel() end
                 return
             end
-            if st.active and not isMagnify then
-                zoomWheel()
-            elseif isMagnify then
-                if prev then
-                    prev(a1, a2, a3, a4, a5, a6, a7, a8, a9)
-                else
-                    runMagnifyWheel()
-                end
+            if st.active and native then
+                zoomAt(arg1)
+            elseif isMagnify and prev then
+                prev(a1, a2, a3, a4, a5, a6, a7, a8, a9)
+            elseif st.active and magnifyLoaded() then
+                runMagnifyWheel()
             elseif prev then
                 prev(a1, a2, a3, a4, a5, a6, a7, a8, a9)
             end
@@ -1048,23 +937,31 @@ local function installIchaUIWorldMap()
     end
 
     hookWheels = function()
-        st.wheelHooked = {}
-        local function walk(fr, depth)
-            if not fr or not fr.GetScript or depth > 6 then return end
-            wrapWheel(fr, WorldMapFrameScrollFrame and fr == WorldMapFrameScrollFrame)
-            if not fr.GetChildren then return end
-            local kids = { fr:GetChildren() }
-            local i
-            for i = 1, table.getn(kids) do walk(kids[i], depth + 1) end
+        local names = {}
+        local function add(f)
+            if not f then return end
+            wrapWheel(f)
+            table.insert(names, (f.GetName and f:GetName()) or "?")
         end
-        walk(WorldMapFrame, 0)
-        if zoom.frame then wrapWheel(zoom.frame, false) end
+        add(WorldMapFrame)
+        add(WorldMapPositioningGuide)
+        add(WorldMapDetailFrame)
+        add(WorldMapButton)
+        add(WorldMapFrameScrollFrame)
+        add(zoom.vp)
+        add(zoom.canvas)
+        add(st.grip)
+        if st.edges then
+            local i
+            for i = 1, table.getn(st.edges) do add(st.edges[i]) end
+        end
+        st.wheelHooked = names
     end
 
     -- FULLSCREEN keeps the map above the HUD but under dropdowns, the config
     -- panel and tooltips. 1.12 does not reliably carry a strata change down to
     -- existing children, so each child below it is set too; children already
-    -- higher (Magnify's zone label, the level tooltip) keep theirs.
+    -- higher (the overlay dropdowns, the level tooltip) keep theirs.
     local MAP_STRATA = "FULLSCREEN"
     local STRATA_RANK = {
         BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5,
@@ -1078,12 +975,10 @@ local function installIchaUIWorldMap()
             if st.strataSaved[fr] == nil then st.strataSaved[fr] = cur or false end
             fr:SetFrameStrata(MAP_STRATA)
         end
-        -- Scroll children follow the clip frame; SetFrameStrata on them can
-        -- yank the map art out of Magnify's scroll frame (invisible, scale 1).
+        -- Leave scroll children alone: they follow their clip frame.
         if fr == WorldMapFrameScrollFrame then return end
-        if zoom.frame and fr == zoom.frame then return end
+        if zoom.vp and fr == zoom.vp then return end
         if WorldMapFrameScrollFrame and fr == WorldMapDetailFrame then return end
-        if zoom.frame and fr == WorldMapDetailFrame then return end
         if not fr.GetChildren then return end
         local kids = { fr:GetChildren() }
         local i
@@ -1117,8 +1012,7 @@ local function installIchaUIWorldMap()
         if st.origStrata == nil then st.origStrata = f:GetFrameStrata() or false end
         st.strataSaved = st.strataSaved or {}
         -- Always walk children. Turtle maximize/minimize can drop kids back
-        -- to MEDIUM while the parent stays FULLSCREEN; an early return left
-        -- new hit-rects and the map art under the HUD.
+        -- to MEDIUM while the parent stays FULLSCREEN.
         local high = highKids(f, {})
         liftStrata(f)
         keepHigh(high)
@@ -1171,15 +1065,13 @@ local function installIchaUIWorldMap()
         end
         local b = st.border
         if b and b.IsShown and b:IsShown() then
+            local bes = es
+            if b.GetEffectiveScale then bes = b:GetEffectiveScale() or es end
             if b.GetTop and b:GetTop() then
-                local bes = es
-                if b.GetEffectiveScale then bes = b:GetEffectiveScale() or es end
                 local bt = b:GetTop() * bes
                 if bt > top then top = bt end
             end
             if b.GetBottom and b:GetBottom() then
-                local bes = es
-                if b.GetEffectiveScale then bes = b:GetEffectiveScale() or es end
                 local bb = b:GetBottom() * bes
                 if bb < bot then bot = bb end
             end
@@ -1199,27 +1091,14 @@ local function installIchaUIWorldMap()
         return s0 * (screenH - FULL_MARGIN * 2) / chromeH
     end
 
-    local function mapFrameSize()
-        local bw, bh = MAP_ART_W, MAP_ART_H
-        if WorldMapButton then
-            local w, h = WorldMapButton:GetWidth() or 0, WorldMapButton:GetHeight() or 0
-            if w >= 1 then bw = w end
-            if h >= 1 then bh = h end
-        end
-        return bw + 15, bh + 55
-    end
-
-    -- Fit title+border to the measured screen height. Never writes IchaUIDB.
+    -- Turtle's 1024x768 fullscreen chrome, fit to the measured screen height.
+    -- Never writes IchaUIDB.
     local function layoutMaximized()
         local f = WorldMapFrame
-        local fw, fh = mapFrameSize()
-        f:SetWidth(fw)
-        f:SetHeight(fh)
+        f:SetWidth(FULL_W)
+        f:SetHeight(FULL_H)
         if TargetHPText and WorldMapFrameTitle then
             WorldMapFrameTitle:SetPoint("TOP", f, 0, 17)
-        end
-        if not st.holdArt then
-            snapshotArt()
         end
         f:SetScale(1)
         f:ClearAllPoints()
@@ -1228,7 +1107,6 @@ local function installIchaUIWorldMap()
         if not s or s < 0.1 then s = 1 end
         st.fullScale = s
         f:SetScale(s)
-        st.needArtRestore = true
         f:ClearAllPoints()
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         local fl, bot, fr, top, es = chromeEdges()
@@ -1241,13 +1119,18 @@ local function installIchaUIWorldMap()
                 f:SetPoint("CENTER", UIParent, "CENTER", dx / es, dy / es)
             end
         end
-        -- Attach built-in zoom after SetScale so the parent scale does not drop
-        -- the scroll child. Magnify already owns WorldMapFrameScrollFrame —
-        -- leave its fullscreen size/points alone.
-        if not WorldMapFrameScrollFrame then
-            zoomAttach()
+    end
+
+    local function layoutWindowed()
+        local f = WorldMapFrame
+        if native then
+            local w, h = winSize()
+            f:SetWidth(w)
+            f:SetHeight(h)
         end
-        keepMapArt(true)
+        f:SetScale(db().scale)
+        applyAnchor()
+        if nudgeTitle() then saveAnchor() end
     end
 
     local function ensureZoomInfo()
@@ -1281,17 +1164,17 @@ local function installIchaUIWorldMap()
         else
             z:SetPoint("TOPRIGHT", WorldMapFrame, "TOPRIGHT", -36, -6)
         end
-        z._acc = 0
-        z:SetScript("OnUpdate", function()
-            local elapsed = arg1
-            if elapsed == nil then elapsed = 0 end
-            z._acc = (z._acc or 0) + elapsed
-            if z._acc < 0.15 then return end
-            z._acc = 0
-            if updateZoomLabel then updateZoomLabel() end
-        end)
         st.zoomInfo = z
         return z
+    end
+
+    local function mapZoom()
+        if native then return zoom.z end
+        local z = WorldMapDetailFrame and WorldMapDetailFrame:GetScale() or 1
+        local base = 1
+        if not maximized() and MAGNIFY_MIN_ZOOM then base = MAGNIFY_MIN_ZOOM end
+        if base <= 0 then base = 1 end
+        return z / base
     end
 
     updateZoomLabel = function()
@@ -1304,90 +1187,44 @@ local function installIchaUIWorldMap()
             z:Hide()
             return
         end
-        local zoom = liveZoom()
         local pct = math.floor((tonumber(db().scale) or 1) * 100 + 0.5)
-        z.text:SetText(string.format("Zoom %.1fx   %d%%", zoom, pct))
+        z.text:SetText(string.format("Zoom %.1fx   %d%%", mapZoom(), pct))
         z:Show()
     end
 
-    -- Scale, opacity and position only: safe on every show.
-    local function applyLight()
+    -- Full layout for the current mode. Safe on every show and after
+    -- Turtle's Minimize / Maximize.
+    local function layout()
         if not st.active then return end
         local d = db()
         local f = WorldMapFrame
         f:SetMovable(true)
         f:EnableMouse(true)
         f:EnableKeyboard(false)
-        f:EnableMouseWheel(1)
         if f.SetClampedToScreen then f:SetClampedToScreen(false) end
-        raiseStrata()
         d.scale = scaleFor(d.scale)
         f:SetAlpha(clamp(d.alpha, ALPHA_LO, ALPHA_HI))
         if BlackoutWorld then BlackoutWorld:Hide() end
         paintBorder()
-        hookRelease(WorldMapButton)
-        if WorldMapFrameScrollFrame then hookRelease(WorldMapFrameScrollFrame) end
         ensureGrip()
         ensureEdges()
         ensureZoomInfo()
+        local mode = maximized() and "full" or "win"
+        if st.mode ~= mode then
+            st.mode = mode
+            zoomReset()
+        end
         if maximized() then
             layoutMaximized()
-            if st.grip then st.grip:Hide() end
-            if st.edges then
-                local i
-                for i = 1, table.getn(st.edges) do st.edges[i]:Hide() end
-            end
+            showChrome(false)
         else
-            if not WorldMapFrameScrollFrame then
-                zoomDetach()
-                local fw, fh = mapFrameSize()
-                f:SetWidth(fw)
-                f:SetHeight(fh)
-            elseif st.winLayout and st.winLayout.frameW then
-                f:SetWidth(st.winLayout.frameW)
-                f:SetHeight(st.winLayout.frameH)
-            end
-            if not st.holdArt then
-                snapshotArt()
-            end
-            f:SetScale(d.scale)
-            st.needArtRestore = true
-            applyAnchor()
-            if nudgeTitle() then saveAnchor() end
-            if st.grip then st.grip:Show() end
-            if st.edges then
-                local i
-                for i = 1, table.getn(st.edges) do st.edges[i]:Show() end
-            end
+            layoutWindowed()
+            showChrome(true)
         end
-        if not st.hookedMagReset and Magnify_ResetZoom then
-            st.hookedMagReset = true
-            local oldReset = Magnify_ResetZoom
-            Magnify_ResetZoom = function(a1, a2, a3)
-                oldReset(a1, a2, a3)
-                keepMapArt(false)
-                reloadMapTiles()
-                if updateZoomLabel then updateZoomLabel() end
-            end
-        end
-        if not st.zoomEv then
-            local ev = CreateFrame("Frame")
-            ev:RegisterEvent("WORLD_MAP_UPDATE")
-            ev:SetScript("OnEvent", function()
-                if updateZoomLabel then updateZoomLabel() end
-            end)
-            st.zoomEv = ev
-        end
+        ensureArt()
         hookWheels()
         raiseStrata()
-        finishMapLayout()
-    end
-
-    -- Turtle's WorldMapFrame_Maximize rebuilds the fullscreen layout; applyLight
-    -- then fits chrome to the measured screen and does not save that layout.
-    local function applyFull()
-        if not st.active then return end
-        applyLight()
+        updateZoomLabel()
     end
 
     local function setSpecial(on)
@@ -1412,6 +1249,7 @@ local function installIchaUIWorldMap()
         if st.installed then return end
         st.installed = true
         local f = WorldMapFrame
+        native = not magnifyLoaded()
 
         st.origToggle = ToggleWorldMap
         ToggleWorldMap = function(a1, a2, a3)
@@ -1426,39 +1264,25 @@ local function installIchaUIWorldMap()
             end
         end
 
-        setupZoom()
+        if native then setupNative() end
+        -- Turtle's Minimize/Maximize rescale and re-point the detail frame and
+        -- WorldMapButton; layout() takes them back into the viewport.
         if type(WorldMapFrame_Maximize) == "function" then
             local oldMax = WorldMapFrame_Maximize
             WorldMapFrame_Maximize = function(a1, a2, a3)
-                snapshotArt()
-                st.holdArt = st.artSnap
-                if not WorldMapFrameScrollFrame then
-                    zoomDetach()
-                end
                 oldMax(a1, a2, a3)
-                applyFull()
-                finishMapLayout()
+                layout()
             end
         end
         if type(WorldMapFrame_Minimize) == "function" then
             local oldMin = WorldMapFrame_Minimize
             WorldMapFrame_Minimize = function(a1, a2, a3)
-                snapshotArt()
-                st.holdArt = st.artSnap
-                if not WorldMapFrameScrollFrame then
-                    zoomDetach()
-                end
                 oldMin(a1, a2, a3)
-                applyLight()
-                finishMapLayout()
+                layout()
             end
         end
 
-        hookScript(f, "OnShow", function()
-            applyLight()
-            finishMapLayout()
-        end)
-        hookWheels()
+        hookScript(f, "OnShow", layout)
         -- While windowed only this drag runs on the frame, so no other move or
         -- position save can fight it; the previous handlers run otherwise.
         ownScript(f, "OnMouseDown", function()
@@ -1479,6 +1303,7 @@ local function installIchaUIWorldMap()
         if st.active then return end
         install()
         st.active = true
+        st.mode = nil
         ensureBorder()
         setSpecial(true)
         if type(UIPanelWindows) == "table" then
@@ -1495,7 +1320,7 @@ local function installIchaUIWorldMap()
         if maximized() and type(WorldMapFrame_Maximize) == "function" then
             WorldMapFrame_Maximize()
         else
-            applyFull()
+            layout()
         end
     end
 
@@ -1512,25 +1337,25 @@ local function installIchaUIWorldMap()
                 UIPanelWindows["WorldMapFrame"] = nil
             end
         end
-        zoomDetach()
+        restoreArt()
         if f.SetClampedToScreen then f:SetClampedToScreen(st.origClamp and true or false) end
         f:SetScale(1)
         f:SetAlpha(1)
         f:EnableKeyboard(true)
-        f:ClearAllPoints()
-        f:SetAllPoints(UIParent)
-        if BlackoutWorld then BlackoutWorld:Show() end
+        if maximized() then
+            f:ClearAllPoints()
+            f:SetAllPoints(UIParent)
+            if BlackoutWorld then BlackoutWorld:Show() end
+        else
+            f:SetWidth(TURTLE_WIN_W)
+            f:SetHeight(TURTLE_WIN_H)
+            f:ClearAllPoints()
+            f:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+        end
         paintBorder()
-        if st.grip then st.grip:Hide() end
+        showChrome(false)
         if st.zoomInfo then st.zoomInfo:Hide() end
-        if st.edges then
-            local i
-            for i = 1, table.getn(st.edges) do st.edges[i]:Hide() end
-        end
         restoreStrata()
-        if maximized() and type(WorldMapFrame_Maximize) == "function" then
-            WorldMapFrame_Maximize()
-        end
     end
 
     -- Returns false when another map owner blocks IchaUI's window.
@@ -1555,8 +1380,7 @@ local function installIchaUIWorldMap()
     local function sync()
         if not WorldMapFrame or not WorldMapButton then return end
         if db().enabled and canRun() then
-            activate()
-            applyFull()
+            if st.active then layout() else activate() end
         else
             deactivate()
         end
@@ -1576,6 +1400,12 @@ local function installIchaUIWorldMap()
         return st.active
     end
 
+    -- The map viewport frame (clip rect of the art), or nil.
+    function IchaUI_WorldMap_Viewport()
+        if st.active and native and zoom.vp and zoom.vp:IsShown() then return zoom.vp end
+        return nil
+    end
+
     function IchaUI_WorldMap_Set(key, value)
         local d = db()
         if key == "enabled" then
@@ -1593,18 +1423,15 @@ local function installIchaUIWorldMap()
         elseif key == "scale" then
             d.scale = scaleFor(value)
             if st.active and WorldMapFrame and not maximized() then
-                snapshotArt()
                 WorldMapFrame:SetScale(d.scale)
-                st.needArtRestore = true
                 if nudgeTitle() then saveAnchor() end
-                keepMapArt(true)
-                reloadMapTiles()
+                ensureArt()
                 raiseStrata()
             end
             if updateZoomLabel then updateZoomLabel() end
         elseif key == "alpha" then
             d.alpha = clamp(value, ALPHA_LO, ALPHA_HI)
-            applyLight()
+            if st.active and WorldMapFrame then WorldMapFrame:SetAlpha(d.alpha) end
         elseif LEVEL_KEYS[key] then
             d[key] = value and true or false
             if IchaUI_MapLevels_Refresh then IchaUI_MapLevels_Refresh() end
@@ -1617,7 +1444,7 @@ local function installIchaUIWorldMap()
         d.point, d.relPoint = DEFAULTS.point, DEFAULTS.relPoint
         d.x, d.y = DEFAULTS.x, DEFAULTS.y
         d.scale, d.alpha = DEFAULTS.scale, DEFAULTS.alpha
-        applyLight()
+        layout()
         if IchaUI_WorldMap_OptRefresh then IchaUI_WorldMap_OptRefresh() end
     end
 
@@ -1626,166 +1453,74 @@ local function installIchaUIWorldMap()
         if IchaUI_MapLevels_Refresh then IchaUI_MapLevels_Refresh() end
     end
 
+    -- /icha mapdebug: one line per frame, compact enough for a screenshot.
     function IchaUI_WorldMap_Debug()
         local function n(v)
             if v == nil then return "nil" end
             local num = tonumber(v)
             if not num then return tostring(v) end
-            return string.format("%.2f", num)
+            return string.format("%.1f", num)
+        end
+        local function nm(fr)
+            if not fr then return "nil" end
+            if fr.GetName then return fr:GetName() or "?" end
+            return "?"
+        end
+        local function pt(fr)
+            local p, rel, rp, x, y = getAnchor(fr)
+            if not p then return "NOPOINT" end
+            local np = ""
+            if fr.GetNumPoints then np = "#" .. tostring(fr:GetNumPoints()) end
+            return p .. ">" .. nm(rel) .. "." .. tostring(rp) .. "(" .. n(x) .. "," .. n(y) .. ")" .. np
+        end
+        local function fr(tag, f)
+            if not f then
+                chat("|cffffd200" .. tag .. "|r nil")
+                return
+            end
+            local cx, cy = f:GetCenter()
+            local es = f:GetEffectiveScale() or 1
+            local c = "nil"
+            if cx then c = n(cx * es) .. "," .. n(cy * es) end
+            chat("|cffffd200" .. tag .. "|r " .. n(f:GetWidth()) .. "x" .. n(f:GetHeight())
+                .. " s" .. string.format("%.2f", f:GetScale() or 0) .. " es" .. string.format("%.2f", es)
+                .. " c=" .. c .. " par=" .. nm(f:GetParent()) .. " " .. pt(f)
+                .. (f:IsShown() and "" or " HIDDEN"))
         end
         local f = WorldMapFrame
         local d = db()
-        local sw, sh
-        if GetScreenWidth then sw = GetScreenWidth() end
-        if GetScreenHeight then sh = GetScreenHeight() end
-        chat("mapdebug screen " .. n(sw) .. "x" .. n(sh))
-        if UIParent then
-            local us
-            if UIParent.GetEffectiveScale then us = UIParent:GetEffectiveScale() end
-            chat("mapdebug UIParent scale=" .. n(us)
-                .. " w=" .. n(UIParent:GetWidth()) .. " h=" .. n(UIParent:GetHeight())
-                .. " L=" .. n(UIParent:GetLeft()) .. " R=" .. n(UIParent:GetRight())
-                .. " T=" .. n(UIParent:GetTop()) .. " B=" .. n(UIParent:GetBottom()))
+        chat("|cffffd200map|r " .. (maximized() and "FULL" or "WIN") .. " W=" .. tostring(WORLDMAP_WINDOWED)
+            .. " active=" .. tostring(st.active) .. " native=" .. tostring(native)
+            .. " Magnify=" .. (magnifyLoaded() and "yes" or "no")
+            .. " zoom=" .. string.format("%.2f", mapZoom()) .. " pan=" .. n(zoom.h) .. "," .. n(zoom.v)
+            .. " scale=" .. n(d.scale) .. " full=" .. n(st.fullScale))
+        fr("frame", f)
+        fr("viewport", zoom.vp)
+        if zoom.vp then
+            chat("|cffffd200scroll|r h=" .. n(zoom.vp:GetHorizontalScroll()) .. " v=" .. n(zoom.vp:GetVerticalScroll())
+                .. " canvas s" .. string.format("%.2f", zoom.canvas:GetScale() or 0)
+                .. " " .. pt(zoom.canvas))
         end
-        if f then
-            local p, rel, rp, x, y = getAnchor(f)
-            local relName = "?"
-            if rel then
-                if rel.GetName then relName = rel:GetName() or "?" end
-            else
-                relName = "nil"
+        fr("detail", WorldMapDetailFrame)
+        fr("button", WorldMapButton)
+        if WorldMapFrameScrollFrame then fr("magnify", WorldMapFrameScrollFrame) end
+        local drops = { "pfQuestMapDropdown", "pfQuestMapLevelDropdown",
+            "ModernMapMarkersFilter_Blizz", "ModernMapMarkersFind_Blizz" }
+        local i
+        for i = 1, table.getn(drops) do
+            local dd = getglobal(drops[i])
+            if dd then
+                local r, t = dd:GetRight(), dd:GetTop()
+                local es = dd:GetEffectiveScale() or 1
+                local tr = "nil"
+                if r and t then tr = n(r * es) .. "," .. n(t * es) end
+                chat("|cffffd200" .. drops[i] .. "|r par=" .. nm(dd:GetParent()) .. " " .. pt(dd)
+                    .. " TR=" .. tr .. " " .. tostring(dd:GetFrameStrata()))
             end
-            chat("mapdebug map scale=" .. n(f:GetScale()) .. " es=" .. n(f:GetEffectiveScale())
-                .. " w=" .. n(f:GetWidth()) .. " h=" .. n(f:GetHeight()))
-            chat("mapdebug map L=" .. n(f:GetLeft()) .. " R=" .. n(f:GetRight())
-                .. " T=" .. n(f:GetTop()) .. " B=" .. n(f:GetBottom()))
-            chat("mapdebug GetPoint " .. tostring(p) .. " " .. tostring(relName) .. " " .. tostring(rp)
-                .. " x=" .. n(x) .. " y=" .. n(y))
-        else
-            chat("mapdebug WorldMapFrame missing")
         end
-        chat("mapdebug saved point=" .. tostring(d.point) .. " rel=" .. tostring(d.relPoint)
-            .. " x=" .. n(d.x) .. " y=" .. n(d.y) .. " scale=" .. n(d.scale))
-        local mag = "no"
-        if Magnify_ResetZoom or WorldMapFrameScrollFrame then mag = "yes" end
-        local win = "nil"
-        if WORLDMAP_WINDOWED ~= nil then win = tostring(WORLDMAP_WINDOWED) end
-        chat("mapdebug Magnify=" .. mag .. " WORLDMAP_WINDOWED=" .. win
-            .. " maximized=" .. tostring(maximized())
-            .. " fullScale=" .. n(st.fullScale or computeFullScale()))
-        local function strataOf(fr)
-            if not fr then return "nil" end
-            local nm = "?"
-            if fr.GetName then nm = fr:GetName() or "?" end
-            local s, lv = "?", "?"
-            if fr.GetFrameStrata then s = tostring(fr:GetFrameStrata()) end
-            if fr.GetFrameLevel then lv = tostring(fr:GetFrameLevel()) end
-            return nm .. " " .. s .. "/" .. lv
-        end
-        chat("mapdebug strata " .. strataOf(WorldMapFrame)
-            .. " | " .. strataOf(WorldMapButton)
-            .. " | " .. strataOf(WorldMapDetailFrame)
-            .. " | " .. strataOf(WorldMapFrameScrollFrame)
-            .. " | " .. strataOf(st.grip)
-            .. " | " .. strataOf(st.edges and st.edges[1]))
-        local hooks, hn = "-", 0
-        if st.wheelHooked then
-            hn = table.getn(st.wheelHooked)
-            hooks = ""
-            local i, lim
-            lim = hn
-            if lim > 12 then lim = 12 end
-            for i = 1, lim do
-                if i > 1 then hooks = hooks .. "," end
-                hooks = hooks .. st.wheelHooked[i]
-            end
-            if hn > lim then hooks = hooks .. ",+" .. (hn - lim) end
-        end
-        chat("mapdebug wheelhooks n=" .. tostring(hn) .. " " .. hooks)
         local lw = st.lastWheel
-        if lw then
-            chat("mapdebug lastwheel frame=" .. tostring(lw.frame)
-                .. " mod=" .. tostring(lw.mod) .. " delta=" .. n(lw.delta))
-        else
-            chat("mapdebug lastwheel none")
-        end
-        local function dumpFr(tag, fr)
-            if not fr then
-                chat("mapdebug " .. tag .. " nil")
-                return
-            end
-            local shown = "?"
-            if fr.IsShown then shown = tostring(fr:IsShown()) end
-            local pn = "nil"
-            if fr.GetParent then
-                local par = fr:GetParent()
-                if par and par.GetName then pn = par:GetName() or "?" end
-            end
-            local p, rel, rp, x, y = getAnchor(fr)
-            local rn = "nil"
-            if rel then
-                if rel.GetName then rn = rel:GetName() or "?" end
-            end
-            chat("mapdebug " .. tag
-                .. " shown=" .. shown
-                .. " w=" .. n(fr.GetWidth and fr:GetWidth())
-                .. " h=" .. n(fr.GetHeight and fr:GetHeight())
-                .. " scale=" .. n(fr.GetScale and fr:GetScale())
-                .. " es=" .. n(fr.GetEffectiveScale and fr:GetEffectiveScale())
-                .. " strata=" .. (fr.GetFrameStrata and tostring(fr:GetFrameStrata()) or "?")
-                .. " parent=" .. pn
-                .. " pt=" .. tostring(p) .. "/" .. rn .. "/" .. tostring(rp)
-                .. " x=" .. n(x) .. " y=" .. n(y))
-        end
-        dumpFr("detail", WorldMapDetailFrame)
-        dumpFr("button", WorldMapButton)
-        dumpFr("scroll", WorldMapFrameScrollFrame)
-        local child
-        if WorldMapFrameScrollFrame and WorldMapFrameScrollFrame.GetScrollChild then
-            child = WorldMapFrameScrollFrame:GetScrollChild()
-        end
-        dumpFr("scrollchild", child)
-        dumpFr("guide", WorldMapPositioningGuide)
-        dumpFr("dropLevel", getglobal("pfQuestMapLevelDropdown"))
-        dumpFr("dropFilter", getglobal("ModernMapMarkersFilter_Blizz"))
-        dumpFr("dropFind", getglobal("ModernMapMarkersFind_Blizz"))
-        local zi = "?"
-        if WorldMapFrameScrollFrame then zi = tostring(WorldMapFrameScrollFrame.zoomedIn) end
-        local mf = magnifyFrame()
-        local mfn = "nil"
-        if mf then
-            if mf.GetName then mfn = mf:GetName() or "?" else mfn = "?" end
-        end
-        chat("mapdebug magnifyFrame=" .. mfn
-            .. " scale=" .. n(mf and mf.GetScale and mf:GetScale())
-            .. " magzoom=" .. n(liveZoom())
-            .. " magMin=" .. n(MAGNIFY_MIN_ZOOM)
-            .. " magMax=" .. n(MAGNIFY_MAX_ZOOM)
-            .. " magStep=" .. n(MAGNIFY_ZOOM_STEP)
-            .. " zoomedIn=" .. zi)
-        if WorldMapFrameScrollFrame then
-            chat("mapdebug scrollHV h=" .. n(WorldMapFrameScrollFrame:GetHorizontalScroll())
-                .. " v=" .. n(WorldMapFrameScrollFrame:GetVerticalScroll()))
-        else
-            chat("mapdebug scrollHV nil")
-        end
-        dumpFr("dropdown", getglobal("pfQuestMapDropdown") or pfQuestMapDropdown)
-        local tile = getglobal("WorldMapDetailTile1")
-        if not tile then
-            chat("mapdebug tile1 nil")
-        else
-            local shown, alpha, tex, tw, th = "?", "?", "?", "?", "?"
-            if tile.IsShown then shown = tostring(tile:IsShown()) end
-            if tile.GetAlpha then alpha = n(tile:GetAlpha()) end
-            if tile.GetTexture then tex = tostring(tile:GetTexture() or "") end
-            if tex == "" then tex = "empty" end
-            if tile.GetWidth then tw = n(tile:GetWidth()) end
-            if tile.GetHeight then th = n(tile:GetHeight()) end
-            chat("mapdebug tile1 shown=" .. shown
-                .. " alpha=" .. alpha
-                .. " tex=" .. tex
-                .. " w=" .. tw .. " h=" .. th)
-        end
+        chat("|cffffd200wheel|r n=" .. tostring(st.wheelHooked and table.getn(st.wheelHooked) or 0)
+            .. (lw and (" last=" .. tostring(lw.frame) .. "/" .. tostring(lw.mod) .. "/" .. n(lw.delta)) or " last=none"))
     end
 
     -- Options > Map section. Helpers come from Options.lua; returns the next y.
@@ -1853,7 +1588,7 @@ local function installIchaUIWorldMap()
             elseif b == "addon" then
                 note:SetText("Another map addon (Cartographer / MetaMap) owns the world map, so this one is idle.")
             else
-                note:SetText("Drag the edge to move, the corner grip to resize. Ctrl + wheel scales, Shift + wheel fades, Esc closes.")
+                note:SetText("Drag the edge to move, the corner grip to resize. Wheel zooms, drag pans, Ctrl + wheel scales, Shift + wheel fades.")
             end
             local j
             for j = 1, table.getn(LV) do

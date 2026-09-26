@@ -835,11 +835,9 @@ local function installIchaUIMapLevels()
 
     local function placeTip(t)
         t:ClearAllPoints()
-        -- Magnify zooms the detail frame inside a scroll frame; its corner can be off view.
-        local host = WorldMapFrameScrollFrame or WorldMapDetailFrame
-        if not WorldMapFrameScrollFrame and IchaUIWorldMapZoom and IchaUIWorldMapZoom:IsShown() then
-            host = IchaUIWorldMapZoom
-        end
+        -- A zoomed detail frame's corner can be off view; use the clip frame.
+        local host = (IchaUI_WorldMap_Viewport and IchaUI_WorldMap_Viewport())
+            or WorldMapFrameScrollFrame or WorldMapDetailFrame
         if FlightMapFrame then
             t:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", 0, 0)
         else

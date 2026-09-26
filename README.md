@@ -4,7 +4,7 @@ A complete UI replacement for WoW 1.12: action bars, unit frames, nameplates, ch
 
 Built for Shamans first (full totem bar with sets and Fire Twist), but every other module works for any class.
 
-![Version](https://img.shields.io/badge/version-3.4.2-blue)
+![Version](https://img.shields.io/badge/version-3.4.3-blue)
 ![Interface](https://img.shields.io/badge/interface-11200-lightgrey)
 
 ![IchaUI in game: the full layout](docs/screenshots/overview.jpg)
@@ -82,7 +82,7 @@ Every module is its own addon, so you can turn off the ones you don't want.
 
 1. Download the zip from the [latest release](https://github.com/brutaliccus/IchaUI/releases/latest).
 2. Exit WoW.
-3. Extract it into `World of Warcraft\Interface\AddOns\`. You should see folders like `AddOns\IchaUI`, `AddOns\IchaUI_Bars` and so on, not `AddOns\IchaUI-3.4.2\IchaUI`.
+3. Extract it into `World of Warcraft\Interface\AddOns\`. You should see folders like `AddOns\IchaUI`, `AddOns\IchaUI_Bars` and so on, not `AddOns\IchaUI-3.4.3\IchaUI`.
 4. Start WoW. A full restart is needed after installing or updating; `/reload` isn't enough.
 
 **Updating:** delete the old `IchaUI` folders first, then extract. Your settings are kept.

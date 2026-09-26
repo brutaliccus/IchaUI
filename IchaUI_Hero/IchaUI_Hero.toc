@@ -2,7 +2,7 @@
 ## Title: IchaUI - Hero
 ## Notes: Hero bars, hero binds, and the hero ability picker.
 ## Dependencies: IchaUI
-## Version: 3.4.2
+## Version: 3.4.3
 
 HeroBinds.lua
 HeroPicker.lua

@@ -29,8 +29,14 @@ end
 -- hide in one drawer slot. New keys on IchaUIDB.buffBars only.
 local LONG_SECS = 600
 local ARROW_TEX = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
-local CONS_ICON = "Interface\\AddOns\\IchaUI_BuffBars\\media\\ConsolidatedBuffs.tga"
+local CONS_ICON_CLOSED = "Interface\\AddOns\\IchaUI_BuffBars\\media\\ConsolidatedBuffs-Closed.tga"
+local CONS_ICON_OPEN = "Interface\\AddOns\\IchaUI_BuffBars\\media\\ConsolidatedBuffs-Open.tga"
 local consUI = { icons = {}, grace = 0 }
+
+local function consIcon(open)
+    if open then return CONS_ICON_OPEN end
+    return CONS_ICON_CLOSED
+end
 
 local function consolidateOn()
     if db().consolidate == false then return false end
@@ -794,7 +800,7 @@ local function paintList(icons, root, filter)
             end
             table.insert(shown, {
                 consolidated = true,
-                texture = CONS_ICON,
+                texture = consIcon(opened),
                 count = table.getn(long),
                 names = names,
                 longs = long,
@@ -829,7 +835,7 @@ local function paintList(icons, root, filter)
             btn._longCount = e.count or 0
             btn._longNames = e.names
             btn._longList = e.longs
-            btn.icon:SetTexture(CONS_ICON)
+            btn.icon:SetTexture(consIcon(opened))
             btn.icon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
             if btn.roundMask then btn.roundMask:Hide() end
             btn._auraCount = e.count or 0

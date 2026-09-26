@@ -634,37 +634,51 @@ local function installIchaUIWorldMap()
         local minz = 1
         if MAGNIFY_MIN_ZOOM then minz = MAGNIFY_MIN_ZOOM end
         if z < minz then z = minz end
-        -- Always the vanilla art size. Magnify's 702 window and Turtle's
-        -- leftover SetPoint (e.g. TOPLEFT 12,-70) is what shifts the map.
-        df:SetWidth(MAP_ART_W)
-        df:SetHeight(MAP_ART_H)
+        local dw = df:GetWidth() or 0
+        local dh = df:GetHeight() or 0
+        if dw < 1 then
+            dw = MAP_ART_W
+            if snap and snap.dw and snap.dw > 0 then dw = snap.dw end
+            df:SetWidth(dw)
+        end
+        if dh < 1 then
+            dh = MAP_ART_H
+            if snap and snap.dh and snap.dh > 0 then dh = snap.dh end
+            df:SetHeight(dh)
+        end
         if df.SetAlpha then df:SetAlpha(1) end
         if df.Show then df:Show() end
         if WorldMapButton then
-            if WorldMapButton.SetScale then WorldMapButton:SetScale(1) end
-            WorldMapButton:SetWidth(MAP_ART_W)
-            WorldMapButton:SetHeight(MAP_ART_H)
+            if (WorldMapButton:GetWidth() or 0) < 1 then WorldMapButton:SetWidth(MAP_ART_W) end
+            if (WorldMapButton:GetHeight() or 0) < 1 then WorldMapButton:SetHeight(MAP_ART_H) end
             if WorldMapButton.Show then WorldMapButton:Show() end
             if sf and WorldMapButton.SetParent then
-                WorldMapButton:SetParent(df)
+                local bp = WorldMapButton.GetParent and WorldMapButton:GetParent()
+                if bp ~= df then WorldMapButton:SetParent(df) end
             end
-            if WorldMapButton.ClearAllPoints then WorldMapButton:ClearAllPoints() end
-            WorldMapButton:SetPoint("TOPLEFT", df, "TOPLEFT", 0, 0)
         end
         df:SetScale(z)
         if sf then
-            -- SetParent can restore old anchors; SetScrollChild can too.
-            -- Pin TOPLEFT 0,0 after both so pan is only the scroll offsets.
+            if df.ClearAllPoints then df:ClearAllPoints() end
             if df.SetParent then df:SetParent(sf) end
-            if df.ClearAllPoints then df:ClearAllPoints() end
             if sf.SetScrollChild then sf:SetScrollChild(df) end
-            if df.ClearAllPoints then df:ClearAllPoints() end
-            df:SetPoint("TOPLEFT", sf, "TOPLEFT", 0, 0)
-            sf:SetWidth(MAP_ART_W)
-            sf:SetHeight(MAP_ART_H)
+            local sw = sf:GetWidth() or 0
+            local sh = sf:GetHeight() or 0
+            if sw < 1 then
+                sw = MAP_ART_W
+                if snap and snap.sw and snap.sw > 0 then sw = snap.sw end
+                sf:SetWidth(sw)
+            end
+            if sh < 1 then
+                sh = MAP_ART_H
+                if snap and snap.sh and snap.sh > 0 then sh = snap.sh end
+                sf:SetHeight(sh)
+            end
             if sf.Show then sf:Show() end
-            local dw, dh = MAP_ART_W, MAP_ART_H
-            local sw, sh = MAP_ART_W, MAP_ART_H
+            dw = df:GetWidth() or 0
+            dh = df:GetHeight() or 0
+            sw = sf:GetWidth() or 0
+            sh = sf:GetHeight() or 0
             local maxX, maxY = 0, 0
             if z > 0 then
                 maxX = (dw * z - sw) / z
@@ -673,71 +687,18 @@ local function installIchaUIWorldMap()
             if maxX < 0 then maxX = 0 end
             if maxY < 0 then maxY = 0 end
             local h, v = 0, 0
-            if z > minz + 0.001 and snap then
-                h, v = snap.h or 0, snap.v or 0
-            end
+            if snap then h, v = snap.h or 0, snap.v or 0 end
             local absH = -h
             if absH < 0 then absH = 0 end
             if absH > maxX then absH = maxX end
             if v < 0 then v = 0 end
             if v > maxY then v = maxY end
-            if z <= minz + 0.001 then
-                absH, v = 0, 0
-            end
             sf:SetHorizontalScroll(-absH)
             sf:SetVerticalScroll(v)
             sf.maxX, sf.maxY = maxX, maxY
             sf.zoomedIn = z > minz + 0.001
         end
         showMapTiles()
-    end
-
-    -- pfQuest All Quests is pfQuestMapDropdown; Level Range is
-    -- pfQuestMapLevelDropdown. Filter/Find Marker are ModernMapMarkers.
-    -- Magnify re-parents All Quests to WorldMapPositioningGuide, which Turtle
-    -- max/min can leave at the small-window size so the stack sits mid-map.
-    local function placeMapDropdowns()
-        local guide = WorldMapPositioningGuide
-        if guide then
-            if guide.ClearAllPoints then guide:ClearAllPoints() end
-            if guide.SetAllPoints then
-                guide:SetAllPoints(WorldMapFrame)
-            else
-                guide:SetPoint("TOPLEFT", WorldMapFrame, "TOPLEFT", 0, 0)
-                guide:SetPoint("BOTTOMRIGHT", WorldMapFrame, "BOTTOMRIGHT", 0, 0)
-            end
-            local fw, fh = WorldMapFrame:GetWidth() or 0, WorldMapFrame:GetHeight() or 0
-            if fw >= 1 and guide.SetWidth then guide:SetWidth(fw) end
-            if fh >= 1 and guide.SetHeight then guide:SetHeight(fh) end
-        end
-        local drop = getglobal("pfQuestMapDropdown")
-        if not drop then return end
-        if drop.SetParent then drop:SetParent(WorldMapFrame) end
-        if drop.SetFrameStrata then drop:SetFrameStrata("FULLSCREEN_DIALOG") end
-        if drop.ClearAllPoints then drop:ClearAllPoints() end
-        if WorldMapFrameScrollFrame then
-            drop:SetPoint("TOPRIGHT", WorldMapFrameScrollFrame, "TOPRIGHT", 0, 0)
-        elseif WorldMapButton then
-            drop:SetPoint("TOPRIGHT", WorldMapButton, "TOPRIGHT", 0, -10)
-        else
-            drop:SetPoint("TOPRIGHT", WorldMapFrame, "TOPRIGHT", 0, -36)
-        end
-        local function stack(name, above)
-            local f = getglobal(name)
-            if not f then return above end
-            if f.SetParent then f:SetParent(WorldMapFrame) end
-            if f.SetFrameStrata then f:SetFrameStrata("FULLSCREEN_DIALOG") end
-            if f.ClearAllPoints then f:ClearAllPoints() end
-            f:SetPoint("TOPRIGHT", above, "BOTTOMRIGHT", 0, 0)
-            return f
-        end
-        local above = drop
-        above = stack("pfQuestMapLevelDropdown", above)
-        above = stack("ModernMapMarkersFilter_Blizz", above)
-        stack("ModernMapMarkersFind_Blizz", above)
-        if pfQuest and pfQuest.mapLevelButton then
-            pfQuest.mapLevelButton.layoutAnchor = drop
-        end
     end
 
     local function finishMapLayout()
@@ -750,7 +711,6 @@ local function installIchaUIWorldMap()
             fitMapScroll()
         end
         keepMapArt(true)
-        placeMapDropdowns()
         reloadMapTiles()
         if df and (df:GetWidth() or 0) < 1 then
             df:SetWidth(MAP_ART_W)
@@ -1093,10 +1053,14 @@ local function installIchaUIWorldMap()
         return s0 * (screenH - FULL_MARGIN * 2) / chromeH
     end
 
-    -- Always the vanilla 1002x668 map plus chrome. Turtle/Magnify windowed
-    -- mode can leave WorldMapButton at 702x468; that must not shrink us.
     local function mapFrameSize()
-        return MAP_ART_W + 15, MAP_ART_H + 55
+        local bw, bh = MAP_ART_W, MAP_ART_H
+        if WorldMapButton then
+            local w, h = WorldMapButton:GetWidth() or 0, WorldMapButton:GetHeight() or 0
+            if w >= 1 then bw = w end
+            if h >= 1 then bh = h end
+        end
+        return bw + 15, bh + 55
     end
 
     -- Fit title+border to the measured screen height. Never writes IchaUIDB.
@@ -1617,16 +1581,6 @@ local function installIchaUIWorldMap()
             child = WorldMapFrameScrollFrame:GetScrollChild()
         end
         dumpFr("scrollchild", child)
-        if WorldMapFrameScrollFrame then
-            chat("mapdebug scrollHV h=" .. n(WorldMapFrameScrollFrame:GetHorizontalScroll())
-                .. " v=" .. n(WorldMapFrameScrollFrame:GetVerticalScroll()))
-        else
-            chat("mapdebug scrollHV nil")
-        end
-        dumpFr("dropdown", getglobal("pfQuestMapDropdown") or pfQuestMapDropdown)
-        dumpFr("dropLevel", getglobal("pfQuestMapLevelDropdown"))
-        dumpFr("dropFilter", getglobal("ModernMapMarkersFilter_Blizz"))
-        dumpFr("dropFind", getglobal("ModernMapMarkersFind_Blizz"))
         local tile = getglobal("WorldMapDetailTile1")
         if not tile then
             chat("mapdebug tile1 nil")

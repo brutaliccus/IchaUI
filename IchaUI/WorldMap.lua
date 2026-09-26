@@ -298,7 +298,9 @@ local function installIchaUIWorldMap()
         if maximized() then return end
         s = scaleFor(s)
         db().scale = s
+        if snapshotArt then snapshotArt() end
         f:SetScale(s)
+        st.needArtRestore = true
         local nes = f:GetEffectiveScale() or 1
         if nes <= 0 then nes = 1 end
         f:ClearAllPoints()
@@ -540,12 +542,29 @@ local function installIchaUIWorldMap()
         zoom.attached = false
     end
 
+    local function magnifyFrame()
+        local sf = WorldMapFrameScrollFrame
+        if sf and sf.GetScrollChild then
+            local ch = sf:GetScrollChild()
+            if ch then return ch end
+        end
+        return WorldMapDetailFrame
+    end
+
+    -- Magnify scales WorldMapDetailFrame (the scroll child). Read that
+    -- frame's GetScale(), not a cached value or the window scale.
     local function liveZoom()
-        local df = WorldMapDetailFrame
+        local df = magnifyFrame()
         if df and df.GetScale then
-            local z = tonumber(df:GetScale()) or 1
+            local z = tonumber(df:GetScale()) or 0
             if z > 0 then return z end
         end
+        df = WorldMapDetailFrame
+        if df and df.GetScale then
+            local z = tonumber(df:GetScale()) or 0
+            if z > 0 then return z end
+        end
+        if MAGNIFY_MIN_ZOOM then return MAGNIFY_MIN_ZOOM end
         return 1
     end
 
@@ -608,12 +627,12 @@ local function installIchaUIWorldMap()
         st.artSnap = snap
     end
 
-    -- IchaUI's window is the full 1002x668 map. Magnify's Minimize uses Turtle's
-    -- small 702x468 viewport and MAGNIFY_MIN_ZOOM 0.7; undo that after toggle.
+    -- Magnify owns WorldMapFrameScrollFrame size/anchor (702x468 windowed,
+    -- 1002x668 fullscreen). IchaUI must not retarget it.
     local function fitMapScroll()
-        local sf = WorldMapFrameScrollFrame
+        if WorldMapFrameScrollFrame then return end
+        local sf = mapScroll()
         if not sf then return end
-        if MAGNIFY_MIN_ZOOM then MAGNIFY_MIN_ZOOM = 1 end
         sf:SetWidth(MAP_ART_W)
         sf:SetHeight(MAP_ART_H)
         if sf.ClearAllPoints then sf:ClearAllPoints() end
@@ -621,19 +640,15 @@ local function installIchaUIWorldMap()
         if sf.Show then sf:Show() end
     end
 
-    -- restoreZoom (default true): re-apply st.artSnap.z after a parent SetScale.
-    -- false: keep live GetScale (Magnify_ResetZoom just ran).
+    -- Recover from 1.12 parent-SetScale dropping the scroll child. Magnify
+    -- owns WorldMapDetailFrame:SetScale and pan; do not overwrite them.
     keepMapArt = function(restoreZoom)
         if restoreZoom == nil then restoreZoom = true end
         local df = WorldMapDetailFrame
         if not df then return end
         local sf = mapScroll()
         local snap = st.artSnap
-        local z = liveZoom()
-        if restoreZoom and snap and snap.z and snap.z > 0 then z = snap.z end
-        local minz = 1
-        if MAGNIFY_MIN_ZOOM then minz = MAGNIFY_MIN_ZOOM end
-        if z < minz then z = minz end
+        local mag = WorldMapFrameScrollFrame and true or false
         local dw = df:GetWidth() or 0
         local dh = df:GetHeight() or 0
         if dw < 1 then
@@ -646,12 +661,49 @@ local function installIchaUIWorldMap()
             if snap and snap.dh and snap.dh > 0 then dh = snap.dh end
             df:SetHeight(dh)
         end
-        if df.SetAlpha then df:SetAlpha(1) end
         if df.Show then df:Show() end
+        if WorldMapButton and WorldMapButton.Show then WorldMapButton:Show() end
+        if mag then
+            if sf then
+                local par = df.GetParent and df:GetParent()
+                if par ~= sf then
+                    if df.SetParent then df:SetParent(sf) end
+                    if sf.SetScrollChild then sf:SetScrollChild(df) end
+                end
+                -- Turtle leftover TOPLEFT 12,-70 double-offsets Magnify's child.
+                -- Do not SetPoint; a 1.12 scroll child must have no extra point.
+                if not maximized() and df.ClearAllPoints then df:ClearAllPoints() end
+                if (sf:GetWidth() or 0) < 1 then
+                    local sw = MAP_ART_W
+                    if snap and snap.sw and snap.sw > 0 then sw = snap.sw end
+                    sf:SetWidth(sw)
+                end
+                if (sf:GetHeight() or 0) < 1 then
+                    local sh = MAP_ART_H
+                    if snap and snap.sh and snap.sh > 0 then sh = snap.sh end
+                    sf:SetHeight(sh)
+                end
+                if sf.Show then sf:Show() end
+            end
+            -- Only put Magnify's zoom back after IchaUI SetScale'd the window
+            -- (1.12 resets the child). Never clamp Magnify to 1.0x otherwise.
+            if st.needArtRestore and restoreZoom and snap and snap.z and snap.z > 0 then
+                df:SetScale(snap.z)
+                if sf then
+                    sf:SetHorizontalScroll(snap.h or 0)
+                    sf:SetVerticalScroll(snap.v or 0)
+                end
+            end
+            st.needArtRestore = nil
+            showMapTiles()
+            return
+        end
+        local z = liveZoom()
+        if restoreZoom and snap and snap.z and snap.z > 0 then z = snap.z end
+        if z < 1 then z = 1 end
         if WorldMapButton then
             if (WorldMapButton:GetWidth() or 0) < 1 then WorldMapButton:SetWidth(MAP_ART_W) end
             if (WorldMapButton:GetHeight() or 0) < 1 then WorldMapButton:SetHeight(MAP_ART_H) end
-            if WorldMapButton.Show then WorldMapButton:Show() end
             if sf and WorldMapButton.SetParent then
                 local bp = WorldMapButton.GetParent and WorldMapButton:GetParent()
                 if bp ~= df then WorldMapButton:SetParent(df) end
@@ -659,9 +711,9 @@ local function installIchaUIWorldMap()
         end
         df:SetScale(z)
         if sf then
-            if df.ClearAllPoints then df:ClearAllPoints() end
             if df.SetParent then df:SetParent(sf) end
             if sf.SetScrollChild then sf:SetScrollChild(df) end
+            if df.ClearAllPoints then df:ClearAllPoints() end
             local sw = sf:GetWidth() or 0
             local sh = sf:GetHeight() or 0
             if sw < 1 then
@@ -696,9 +748,94 @@ local function installIchaUIWorldMap()
             sf:SetHorizontalScroll(-absH)
             sf:SetVerticalScroll(v)
             sf.maxX, sf.maxY = maxX, maxY
-            sf.zoomedIn = z > minz + 0.001
+            sf.zoomedIn = z > 1.001
         end
         showMapTiles()
+    end
+
+    local function packFrame(f)
+        if not f then return nil end
+        local p, rel, rp, x, y = getAnchor(f)
+        local pn, rn
+        if f.GetParent then
+            local par = f:GetParent()
+            if par and par.GetName then pn = par:GetName() end
+        end
+        if rel and rel.GetName then rn = rel:GetName() end
+        return {
+            p = p, rp = rp, x = x or 0, y = y or 0, rn = rn, pn = pn,
+            w = f:GetWidth() or 0, h = f:GetHeight() or 0,
+        }
+    end
+
+    local function unpackFrame(f, s)
+        if not f or not s then return end
+        if s.pn then
+            local par = getglobal(s.pn)
+            if par and f.SetParent then f:SetParent(par) end
+        end
+        if s.w and s.w >= 1 then f:SetWidth(s.w) end
+        if s.h and s.h >= 1 then f:SetHeight(s.h) end
+        if f.ClearAllPoints then f:ClearAllPoints() end
+        if s.p then
+            local rel = WorldMapFrame
+            if s.rn then rel = getglobal(s.rn) or rel end
+            f:SetPoint(s.p, rel, s.rp or s.p, s.x or 0, s.y or 0)
+        end
+    end
+
+    local function captureWinLayout()
+        local sf = WorldMapFrameScrollFrame
+        st.winLayout = {
+            frameW = WorldMapFrame:GetWidth(),
+            frameH = WorldMapFrame:GetHeight(),
+            scroll = packFrame(sf),
+            detail = packFrame(WorldMapDetailFrame),
+            button = packFrame(WorldMapButton),
+            drop = packFrame(getglobal("pfQuestMapDropdown")),
+            dropLevel = packFrame(getglobal("pfQuestMapLevelDropdown")),
+            dropFilter = packFrame(getglobal("ModernMapMarkersFilter_Blizz")),
+            dropFind = packFrame(getglobal("ModernMapMarkersFind_Blizz")),
+            guide = packFrame(WorldMapPositioningGuide),
+            h = 0, v = 0,
+        }
+        if sf then
+            st.winLayout.h = sf:GetHorizontalScroll() or 0
+            st.winLayout.v = sf:GetVerticalScroll() or 0
+        end
+    end
+
+    local function applyWinLayout()
+        local L = st.winLayout
+        if not L then return end
+        if L.frameW then WorldMapFrame:SetWidth(L.frameW) end
+        if L.frameH then WorldMapFrame:SetHeight(L.frameH) end
+        unpackFrame(WorldMapPositioningGuide, L.guide)
+        unpackFrame(WorldMapFrameScrollFrame, L.scroll)
+        local sf = WorldMapFrameScrollFrame
+        local df = WorldMapDetailFrame
+        if sf then
+            -- Magnify owns the scroll child; never SetPoint it (double-offset).
+            if df then
+                if df.SetParent then df:SetParent(sf) end
+                if sf.SetScrollChild then sf:SetScrollChild(df) end
+                if df.ClearAllPoints then df:ClearAllPoints() end
+            end
+            unpackFrame(WorldMapButton, L.button)
+            unpackFrame(getglobal("pfQuestMapDropdown"), L.drop)
+            unpackFrame(getglobal("pfQuestMapLevelDropdown"), L.dropLevel)
+            unpackFrame(getglobal("ModernMapMarkersFilter_Blizz"), L.dropFilter)
+            unpackFrame(getglobal("ModernMapMarkersFind_Blizz"), L.dropFind)
+            sf:SetHorizontalScroll(L.h or 0)
+            sf:SetVerticalScroll(L.v or 0)
+        else
+            unpackFrame(WorldMapDetailFrame, L.detail)
+            unpackFrame(WorldMapButton, L.button)
+            unpackFrame(getglobal("pfQuestMapDropdown"), L.drop)
+            unpackFrame(getglobal("pfQuestMapLevelDropdown"), L.dropLevel)
+            unpackFrame(getglobal("ModernMapMarkersFilter_Blizz"), L.dropFilter)
+            unpackFrame(getglobal("ModernMapMarkersFind_Blizz"), L.dropFind)
+        end
     end
 
     local function finishMapLayout()
@@ -707,10 +844,19 @@ local function installIchaUIWorldMap()
             st.artSnap = st.holdArt
             st.holdArt = nil
         end
-        if WorldMapFrameScrollFrame then
-            fitMapScroll()
+        if maximized() then
+            -- Do not rewrite Turtle/Magnify fullscreen geometry.
+            keepMapArt(true)
+        else
+            if st.winLayout then
+                applyWinLayout()
+                st.needArtRestore = true
+                keepMapArt(true)
+            else
+                keepMapArt(true)
+                captureWinLayout()
+            end
         end
-        keepMapArt(true)
         reloadMapTiles()
         if df and (df:GetWidth() or 0) < 1 then
             df:SetWidth(MAP_ART_W)
@@ -1072,7 +1218,9 @@ local function installIchaUIWorldMap()
         if TargetHPText and WorldMapFrameTitle then
             WorldMapFrameTitle:SetPoint("TOP", f, 0, 17)
         end
-        snapshotArt()
+        if not st.holdArt then
+            snapshotArt()
+        end
         f:SetScale(1)
         f:ClearAllPoints()
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -1080,6 +1228,7 @@ local function installIchaUIWorldMap()
         if not s or s < 0.1 then s = 1 end
         st.fullScale = s
         f:SetScale(s)
+        st.needArtRestore = true
         f:ClearAllPoints()
         f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
         local fl, bot, fr, top, es = chromeEdges()
@@ -1093,11 +1242,10 @@ local function installIchaUIWorldMap()
             end
         end
         -- Attach built-in zoom after SetScale so the parent scale does not drop
-        -- the scroll child. Magnify already owns WorldMapFrameScrollFrame.
+        -- the scroll child. Magnify already owns WorldMapFrameScrollFrame —
+        -- leave its fullscreen size/points alone.
         if not WorldMapFrameScrollFrame then
             zoomAttach()
-        else
-            fitMapScroll()
         end
         keepMapArt(true)
     end
@@ -1133,6 +1281,15 @@ local function installIchaUIWorldMap()
         else
             z:SetPoint("TOPRIGHT", WorldMapFrame, "TOPRIGHT", -36, -6)
         end
+        z._acc = 0
+        z:SetScript("OnUpdate", function()
+            local elapsed = arg1
+            if elapsed == nil then elapsed = 0 end
+            z._acc = (z._acc or 0) + elapsed
+            if z._acc < 0.15 then return end
+            z._acc = 0
+            if updateZoomLabel then updateZoomLabel() end
+        end)
         st.zoomInfo = z
         return z
     end
@@ -1183,12 +1340,18 @@ local function installIchaUIWorldMap()
         else
             if not WorldMapFrameScrollFrame then
                 zoomDetach()
+                local fw, fh = mapFrameSize()
+                f:SetWidth(fw)
+                f:SetHeight(fh)
+            elseif st.winLayout and st.winLayout.frameW then
+                f:SetWidth(st.winLayout.frameW)
+                f:SetHeight(st.winLayout.frameH)
             end
-            local fw, fh = mapFrameSize()
-            f:SetWidth(fw)
-            f:SetHeight(fh)
-            snapshotArt()
+            if not st.holdArt then
+                snapshotArt()
+            end
             f:SetScale(d.scale)
+            st.needArtRestore = true
             applyAnchor()
             if nudgeTitle() then saveAnchor() end
             if st.grip then st.grip:Show() end
@@ -1432,6 +1595,7 @@ local function installIchaUIWorldMap()
             if st.active and WorldMapFrame and not maximized() then
                 snapshotArt()
                 WorldMapFrame:SetScale(d.scale)
+                st.needArtRestore = true
                 if nudgeTitle() then saveAnchor() end
                 keepMapArt(true)
                 reloadMapTiles()
@@ -1581,6 +1745,31 @@ local function installIchaUIWorldMap()
             child = WorldMapFrameScrollFrame:GetScrollChild()
         end
         dumpFr("scrollchild", child)
+        dumpFr("guide", WorldMapPositioningGuide)
+        dumpFr("dropLevel", getglobal("pfQuestMapLevelDropdown"))
+        dumpFr("dropFilter", getglobal("ModernMapMarkersFilter_Blizz"))
+        dumpFr("dropFind", getglobal("ModernMapMarkersFind_Blizz"))
+        local zi = "?"
+        if WorldMapFrameScrollFrame then zi = tostring(WorldMapFrameScrollFrame.zoomedIn) end
+        local mf = magnifyFrame()
+        local mfn = "nil"
+        if mf then
+            if mf.GetName then mfn = mf:GetName() or "?" else mfn = "?" end
+        end
+        chat("mapdebug magnifyFrame=" .. mfn
+            .. " scale=" .. n(mf and mf.GetScale and mf:GetScale())
+            .. " magzoom=" .. n(liveZoom())
+            .. " magMin=" .. n(MAGNIFY_MIN_ZOOM)
+            .. " magMax=" .. n(MAGNIFY_MAX_ZOOM)
+            .. " magStep=" .. n(MAGNIFY_ZOOM_STEP)
+            .. " zoomedIn=" .. zi)
+        if WorldMapFrameScrollFrame then
+            chat("mapdebug scrollHV h=" .. n(WorldMapFrameScrollFrame:GetHorizontalScroll())
+                .. " v=" .. n(WorldMapFrameScrollFrame:GetVerticalScroll()))
+        else
+            chat("mapdebug scrollHV nil")
+        end
+        dumpFr("dropdown", getglobal("pfQuestMapDropdown") or pfQuestMapDropdown)
         local tile = getglobal("WorldMapDetailTile1")
         if not tile then
             chat("mapdebug tile1 nil")
@@ -1597,12 +1786,6 @@ local function installIchaUIWorldMap()
                 .. " tex=" .. tex
                 .. " w=" .. tw .. " h=" .. th)
         end
-        local zi = "?"
-        if WorldMapFrameScrollFrame then zi = tostring(WorldMapFrameScrollFrame.zoomedIn) end
-        chat("mapdebug magzoom=" .. n(liveZoom())
-            .. " magMin=" .. n(MAGNIFY_MIN_ZOOM)
-            .. " magMax=" .. n(MAGNIFY_MAX_ZOOM)
-            .. " zoomedIn=" .. zi)
     end
 
     -- Options > Map section. Helpers come from Options.lua; returns the next y.

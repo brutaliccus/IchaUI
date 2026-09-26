@@ -360,7 +360,11 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
     local portBg = port:CreateTexture(nil, "BACKGROUND")
     portBg:SetAllPoints(port)
     portBg:SetTexture("Interface/Minimap/UI-Minimap-Background")
-    portBg:SetVertexColor(0, 0, 0, 1)
+    if IchaUI_PaintPortraitFill then
+        IchaUI_PaintPortraitFill(portBg)
+    else
+        portBg:SetVertexColor(0.12, 0.08, 0.02, 1)
+    end
     local face = port:CreateTexture(nil, "ARTWORK")
     face:SetTexCoord(0, 1, 0, 1)
     local ringFrame = CreateFrame("Frame", nil, preview)
@@ -636,7 +640,11 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
             face:SetHeight(faceSz)
             face:SetPoint("CENTER", port, "CENTER", 0, 0)
             face:SetTexCoord(0, 1, 0, 1)
-            if SetPortraitTexture then
+            if IchaUI_PaintPortraitFill then IchaUI_PaintPortraitFill(portBg) end
+            portBg:Show()
+            if IchaUI_ApplyPortraitFace then
+                IchaUI_ApplyPortraitFace(face, "player")
+            elseif SetPortraitTexture then
                 local unit = "player"
                 if unit ~= "" and unit ~= "none" then
                     local okp, exists = pcall(UnitExists, unit)
@@ -644,6 +652,7 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
                         pcall(SetPortraitTexture, face, unit)
                     end
                 end
+                face:Show()
             end
             face:SetTexCoord(0, 1, 0, 1)
             local ringMul = (m and tonumber(m.portraitRing)) or 1.28

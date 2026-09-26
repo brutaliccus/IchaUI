@@ -268,6 +268,7 @@ local function installIchaUIProfiles()
                 IchaUIUF_hideBlizzard(hide)
             end
             safe(IchaUIUF_hideBlizzardCastBar)
+            safe(IchaUI_RefreshGoldTheme)
             safe(IchaUIUF_ApplyAll)
             if type(IchaUIUF_refreshTextKind) == "function" then
                 for i = 1, table.getn(kinds) do

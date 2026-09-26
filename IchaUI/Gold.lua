@@ -10,6 +10,7 @@ local lightBorders = {}
 local fonts = {}
 local verts = {}
 local fills = {}
+local portFills = {}
 local FILL_R, FILL_G, FILL_B = 0.07, 0.07, 0.08
 local goldBusy = false
 
@@ -84,6 +85,68 @@ function IchaUI_SetFill(r, g, b)
     if not IchaUIDB then IchaUIDB = {} end
     IchaUIDB.fill = { r = clamp01(r), g = clamp01(g), b = clamp01(b) }
     if IchaUI_RefreshGoldTheme then IchaUI_RefreshGoldTheme() end
+end
+
+-- Dark gold hole behind empty portraits. Same theme gold as bars/rings,
+-- darkened so it reads as a fill, not the bright accent.
+function IchaUI_PortraitFillColor()
+    local r, g, b
+    if IchaUI_ThemeLiveGold then
+        r, g, b = IchaUI_ThemeLiveGold()
+    else
+        r, g, b = IchaUI_Gold()
+    end
+    return clamp01(r * 0.20), clamp01(g * 0.20), clamp01(b * 0.20)
+end
+
+function IchaUI_PaintPortraitFill(tex)
+    if not tex or not tex.SetVertexColor then return end
+    if not tex._ichaPortFill then
+        tex._ichaPortFill = true
+        table.insert(portFills, tex)
+    end
+    local r, g, b = IchaUI_PortraitFillColor()
+    tex:SetVertexColor(r, g, b, 1)
+end
+
+-- SetPortraitTexture when the unit has a face; hide the tex when empty so
+-- the circular fill stays visible. Returns true if a real portrait is up.
+function IchaUI_ApplyPortraitFace(tex, unit)
+    if not tex then return false end
+    local loaded = false
+    if unit and unit ~= "" and unit ~= "none" and UnitExists then
+        local ok, exists = pcall(UnitExists, unit)
+        if ok and exists then
+            if SetPortraitTexture then
+                pcall(SetPortraitTexture, tex, unit)
+            end
+            if tex.GetTexture then
+                local got = tex:GetTexture()
+                if got and got ~= "" then loaded = true end
+            else
+                loaded = true
+            end
+            if (not loaded) and SetPortraitTextureFromGUID and UnitGUID then
+                local okg, guid = pcall(UnitGUID, unit)
+                if okg and guid and guid ~= "" then
+                    pcall(SetPortraitTextureFromGUID, tex, guid)
+                    if tex.GetTexture then
+                        local got = tex:GetTexture()
+                        if got and got ~= "" then loaded = true end
+                    end
+                end
+            end
+        end
+    end
+    if loaded then
+        tex:Show()
+    else
+        if tex.SetTexture then
+            pcall(function() tex:SetTexture("") end)
+        end
+        tex:Hide()
+    end
+    return loaded
 end
 
 -- Fill opacity: scales every fill's own alpha (1 = each panel's designed alpha).
@@ -272,6 +335,12 @@ local function repaintTracked()
         local tex = verts[i]
         if tex and tex.SetVertexColor then
             IchaUI_PaintGoldVertex(tex, tex._gvr, tex._gvg, tex._gvb, tex._gva, tex._gvBright)
+        end
+    end
+    for i = 1, table.getn(portFills) do
+        local tex = portFills[i]
+        if tex and tex.SetVertexColor then
+            IchaUI_PaintPortraitFill(tex)
         end
     end
 end

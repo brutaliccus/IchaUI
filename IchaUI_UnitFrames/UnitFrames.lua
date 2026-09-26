@@ -5069,7 +5069,11 @@ local function createUnitFrame(key, unit, defaults, opts)
         -- Totem-style circular backdrop (proven on this client)
         local circleBg = port:CreateTexture(nil, "BACKGROUND")
         circleBg:SetTexture("Interface/Minimap/UI-Minimap-Background")
-        circleBg:SetVertexColor(0, 0, 0, 1)
+        if IchaUI_PaintPortraitFill then
+            IchaUI_PaintPortraitFill(circleBg)
+        else
+            circleBg:SetVertexColor(0.12, 0.08, 0.02, 1)
+        end
         fr.portraitBg = circleBg
 
         local ptex = port:CreateTexture(nil, "ARTWORK")
@@ -5483,17 +5487,25 @@ local function createUnitFrame(key, unit, defaults, opts)
                     self.portraitBg:ClearAllPoints()
                     self.portraitBg:SetAllPoints(port)
                     self.portraitBg:SetTexture("Interface/Minimap/UI-Minimap-Background")
-                    self.portraitBg:SetVertexColor(0, 0, 0, 1)
+                    if IchaUI_PaintPortraitFill then
+                        IchaUI_PaintPortraitFill(self.portraitBg)
+                    else
+                        self.portraitBg:SetVertexColor(0.12, 0.08, 0.02, 1)
+                    end
                 end
 
                 if self.portraitTex then
-                    self.portraitTex:Show()
                     self.portraitTex:ClearAllPoints()
                     self.portraitTex:SetWidth(faceSz)
                     self.portraitTex:SetHeight(faceSz)
                     self.portraitTex:SetPoint("CENTER", port, "CENTER", 0, 0)
-                    if SetPortraitTexture and unitLive then
-                        SetPortraitTexture(self.portraitTex, unit)
+                    if IchaUI_ApplyPortraitFace then
+                        IchaUI_ApplyPortraitFace(self.portraitTex, unit)
+                    else
+                        if SetPortraitTexture and unitLive then
+                            SetPortraitTexture(self.portraitTex, unit)
+                        end
+                        self.portraitTex:Show()
                     end
                     if (isPartyUnit(unit) or isRaidUnit(unit)) and unit ~= "" and unit ~= "none" then
                         if UnitIsConnected and not UnitIsConnected(unit) then
@@ -7782,7 +7794,16 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if mp.SetDesaturated then
                     pcall(function() mp:SetDesaturated(0) end)
                 end
+                if self.portraitBg then
+                    if IchaUI_PaintPortraitFill then
+                        IchaUI_PaintPortraitFill(self.portraitBg)
+                    end
+                    self.portraitBg:Show()
+                end
                 if self.portraitTex then
+                    if IchaUI_ApplyPortraitFace then
+                        IchaUI_ApplyPortraitFace(self.portraitTex, unit)
+                    end
                     self.portraitTex:SetVertexColor(1, 1, 1)
                     if self.portraitTex.SetDesaturated then
                         pcall(function() self.portraitTex:SetDesaturated(0) end)
@@ -8039,8 +8060,18 @@ local function createUnitFrame(key, unit, defaults, opts)
                 self:applySize()
             end
             self._portraitChromeOn = true
-            if self.portraitTex and SetPortraitTexture and unit and unit ~= "none" and unit ~= "" then
-                pcall(SetPortraitTexture, self.portraitTex, unit)
+            if self.portraitBg then
+                if IchaUI_PaintPortraitFill then
+                    IchaUI_PaintPortraitFill(self.portraitBg)
+                end
+                self.portraitBg:Show()
+            end
+            if self.portraitTex then
+                if IchaUI_ApplyPortraitFace then
+                    IchaUI_ApplyPortraitFace(self.portraitTex, unit)
+                elseif SetPortraitTexture and unit and unit ~= "none" and unit ~= "" then
+                    pcall(SetPortraitTexture, self.portraitTex, unit)
+                end
             end
             if self.portraitTex and (isPartyUnit(unit) or isRaidUnit(unit)) then
                 if offline then
@@ -10144,6 +10175,9 @@ function IchaUIUF_RefreshGoldChrome()
                     if rf.GetWidth then ringSz = rf:GetWidth() or 48 end
                     if ringSz < 16 then ringSz = 16 end
                     applyPortraitRing(fr.portraitRingTex, rf, ringSz)
+                end
+                if fr.portraitBg and IchaUI_PaintPortraitFill then
+                    IchaUI_PaintPortraitFill(fr.portraitBg)
                 end
                 if IchaUI_Cast_TintArt then IchaUI_Cast_TintArt(fr) end
                 if fr.castIconRing then

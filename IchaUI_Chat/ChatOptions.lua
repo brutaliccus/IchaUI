@@ -450,21 +450,33 @@ end
 ------------------------------------------------------------------------
 local function buildTabs(ctx, p)
     local y = -4
-    header(ctx, p, "Tab behaviour", X1, y); y = y - 22
-    toggle(ctx, p, "Tab behaviour", X1, y, 120, getter("tabs", "on"), setter("tabs", "on"))
-    toggle(ctx, p, "Flash selected tab on whisper", X1 + 128, y, 210, getter("tabs", "flashWhisper"), setter("tabs", "flashWhisper")); y = y - 26
-    slider(ctx, p, "Inactive tab text", X1, y, 100, 180, 0.1, 1, 0.05, getter("tabs", "inactiveAlpha"), setter("tabs", "inactiveAlpha")); y = y - 28
-    local opts = { { 0, "Don't change" } }
+    header(ctx, p, "Tab names", X1, y); y = y - 22
+    toggle(ctx, p, "Dim the names of tabs you're not on", X1, y, 260, getter("tabs", "on"), setter("tabs", "on")); y = y - 24
+    slider(ctx, p, "Dimmed brightness", X1, y, 110, 180, 0.1, 1, 0.05, getter("tabs", "inactiveAlpha"), setter("tabs", "inactiveAlpha")); y = y - 22
+    label(p, "Only the text of the other docked tabs fades, so the tab you're on stands out. 1 = no dimming.", X1, y, 480); y = y - 32
+
+    header(ctx, p, "Whisper alert", X1, y); y = y - 22
+    toggle(ctx, p, "Flash the tab I'm on when a whisper arrives", X1, y, 300, getter("tabs", "flashWhisper"), setter("tabs", "flashWhisper")); y = y - 22
+    label(p, "The game only flashes tabs you're not looking at. This also flashes the one you're on, if it shows whispers.", X1, y, 480); y = y - 32
+
+    header(ctx, p, "Starting tab", X1, y); y = y - 22
+    local opts = { { 0, "Game's choice" } }
     local i
     for i = 1, M.numWindows() do table.insert(opts, { i, tostring(i) }) end
-    cycle(ctx, p, "Tab at login", X1, y, 200, opts, function() return tonumber(M.C("tabs").loginTab) or 0 end,
+    cycle(ctx, p, "Open at login", X1, y, 200, opts, function() return tonumber(M.C("tabs").loginTab) or 0 end,
         setter("tabs", "loginTab"))
     local nm = label(p, "", X1 + 210, y - 4, 200)
     table.insert(ctx.refresh, function()
         local id = tonumber(M.C("tabs").loginTab) or 0
         nm:SetText(id > 0 and winName(id) or "")
-    end); y = y - 28
-    label(p, "The gold tab skin stays ChatSkin's. Inactive dimming only fades the labels of docked tabs you're not on.", X1, y, 480)
+    end); y = y - 24
+    label(p, "Picks which docked chat window's tab is selected after login or /reload.", X1, y, 480); y = y - 32
+
+    header(ctx, p, "Leaving meter tabs", X1, y); y = y - 22
+    toggle(ctx, p, "Leave a meter tab when a whisper comes in or I type", X1, y, 340, getter("dock", "backToGeneral"), setter("dock", "backToGeneral")); y = y - 22
+    label(p, "Only acts while a meter tab is showing. Picks one tab: a whisper opens the tab most dedicated to whispers " ..
+        "(your Whispers tab before General); typing goes back to the chat tab you were last on, or one that shows what you're typing. " ..
+        "Never switches away from a chat tab.", X1, y, 480)
 
     local y2 = -4
     header(ctx, p, "Channel colors", X2, y2); y2 = y2 - 22
@@ -568,7 +580,7 @@ local function buildDock(ctx, p)
             D.layout()
         end); y = y - 26
     slider(ctx, p, "Extra inset", X1, y, 80, 160, 0, 12, 1, getter("dock", "inset"), setter("dock", "inset")); y = y - 26
-    toggle(ctx, p, "Back to General on typing / whisper", X1, y, 250, getter("dock", "backToGeneral"), setter("dock", "backToGeneral")); y = y - 30
+    toggle(ctx, p, "Leave a meter tab when a whisper comes in or I type", X1, y, 340, getter("dock", "backToGeneral"), setter("dock", "backToGeneral")); y = y - 30
 
     header(ctx, p, "Tab", X1, y); y = y - 22
     dropdown(ctx, p, X1, y, 200,

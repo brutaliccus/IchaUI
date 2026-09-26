@@ -1158,24 +1158,155 @@ function D.entryStatus(entry, ti)
 end
 
 ------------------------------------------------------------------------
--- Switch back to General
+-- Leave a meter tab for chat (dock.backToGeneral). Only from a meter tab,
+-- one docked chat tab per event, only through FCF_SelectDockFrame.
 ------------------------------------------------------------------------
-function D.backToGeneral()
+local function showsGroup(cf, group)
+    local list = cf and cf.messageTypeList
+    if not group or type(list) ~= "table" then return false end
+    local i
+    for i = 1, table.getn(list) do
+        if list[i] == group then return true end
+    end
+    return false
+end
+D.showsGroup = showsGroup
+
+local function groupCount(cf)
+    local n = 0
+    if type(cf.messageTypeList) == "table" then n = n + table.getn(cf.messageTypeList) end
+    if type(cf.channelList) == "table" then n = n + table.getn(cf.channelList) end
+    return n
+end
+
+local function dockedChat(cf)
+    return cf and cf.isDocked and not cf._icFake and not D.isHost(cf)
+end
+
+-- The docked chat tab for a message group: `prefer` if it shows the group,
+-- else the most dedicated one (fewest groups + channels, lowest id on a tie).
+-- Nil when the tab on screen already shows it, or no docked tab does.
+function D.chatTabFor(group, prefer)
+    local shown = M.shownFrame()
+    if dockedChat(shown) and showsGroup(shown, group) then return nil end
+    if dockedChat(prefer) and showsGroup(prefer, group) then return prefer end
+    local dock = DOCKED_CHAT_FRAMES
+    if type(dock) ~= "table" then return nil end
+    local best, bestN, i
+    for i = 1, table.getn(dock) do
+        local cf = dock[i]
+        if dockedChat(cf) and showsGroup(cf, group) then
+            local n = groupCount(cf)
+            if not best or n < bestN or (n == bestN and cf:GetID() < best:GetID()) then best, bestN = cf, n end
+        end
+    end
+    return best
+end
+
+function D.leaveMeterTab(group, prefer)
     if not cfg().backToGeneral then return end
     D.hideFakes()
-    if (D.isHost(M.shownFrame()) or D.isHost(SELECTED_CHAT_FRAME)) and FCF_SelectDockFrame then
-        local cf1 = getglobal("ChatFrame1")
-        if cf1 and cf1.isDocked then FCF_SelectDockFrame(cf1) end
-    end
+    if not D.isHost(M.shownFrame()) or not FCF_SelectDockFrame then return end
+    local cf = D.chatTabFor(group, prefer)
+    if not cf then cf = prefer end
+    if not dockedChat(cf) then cf = getglobal("ChatFrame1") end
+    if dockedChat(cf) and cf ~= SELECTED_DOCK_FRAME then FCF_SelectDockFrame(cf) end
 end
 
+function D.backToGeneral()
+    D.leaveMeterTab(nil, M.EditBox and M.EditBox.chatFrame and M.EditBox.chatFrame())
+end
+
+-- Typing from a meter tab: back to the last chat tab, or the tab that shows
+-- the edit box's chat type (a reply goes to the whisper tab).
 function D.beforeOpenChat()
-    D.backToGeneral()
+    local b = ChatFrameEditBox
+    local ct = b and b.chatType
+    if ct == "CHANNEL" then ct = nil end
+    D.leaveMeterTab(ct, M.EditBox and M.EditBox.chatFrame and M.EditBox.chatFrame())
 end
 
+-- Whispers that land in the same frame make one decision on the next one.
 local ev = CreateFrame("Frame")
+ev:Hide()
 ev:RegisterEvent("CHAT_MSG_WHISPER")
-ev:SetScript("OnEvent", function() D.backToGeneral() end)
+ev:SetScript("OnEvent", function()
+    this.group = this.group or "WHISPER"
+    this:Show()
+end)
+ev:SetScript("OnUpdate", function()
+    this:Hide()
+    local g = this.group
+    this.group = nil
+    D.leaveMeterTab(g, nil)
+end)
+
+------------------------------------------------------------------------
+-- Dock repair: one shown docked frame (the selected one), the rest
+-- anchored on ChatFrame1, windows saved as docked back in the dock.
+------------------------------------------------------------------------
+local function offDock(cf, base)
+    local l, t, bl, bt = cf:GetLeft(), cf:GetTop(), base:GetLeft(), base:GetTop()
+    if not l or not t or not bl or not bt then return false end
+    return math.abs(l - bl) > 2 or math.abs(t - bt) > 2
+end
+
+-- full: also re-dock saved-docked windows and put ChatFrame1 first (login).
+function D.repairDock(full)
+    local dock = DOCKED_CHAT_FRAMES
+    if type(dock) ~= "table" or not FCF_DockUpdate or not FCF_SelectDockFrame then return 0 end
+    local cf1 = getglobal("ChatFrame1")
+    local sel = SELECTED_DOCK_FRAME
+    local fixed = 0
+    local i
+    if full and FCF_DockFrame then
+        for i = 1, M.numWindows() do
+            local cf = M.frame(i)
+            local _, _, docked = windowInfo(i)
+            if cf and docked and cf ~= cf1 then
+                local inDock = false
+                local j
+                for j = 1, table.getn(dock) do
+                    if dock[j] == cf then inDock = true end
+                end
+                if not inDock then
+                    cf.isDocked = nil
+                    FCF_DockFrame(cf)
+                    dock = DOCKED_CHAT_FRAMES
+                    fixed = fixed + 1
+                end
+            end
+        end
+        if cf1 and dock[1] ~= cf1 then
+            for i = table.getn(dock), 2, -1 do
+                if dock[i] == cf1 then
+                    table.remove(dock, i)
+                    table.insert(dock, 1, cf1)
+                    if FCF_SaveDock then FCF_SaveDock() end
+                    dock = DOCKED_CHAT_FRAMES
+                    fixed = fixed + 1
+                end
+            end
+        end
+    end
+    local selIn = false
+    for i = 1, table.getn(dock) do
+        if dock[i] == sel then selIn = true end
+    end
+    local bad = not selIn or fixed > 0
+    local base = DEFAULT_CHAT_FRAME or cf1
+    for i = 1, table.getn(dock) do
+        local cf = dock[i]
+        if cf ~= sel and cf:IsShown() then bad = true end
+        if i > 1 and base and not (base.resizing or cf.resizing) and offDock(cf, base) then bad = true end
+    end
+    if bad then
+        if not selIn then sel = dock[1] end
+        if sel then FCF_SelectDockFrame(sel) else FCF_DockUpdate() end
+        fixed = fixed + 1
+    end
+    return fixed
+end
 
 local function anyFrames()
     local ti
@@ -1192,6 +1323,7 @@ ticker:SetScript("OnUpdate", function()
     if this.acc < 1 then return end
     this.acc = 0
     if not M.ready or not D._started then return end
+    if not MOVING_CHATFRAME then D.repairDock(false) end
     local c = cfg()
     if not c.on or not anyFrames() then
         if next(D.docked) then D.undockAll() end
@@ -1236,6 +1368,9 @@ function D:world()
         D.purgeRemoved()
         local c = cfg()
         if c.on and anyFrames() then D.sync(true) end
+    end)
+    M.After(2.5, function()
+        if D.repairDock(true) > 0 then M.Print("put overlapping or loose chat tabs back in the dock.") end
     end)
 end
 
@@ -1337,6 +1472,9 @@ SlashCmdList["ICHAUICHAT"] = function(msg)
     if rest == "auto" then rest = "size" end
     if cmd == "dockdebug" then
         D.debug()
+    elseif cmd == "fixtabs" then
+        local n = D.repairDock(true)
+        M.Print(n > 0 and "chat tabs put back in the dock." or "chat dock looks fine.")
     elseif cmd == "dockfit" and (rest == "size" or rest == "scale") then
         local c = cfg()
         c.twtFit = rest
@@ -1346,7 +1484,7 @@ SlashCmdList["ICHAUICHAT"] = function(msg)
         M.Print("TWThreat dock fit: " .. rest)
     else
         M.Print("/ichachat dockdebug - Meters dock sizes; /ichachat dockfit size|scale (now " .. D.twtMode()
-            .. "; scale = TWThreat's own layout scaled up, bigger text)")
+            .. "; scale = TWThreat's own layout scaled up, bigger text); /ichachat fixtabs - re-dock stuck chat tabs")
     end
 end
 

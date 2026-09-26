@@ -80,9 +80,12 @@ local function hookTabs()
     end
 end
 
+-- The game flashes docked tabs you're not on; this flashes the one you are
+-- on, when it shows whispers.
 function T.flashSelected()
-    local cf = M.selectedFrame()
-    if not cf or not cf:IsVisible() then return end
+    local cf = M.shownFrame()
+    if not cf or not cf:IsVisible() or isHost(cf) then return end
+    if M.Dock and M.Dock.showsGroup and not M.Dock.showsGroup(cf, "WHISPER") then return end
     local flash = getglobal(cf:GetName() .. "TabFlash")
     if not flash then return end
     if UIFrameFlash then
@@ -226,7 +229,7 @@ end
 local ev = CreateFrame("Frame")
 ev:SetScript("OnEvent", function()
     if event == "CHAT_MSG_WHISPER" then
-        if M.C("tabs").on and M.C("tabs").flashWhisper then T.flashSelected() end
+        if M.C("tabs").flashWhisper then T.flashSelected() end
     elseif event == "CHANNEL_UI_UPDATE" or event == "CHAT_MSG_CHANNEL_NOTICE" or event == "UPDATE_CHAT_COLOR" then
         queueColors()
     end
@@ -243,7 +246,16 @@ local function hookColors()
 end
 
 ------------------------------------------------------------------------
+-- tabs.on used to gate the whisper flash too; it now only dims tab names.
+local function migrate()
+    local c = M.C("tabs")
+    if c.flashOwn then return end
+    if not c.on then c.flashWhisper = false end
+    c.flashOwn = true
+end
+
 function T:login()
+    migrate()
     hookTabs()
     hookColors()
     ev:RegisterEvent("CHAT_MSG_WHISPER")
@@ -267,6 +279,7 @@ function T:world()
 end
 
 function T:apply()
+    migrate()
     T.applyFonts()
     T.applyFade()
     T.paintTabs()

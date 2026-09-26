@@ -269,36 +269,71 @@ local function ensureOuterBorder(cf)
     return border
 end
 
--- The chrome backdrop is the only chat fill. Blizzard's ChatFrameNBackground
--- (window alpha / hover fades) stays hidden while skinned: drawn over the
--- chrome it stacked a second dark layer that no IchaUI slider controlled.
--- Its requested alpha is kept so turning the skin off gives it back.
+-- The chrome backdrop is the only chat fill. Blizzard's window art (1.12
+-- CHAT_FRAME_TEXTURES: ChatFrameNBackground plus the ChatFrameNResize*Texture
+-- border pieces) takes the tab menu's Background color / opacity and the hover
+-- fade; drawn with the chrome it was a second window with its own alpha. It
+-- stays hidden while skinned; requested alphas are kept for skin off.
+local BLIZZ_ART = {
+    "Background",
+    "ResizeTopLeftTexture", "ResizeTopRightTexture", "ResizeBottomLeftTexture", "ResizeBottomRightTexture",
+    "ResizeTopTexture", "ResizeBottomTexture", "ResizeLeftTexture", "ResizeRightTexture",
+}
+
 local function muteBlizzBackground(cf)
-    local bg = cf and getglobal(cf:GetName() .. "Background")
-    if not bg then return end
-    if not bg._waMute then
-        bg._waMute = true
-        if bg._waReqA == nil and bg.GetAlpha then bg._waReqA = bg:GetAlpha() end
-        local rawShow, rawAlpha = bg.Show, bg.SetAlpha
-        bg._waRawShow, bg._waRawAlpha = rawShow, rawAlpha
-        bg.Show = function(self)
-            if not enabled then rawShow(self) end
-        end
-        bg.SetAlpha = function(self, a)
-            self._waReqA = tonumber(a) or 0
-            if not enabled then rawAlpha(self, self._waReqA) end
+    if not cf then return end
+    local name = cf:GetName()
+    local i
+    for i = 1, table.getn(BLIZZ_ART) do
+        local t = getglobal(name .. BLIZZ_ART[i])
+        if t and t.Hide then
+            if not t._waMute then
+                t._waMute = true
+                if t._waReqA == nil and t.GetAlpha then t._waReqA = t:GetAlpha() end
+                local rawShow, rawAlpha = t.Show, t.SetAlpha
+                t._waRawShow, t._waRawAlpha = rawShow, rawAlpha
+                t.Show = function(self)
+                    if not enabled then rawShow(self) end
+                end
+                t.SetAlpha = function(self, a)
+                    self._waReqA = tonumber(a) or 0
+                    if not enabled then rawAlpha(self, self._waReqA) end
+                end
+            end
+            t:Hide()
         end
     end
-    bg:Hide()
 end
 
 local function restoreBlizzBackground(cf)
-    local bg = cf and getglobal(cf:GetName() .. "Background")
-    if not bg or not bg._waMute then return end
-    bg:ClearAllPoints()
-    bg:SetAllPoints(cf)
-    bg._waRawAlpha(bg, bg._waReqA or 0)
-    bg._waRawShow(bg)
+    if not cf then return end
+    local name = cf:GetName()
+    local i
+    for i = 1, table.getn(BLIZZ_ART) do
+        local t = getglobal(name .. BLIZZ_ART[i])
+        if t and t._waMute then
+            if i == 1 then
+                t:ClearAllPoints()
+                t:SetAllPoints(cf)
+            end
+            t._waRawAlpha(t, t._waReqA or 0)
+            t._waRawShow(t)
+        end
+    end
+end
+
+-- The tab menu's Background opacity sets the one chat fill (the chrome
+-- alpha, all windows). Every window's saved alpha is kept equal to it so
+-- the picker opens at the current value and Cancel returns to it.
+local syncedA = nil
+local function syncBlizzAlpha()
+    if syncedA == BG[4] or type(SetChatWindowAlpha) ~= "function" then return end
+    syncedA = BG[4]
+    local i
+    for i = 1, (NUM_CHAT_WINDOWS or 7) do
+        local id = i
+        pcall(function() SetChatWindowAlpha(id, BG[4]) end)
+    end
 end
 
 local function skinChatFrame(cf)
@@ -524,6 +559,7 @@ local function skinAll()
     loadCfg()
     destroyLegacyBorders()
     if not enabled then return end
+    syncBlizzAlpha()
     hideGlobalChatButtons()
     local n = NUM_CHAT_WINDOWS or 7
     local i
@@ -777,6 +813,28 @@ local function hookReskin(fname)
 end
 hookReskin("FCF_DockFrame")
 hookReskin("FCF_UnDockFrame")
+
+-- doNotSave is set on login restores; unset means the tab menu's opacity
+-- slider (or its Cancel). Drags come every frame, so reskin once per frame.
+if type(FCF_SetWindowAlpha) == "function" then
+    local oldA = FCF_SetWindowAlpha
+    local alphaQ = CreateFrame("Frame")
+    alphaQ:Hide()
+    alphaQ:SetScript("OnUpdate", function()
+        this:Hide()
+        if enabled then skinAll() end
+    end)
+    FCF_SetWindowAlpha = function(frame, alpha, doNotSave)
+        oldA(frame, alpha, doNotSave)
+        if enabled and not doNotSave and tonumber(alpha) then
+            BG[4] = tonumber(alpha)
+            if BG[4] < 0.15 then BG[4] = 0.15 end
+            if BG[4] > 1 then BG[4] = 1 end
+            saveCfg()
+            alphaQ:Show()
+        end
+    end
+end
 
 if type(ChatEdit_UpdateHeader) == "function" then
     local oldH = ChatEdit_UpdateHeader

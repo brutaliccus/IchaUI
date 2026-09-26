@@ -1873,13 +1873,37 @@ function IchaUI_Cast_ToggleDebug()
     end
 end
 
+function IchaUI_Cast_HomeLag()
+    if type(GetNetStats) ~= "function" then return 0 end
+    local _, _, lagHome = GetNetStats()
+    local home = tonumber(lagHome) or 0
+    if home < 0 then home = 0 end
+    return home
+end
+
 function IchaUI_Cast_LagMs()
-    -- Only observed SUCCESS leftover. No GetNetStats zone.
-    if (IchaUI_Cast_LagEmaN or 0) < 1 then return 0 end
-    local e = tonumber(IchaUI_Cast_LagEma) or 0
-    if e < 0 then e = 0 end
-    if e > 400 then e = 400 end
-    return e
+    -- One-way only. Never add home RTT on top of leftover (that triples the zone).
+    -- redMs = min(home/2, leftover) once a SUCCESS sample exists; leftover/2 if home is 0.
+    local home = IchaUI_Cast_HomeLag()
+    local oneWay = home / 2
+    if oneWay > 250 then oneWay = 250 end
+    IchaUI_Cast_LastHome = home
+    IchaUI_Cast_LastOneWay = oneWay
+    if (IchaUI_Cast_LagEmaN or 0) < 1 then
+        IchaUI_Cast_LastRedMs = 0
+        return 0
+    end
+    local leftover = tonumber(IchaUI_Cast_LagEma) or 0
+    if leftover < 0 then leftover = 0 end
+    if leftover > 400 then leftover = 400 end
+    local red = leftover / 2
+    if oneWay > 0 then
+        red = oneWay
+        if leftover < red then red = leftover end
+    end
+    if red > 250 then red = 250 end
+    IchaUI_Cast_LastRedMs = red
+    return red
 end
 
 function IchaUI_Cast_NoteSafe(lock, nowSec)
@@ -1896,17 +1920,19 @@ function IchaUI_Cast_NoteSafe(lock, nowSec)
     if dur > 0 then prog = elapsed / dur end
     if prog < 0 then prog = 0 end
     if prog > 1 then prog = 1 end
-    local redFrac = 0
-    if dur > 0 then redFrac = leftover / dur end
     IchaUI_Cast_LastProg = prog
-    IchaUI_Cast_LastRedFrac = redFrac
     IchaUI_Cast_LastLeft = leftover
+    IchaUI_Cast_LastDur = dur
     if IchaUI_Cast_LagEma then
         IchaUI_Cast_LagEma = IchaUI_Cast_LagEma * 0.55 + leftover * 0.45
     else
         IchaUI_Cast_LagEma = leftover
     end
     IchaUI_Cast_LagEmaN = (IchaUI_Cast_LagEmaN or 0) + 1
+    local redMs = IchaUI_Cast_LagMs()
+    local redFrac = 0
+    if dur > 0 then redFrac = redMs / dur end
+    IchaUI_Cast_LastRedFrac = redFrac
 end
 
 function IchaUI_Cast_Kill(why, caster)
@@ -1919,13 +1945,16 @@ function IchaUI_Cast_Kill(why, caster)
     if why == "CAST" and lock then
         IchaUI_Cast_NoteSafe(lock, now)
         IchaUI_Cast_Debug(string.format(
-            "SUCCESS start=%.0f end=%.0f t=%.3f prog=%.3f redFrac=%.3f leftover=%.0fms",
+            "SUCCESS start=%.0f end=%.0f t=%.3f prog=%.3f homeLag=%.0f oneWay=%.0f leftover=%.0f redMs=%.0f redFrac=%.3f",
             tonumber(lock.start) or 0,
             tonumber(lock.finish) or 0,
             now,
             tonumber(IchaUI_Cast_LastProg) or 0,
-            tonumber(IchaUI_Cast_LastRedFrac) or 0,
-            tonumber(IchaUI_Cast_LastLeft) or 0))
+            tonumber(IchaUI_Cast_LastHome) or 0,
+            tonumber(IchaUI_Cast_LastOneWay) or 0,
+            tonumber(IchaUI_Cast_LastLeft) or 0,
+            tonumber(IchaUI_Cast_LastRedMs) or 0,
+            tonumber(IchaUI_Cast_LastRedFrac) or 0))
     else
         IchaUI_Cast_Debug(string.format(
             "%s t=%.3f spell=%s start=%.0f end=%.0f src=%s",

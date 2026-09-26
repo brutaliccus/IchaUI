@@ -1904,31 +1904,20 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
     end
     if orig < 50 then orig = raw end
 
-    -- Outgoing hardcasts: statusbar is (real - lag). 100% = server accept.
-    local disp = orig
-    if fr and not info.channel then
-        local lag = tonumber(fr._castDispLag) or 0
-        if lag > 0 then
-            disp = orig - lag
-            if disp < 100 then disp = 100 end
-            if disp > orig then disp = orig end
-        end
-    end
-
     local pct = 0
-    if disp > 0 then
+    if orig > 0 then
         if info.channel then
             pct = (finish - nowMs) / orig
         else
             local elapsed = nowMs - start - delay
             if elapsed < 0 then elapsed = 0 end
-            if elapsed > disp then elapsed = disp end
-            pct = elapsed / disp
+            if elapsed > orig then elapsed = orig end
+            pct = elapsed / orig
         end
     end
     if pct < 0 then pct = 0 end
     if pct > 1 then pct = 1 end
-    return pct, orig, disp
+    return pct, orig
 end
 
 -- Left/right end caps. The original border texture is the stretchable middle.
@@ -2148,8 +2137,8 @@ function IchaUI_Cast_QuenchEvent(event, arg1)
     IchaUI_Cast_QuenchUnit(who)
 end
 
--- Thin send-point tick at the RIGHT end. OVERLAY so gold fill never covers it.
--- The statusbar already represents (duration - lag); this is not a wait zone.
+-- Quartz: red block at the RIGHT end. Width is (lag/realDur)*barWidth.
+-- OVERLAY so gold can grow through it without hiding the zone.
 function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     local castLag = fr and fr.castLag
     local castFrame = fr and fr.castFrame
@@ -2161,13 +2150,13 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     end
     local maxW = tonumber(fr._castFillMax) or 1
     if maxW < 1 then maxW = 1 end
-    local show = tonumber(lagW) or 0
-    if show <= 0 then
+    local w = tonumber(lagW) or 0
+    if w <= 0 then
         fr._castLagW = 0
         castLag:Hide()
         return
     end
-    local w = 3
+    if w < 3 then w = 3 end
     if w > maxW then w = maxW end
     fr._castLagW = w
     local il = tonumber(fr._castFillInsetL) or 0
@@ -2178,10 +2167,6 @@ function IchaUI_Cast_PlaceLag(fr, lagW, channel)
     castLag:SetPoint("BOTTOMLEFT", castFrame, "BOTTOMLEFT", x, iy)
     castLag:SetWidth(math.max(0.001, w))
     if castLag.SetDrawLayer then castLag:SetDrawLayer("OVERLAY") end
-    if castLag.SetFrameLevel then
-        local fl = castFrame.GetFrameLevel and castFrame:GetFrameLevel() or 1
-        castLag:SetFrameLevel(fl + 6)
-    end
     castLag:SetVertexColor(0.85, 0.12, 0.12, 1)
     castLag:Show()
 end
@@ -6477,7 +6462,12 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if pct < 0 then pct = 0 end
                 if pct > 1 then pct = 1 end
                 local lagW = 0
-                if not locked then lagW = 3 end
+                if not locked then
+                    local durMs = TEST_CAST_DUR * 1000
+                    if durMs > 0 then
+                        lagW = maxW * (150 / durMs)
+                    end
+                end
                 self._castLagW = lagW
                 castInterrupt:Hide()
                 castName:Show()
@@ -6640,9 +6630,8 @@ local function createUnitFrame(key, unit, defaults, opts)
                 lagMs = getCastLatencyMs()
             end
             self._castDispLag = lagMs
-            local pct, dur, disp = IchaUI_Cast_Progress(self, info, now)
+            local pct, dur = IchaUI_Cast_Progress(self, info, now)
             if dur <= 0 then dur = finish - start end
-            if not disp or disp <= 0 then disp = dur end
             -- Same cast: never draw backward (SUCCESS leftover / late START / pin).
             local holdKey = tostring(info.spellId or "") .. "\t" .. tostring(info.name or "")
             if info.channel then holdKey = "c:" .. holdKey end
@@ -6651,33 +6640,21 @@ local function createUnitFrame(key, unit, defaults, opts)
             else
                 self._castHoldKey = holdKey
                 self._castHoldPct = 0
-                self._castDispEnded = nil
             end
             if pct > (self._castHoldPct or 0) then self._castHoldPct = pct end
             if pct < 0 then pct = 0 end
             if pct > 1 then pct = 1 end
-            -- Display end = server accept. Paint 100% once, then hide (no lag-ms hold).
-            if outgoing and (not info.channel) and (not locked) and pct >= 1 then
-                if self._castDispEnded then
-                    if IchaUI_Cast_MarkDone then
-                        local g = IchaUI_Swing_Guid and IchaUI_Swing_Guid(unit)
-                        if g then IchaUI_Cast_MarkDone(g, info.spellId, start) end
-                        IchaUI_Cast_MarkDone("player", info.spellId, start)
-                    end
-                    IchaUI_Cast_QuenchFrame(self)
-                    return
-                end
-                self._castDispEnded = true
-            end
             local maxW = self._castFillMax or 1
-            local tickW = 0
-            if outgoing and (not info.channel) then tickW = 3 end
-            self._castLagW = tickW
+            local lagW = 0
+            if outgoing and (not info.channel) and dur > 0 and lagMs > 0 then
+                lagW = maxW * (lagMs / dur)
+            end
+            self._castLagW = lagW
             IchaUI_SeatCastFill(castFill, castFrame, self._castFillX or 6, self._castFillY or -7, math.max(0.001, maxW * pct), self._castFillH or 8)
             if castFill then castFill:Show() end
             if castBg then castBg:Show() end
             IchaUI_Cast_PlaceSpark(self, maxW * pct)
-            local remain = (1 - pct) * disp / 1000
+            local remain = (finish - now) / 1000
             if remain < 0 then remain = 0 end
             if castTime then
                 if remain >= 10 then
@@ -6692,14 +6669,14 @@ local function createUnitFrame(key, unit, defaults, opts)
                 if castLag then castLag:Hide() end
             elseif castLag then
                 castLag:SetTexture(IchaUI_CAST_FILL)
-                IchaUI_Cast_PlaceLag(self, tickW, info.channel)
+                IchaUI_Cast_PlaceLag(self, lagW, info.channel)
             end
             if castTime then
                 castTime:ClearAllPoints()
                 local ir = self._castFillInsetR or 0
                 local lagOff = ir + 4
-                if tickW >= 2 and not info.channel then
-                    lagOff = ir + tickW + 2
+                if lagW >= 2 and not info.channel then
+                    lagOff = ir + lagW + 2
                 end
                 castTime:SetPoint("RIGHT", castFrame, "RIGHT", -lagOff, 0)
             end

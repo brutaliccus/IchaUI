@@ -258,7 +258,7 @@ local function writeStack(btn, count, auraKey)
         btn.stack:Hide()
         btn._auraKey = auraKey
     end
-    if count > 1 or (btn.consolidated and count > 0) then
+    if count > 1 or (btn.consolidated and count > 0 and not btn._consOpen) then
         btn.stack:ClearAllPoints()
         btn.stack:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -2, 2)
         btn.stack:SetText(tostring(math.floor(count)))
@@ -348,21 +348,26 @@ local function hideBlizzardBuffs()
 end
 
 
-local function applyAspect(tex, w, h)
+local function applyAspect(tex, w, h, sideZoom)
     if not tex then return end
     local pad, span = 0.07, 0.86
-    if w == h then
-        tex:SetTexCoord(pad, 1 - pad, pad, 1 - pad)
-        return
+    local z = tonumber(sideZoom) or 0
+    if z < 0 then z = 0 end
+    local u0, u1 = pad + z, 1 - pad - z
+    local v0, v1 = pad, 1 - pad
+    if w and h and w ~= h then
+        if w > h then
+            -- Wider frame: crop top/bottom of square spell icon so it isn't squashed
+            local crop = (1 - (h / w)) / 2
+            v0 = pad + crop * span
+            v1 = 1 - pad - crop * span
+        else
+            local crop = (1 - (w / h)) / 2
+            u0 = pad + crop * span + z
+            u1 = 1 - pad - crop * span - z
+        end
     end
-    if w > h then
-        -- Wider frame: crop top/bottom of square spell icon so it isn't squashed
-        local crop = (1 - (h / w)) / 2
-        tex:SetTexCoord(pad, 1 - pad, pad + crop * span, 1 - pad - crop * span)
-    else
-        local crop = (1 - (w / h)) / 2
-        tex:SetTexCoord(pad + crop * span, 1 - pad - crop * span, pad, 1 - pad)
-    end
+    tex:SetTexCoord(u0, u1, v0, v1)
 end
 
 local function goldRGB()
@@ -518,7 +523,11 @@ local function sizeIcon(btn)
     local w, h = iconW(), iconH()
     btn:SetWidth(w)
     btn:SetHeight(h)
-    applyAspect(btn.icon, w, h)
+    if btn.consolidated then
+        applyAspect(btn.icon, w, h, 0.10)
+    else
+        applyAspect(btn.icon, w, h)
+    end
     if btn.roundMask then btn.roundMask:Show() end
     local e = math.floor(11 * cfgScale + 0.5)
     if e < 8 then e = 8 end
@@ -861,8 +870,9 @@ local function paintList(icons, root, filter)
             btn._longNames = e.names
             btn._longList = e.longs
             btn.icon:SetTexture(consIcon(opened))
-            applyAspect(btn.icon, iconW(), iconH())
-            btn._auraCount = e.count or 0
+            applyAspect(btn.icon, iconW(), iconH(), 0.10)
+            btn._auraCount = 0
+            if not opened then btn._auraCount = e.count or 0 end
             btn._auraKeyPending = "consolidated"
             btn.dur:SetText("")
             paintConsArrow(btn)

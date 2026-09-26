@@ -552,17 +552,22 @@ local function installIchaUIWorldMap()
         return nil
     end
 
-    -- Turtle WorldMapPing is a Model on WorldMapFrame. Windowed Minimize
-    -- leaves it at the stock 15,-33 / 0.7-scale spot; IchaUI's art lives
-    -- on WorldMapButton inside the viewport (10,-23, scale 1). Snap ping
-    -- onto the button at the same 0-1 player point the arrow uses.
+    -- Turtle WorldMapButton_OnUpdate (FrameXML ~536) does
+    --   ping:SetPoint(CENTER, WorldMapDetailFrame, TOPLEFT, playerX-7, playerY-9)
+    -- The -7,-9 is the MinimapPing.mdx origin vs the C++ arrow / WorldMapPlayer
+    -- centre. e11423b snapped the ping frame onto the pin and dropped that
+    -- nudge, so the pulse sat 7px right and 9px up of the character. Keep the
+    -- ping on WorldMapButton (same zoom/pan as the pin) and apply the stock
+    -- origin. playerX/Y are DetailFrame pixels, same as the arrow.
+    local PING_OX, PING_OY = -7, -9
+
     local function playerMapOffset()
         if not GetPlayerMapPosition then return nil end
         local px, py = GetPlayerMapPosition("player")
         if not px or (px == 0 and py == 0) then return nil end
-        local b = WorldMapButton
-        local w = (b and b.GetWidth and b:GetWidth()) or ART_W
-        local h = (b and b.GetHeight and b:GetHeight()) or ART_H
+        local host = WorldMapDetailFrame or WorldMapButton
+        local w = (host and host.GetWidth and host:GetWidth()) or ART_W
+        local h = (host and host.GetHeight and host:GetHeight()) or ART_H
         return px * w, -py * h
     end
 
@@ -591,37 +596,37 @@ local function installIchaUIWorldMap()
         end
     end
 
-    local function snapOnButton(f, x, y)
-        if not f or not f.SetPoint or not WorldMapButton then return end
-        rememberMarker(f)
-        if f.GetParent and f:GetParent() ~= WorldMapButton then
-            pcall(function() f:SetParent(WorldMapButton) end)
-        end
-        if f.SetScale then f:SetScale(1) end
-        f:ClearAllPoints()
-        local mark = zoom.arrow
-        if mark and mark.IsShown and mark:IsShown() then
-            f:SetPoint("CENTER", mark, "CENTER", 0, 0)
-        else
-            local m = zoom.model
-            if m and m ~= false and m.IsShown and m:IsShown() then
-                f:SetPoint("CENTER", m, "CENTER", 0, 0)
-            else
-                f:SetPoint("CENTER", WorldMapButton, "TOPLEFT", x, y)
-            end
-        end
-        if f.SetFrameLevel and zoom.lvButton then
-            pcall(function() f:SetFrameLevel((zoom.lvButton or 1) + 7) end)
-        end
+    local function visiblePin()
+        local a = zoom.arrow
+        if a and a.IsShown and a:IsShown() then return a end
+        local m = arrowModel()
+        if m and m.IsShown and m:IsShown() then return m end
+        local pl = getglobal("WorldMapPlayer")
+        if pl and pl.IsShown and pl:IsShown() then return pl end
+        return nil
     end
 
     local function updatePing()
         if not st.active or not native then return end
+        local ping = getglobal("WorldMapPing")
+        if not ping or not ping.SetPoint then return end
         local x, y = playerMapOffset()
         if x == nil then return end
-        arrowModel()
-        local ping = getglobal("WorldMapPing")
-        if ping then snapOnButton(ping, x, y) end
+        rememberMarker(ping)
+        local host = WorldMapButton or WorldMapDetailFrame
+        if not host then return end
+        if ping.GetParent and ping:GetParent() ~= host then
+            pcall(function() ping:SetParent(host) end)
+        end
+        if ping.SetScale then ping:SetScale(1) end
+        -- Same relative point Turtle uses, so zoom/pan match the pin and the
+        -- model origin stays 7px left / 9px down of the pin frame centre.
+        local rel = WorldMapDetailFrame or host
+        ping:ClearAllPoints()
+        ping:SetPoint("CENTER", rel, "TOPLEFT", x + PING_OX, y + PING_OY)
+        if ping.SetFrameLevel and zoom.lvButton then
+            pcall(function() ping:SetFrameLevel((zoom.lvButton or 1) + 7) end)
+        end
     end
 
     -- The client places its player arrow model in unzoomed units (Blizzard
@@ -1769,6 +1774,23 @@ local function installIchaUIWorldMap()
             px, py = GetPlayerMapPosition("player")
         end
         chat("|cffffd200you|r " .. n(px) .. "," .. n(py))
+        local ping, pin = getglobal("WorldMapPing"), visiblePin()
+        if ping and pin and ping.GetCenter and pin.GetCenter then
+            local pex, pey = ping:GetCenter()
+            local nix, niy = pin:GetCenter()
+            if pex and nix then
+                local pes = ping:GetEffectiveScale() or 1
+                local nes = pin:GetEffectiveScale() or 1
+                local dx = pex * pes - nix * nes
+                local dy = pey * pes - niy * nes
+                local bes = (WorldMapButton and WorldMapButton:GetEffectiveScale()) or 1
+                if bes <= 0 then bes = 1 end
+                chat("|cffffd200ping-pin|r screen " .. n(dx) .. "," .. n(dy)
+                    .. " art " .. n(dx / bes) .. "," .. n(dy / bes)
+                    .. " want " .. PING_OX .. "," .. PING_OY
+                    .. " pin=" .. nm(pin))
+            end
+        end
         if WorldMapFrameScrollFrame then fr("magnify", WorldMapFrameScrollFrame) end
         local drops = { "pfQuestMapDropdown", "pfQuestMapLevelDropdown",
             "ModernMapMarkersFilter_Blizz", "ModernMapMarkersFind_Blizz" }

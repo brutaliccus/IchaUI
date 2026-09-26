@@ -1568,6 +1568,9 @@ end
 -- 200-local main-chunk limit.
 IchaUITotemSets = IchaUITotemSets or {}
 IchaUITotemSets.override = nil -- element→base picks while throwing a non-page set
+-- Drop stale page-caret frames from a soft /reload so MakeArrow can rebind art.
+IchaUITotemSets.prev = nil
+IchaUITotemSets.next = nil
 
 function IchaUITotemSets.Norm()
     local d = db()
@@ -4388,30 +4391,68 @@ function IchaUITotemSets.ApplyBindings()
     pcall(IchaUITotemSets.BindingLabels)
 end
 
--- Bar paging arrows (only with 2+ sets). Same caret art as the minimap
--- drawer handle / mob stats caret: native left glyph, mirrored for right.
-IchaUITotemSets.ARROW_UP = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
-IchaUITotemSets.ARROW_DOWN = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Down.tga"
+-- Bar paging arrows (only with 2+ sets). Same caret art and paint path as
+-- the minimap drawer handle / mob stats caret: native left glyph, mirrored
+-- for right. Extensionless path first — this client can drop a .tga
+-- SetTexture after /reload and leave the green missing-texture tile.
+IchaUITotemSets.ARROW_UP = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up"
+IchaUITotemSets.ARROW_DOWN = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Down"
 
 function IchaUITotemSets.PaintArrow(btn, pressed)
-    local tex = btn.arrowTex
-    tex:SetTexture(pressed and IchaUITotemSets.ARROW_DOWN or IchaUITotemSets.ARROW_UP)
+    local tex = btn and btn.arrowTex
+    if not tex then return end
+    local base = IchaUITotemSets.ARROW_UP
+    if pressed then base = IchaUITotemSets.ARROW_DOWN end
+    tex:SetTexture(base)
+    local g = tex.GetTexture and tex:GetTexture()
+    if type(g) ~= "string" or not string.find(string.lower(g), "arrow%-left") then
+        tex:SetTexture(base .. ".tga")
+    end
     if btn.dir < 0 then
         tex:SetTexCoord(0, 1, 0, 1)
     else
         tex:SetTexCoord(1, 0, 0, 1)
     end
+    -- 1.12 SetTexture restores the 32px file size; SetAllPoints on an
+    -- unsized button left a 0x0 or native-size blob after /reload.
+    local aw = btn:GetWidth()
+    if not aw or aw < 8 then aw = 22 end
     tex:ClearAllPoints()
-    tex:SetAllPoints(btn)
+    tex:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    tex:SetWidth(aw)
+    tex:SetHeight(aw)
     tex:SetVertexColor(1, 1, 1, 1)
+    tex:Show()
 end
 
 function IchaUITotemSets.MakeArrow(dir)
-    local b = CreateFrame("Button", dir < 0 and "IchaUITotemPagePrev" or "IchaUITotemPageNext", root)
+    local name = dir < 0 and "IchaUITotemPagePrev" or "IchaUITotemPageNext"
+    local b = getglobal(name)
+    if not b then
+        b = CreateFrame("Button", name, root)
+    else
+        b:SetParent(root)
+    end
     b.dir = dir
     b:EnableMouse(true)
     b:RegisterForClicks("LeftButtonUp")
-    b.arrowTex = b:CreateTexture(nil, "ARTWORK")
+    if not b.arrowTex then
+        local regions = { b:GetRegions() }
+        local ri
+        for ri = 1, table.getn(regions) do
+            local r = regions[ri]
+            if r and r.GetObjectType and r:GetObjectType() == "Texture" then
+                if not b.arrowTex then
+                    b.arrowTex = r
+                elseif r ~= b.arrowTex then
+                    r:Hide()
+                end
+            end
+        end
+        if not b.arrowTex then
+            b.arrowTex = b:CreateTexture(nil, "ARTWORK")
+        end
+    end
     IchaUITotemSets.PaintArrow(b, false)
     b:SetScript("OnMouseDown", function() IchaUITotemSets.PaintArrow(this, true) end)
     b:SetScript("OnMouseUp", function() IchaUITotemSets.PaintArrow(this, false) end)
@@ -4520,7 +4561,9 @@ function IchaUITotemSets.LayoutArrows(size, gap)
     local oy = -aw * S.ARROW_LIFT
     local left = S.RingExtent(first)
     local _, right = S.RingExtent(last)
-    local fl = (root:GetFrameLevel() or 1) + 6
+    -- Above slot form rings (slot+8). +6 sat under the ring quad and the
+    -- leftover TrackingBorder texels looked like a missing-texture tile.
+    local fl = (root:GetFrameLevel() or 1) + 16
     S.prev:SetWidth(aw)
     S.prev:SetHeight(aw)
     S.prev:ClearAllPoints()
@@ -4546,6 +4589,8 @@ function IchaUITotemSets.RefreshArrows()
         S.next:Hide()
         return
     end
+    IchaUITotemSets.PaintArrow(S.prev, false)
+    IchaUITotemSets.PaintArrow(S.next, false)
     S.prev:Show()
     S.next:Show()
 end

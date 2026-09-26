@@ -12,4 +12,5 @@ EditBox.lua
 Scroll.lua
 Tabs.lua
 Dock.lua
+Grip.lua
 ChatOptions.lua

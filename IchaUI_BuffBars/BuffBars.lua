@@ -418,6 +418,13 @@ local function ensureConsChrome(btn)
     a:Hide()
 end
 
+local function cancelPlayerHelpful(btn)
+    if not btn or btn.consolidated then return end
+    if btn.filter == "HELPFUL" and btn.index ~= nil then
+        CancelPlayerBuff(btn.index)
+    end
+end
+
 local function tipConsolidated(btn)
     if GameTooltip then GameTooltip:Hide() end
     if not btn or not btn.consolidated or btn._consOpen then
@@ -490,15 +497,16 @@ local function makeIcon(parent, name)
         end
         GameTooltip:Hide()
     end)
+    btn:SetScript("OnMouseUp", function()
+        if arg1 == "RightButton" then
+            cancelPlayerHelpful(this)
+        end
+    end)
     btn:SetScript("OnClick", function()
         if this.consolidated then
             if IchaUIBuffBars_Set then
                 IchaUIBuffBars_Set("consolidatedExpanded", not consolidateOpen())
             end
-            return
-        end
-        if arg1 == "RightButton" and this.filter == "HELPFUL" and this.index ~= nil then
-            CancelPlayerBuff(this.index)
         end
     end)
 
@@ -510,13 +518,8 @@ local function sizeIcon(btn)
     local w, h = iconW(), iconH()
     btn:SetWidth(w)
     btn:SetHeight(h)
-    if btn.consolidated then
-        btn.icon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
-        if btn.roundMask then btn.roundMask:Hide() end
-    else
-        applyAspect(btn.icon, w, h)
-        if btn.roundMask then btn.roundMask:Show() end
-    end
+    applyAspect(btn.icon, w, h)
+    if btn.roundMask then btn.roundMask:Show() end
     local e = math.floor(11 * cfgScale + 0.5)
     if e < 8 then e = 8 end
     if e > 18 then e = 18 end
@@ -534,13 +537,14 @@ local function sizeIcon(btn)
     btn.dur:SetPoint("TOP", btn, "BOTTOM", 0, -1)
     btn.dur:SetWidth(w + 8)
     if btn.arrowBtn then
-        local aw = math.floor(h * 0.42 + 0.5)
+        local aw = math.floor(h * 0.38 + 0.5)
         if aw < 10 then aw = 10 end
-        if aw > 16 then aw = 16 end
+        if aw > 14 then aw = 14 end
         btn.arrowBtn:SetWidth(aw)
         btn.arrowBtn:SetHeight(aw)
         btn.arrowBtn:ClearAllPoints()
-        btn.arrowBtn:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 1, 1)
+        btn.arrowBtn:SetPoint("BOTTOMLEFT", btn, "BOTTOMLEFT", 2, 2)
+        btn.arrowBtn:SetFrameLevel((btn:GetFrameLevel() or 1) + 10)
         paintConsArrow(btn)
     end
 end
@@ -659,41 +663,62 @@ local function paintConsFly()
     local n = table.getn(list)
     if n > 24 then n = 24 end
     ensureIcons(consUI.icons, f, "ConsFly", n)
-    local i
-    for i = 1, n do
-        local e = list[i]
-        local btn = consUI.icons[i]
-        btn.consolidated = nil
-        btn._consOpen = nil
-        btn._longList = nil
-        btn.index = e.index
-        btn.filter = "HELPFUL"
-        btn.dtype = nil
-        btn.icon:SetTexture(e.texture)
-        applyAspect(btn.icon, iconW(), iconH())
-        if btn.roundMask then btn.roundMask:Show() end
-        btn._auraCount = e.count or 0
-        btn._auraKeyPending = e.texture or ""
-        if e.timeLeft and e.timeLeft > 0 then
-            btn.dur:SetText(formatDur(e.timeLeft))
-        else
-            btn.dur:SetText("")
-        end
-        local eSz = math.floor(11 * cfgScale + 0.5)
-        if eSz < 8 then eSz = 8 end
-        if eSz > 18 then eSz = 18 end
-        applyBorder(btn.border, eSz, nil)
-    end
+    local w, h = iconW(), iconH()
+    local gap = cfgGap
+    local durH = math.max(12, math.floor(cfgText * cfgScale + 0.5) + 2)
+    local rowH = h + durH + (cfgRowGap or 0)
     local cols = n
     if cols > 8 then cols = 8 end
     if cols < 1 then cols = 1 end
-    local saveCols = cfgCols
-    cfgCols = cols
-    layoutRow(f, consUI.icons, n)
-    cfgCols = saveCols
-    local pad = 8
-    f:SetWidth((f:GetWidth() or iconW()) + pad)
-    f:SetHeight((f:GetHeight() or iconH()) + pad)
+    local rows = math.floor((n + cols - 1) / cols)
+    if rows < 1 then rows = 1 end
+    -- Icon gold borders sit 2px outside the button; keep them inside the panel.
+    local inset = 8
+    f:SetWidth(cols * (w + gap) - gap + inset * 2)
+    f:SetHeight(rows * rowH + inset * 2)
+    local flyLvl = (f:GetFrameLevel() or 1) + 5
+    local i
+    for i = 1, table.getn(consUI.icons) do
+        local btn = consUI.icons[i]
+        if i <= n then
+            local e = list[i]
+            btn.consolidated = nil
+            btn._consOpen = nil
+            btn._longList = nil
+            btn.index = e.index
+            btn.filter = "HELPFUL"
+            btn.dtype = nil
+            btn.icon:SetTexture(e.texture)
+            btn._auraCount = e.count or 0
+            btn._auraKeyPending = e.texture or ""
+            if e.timeLeft and e.timeLeft > 0 then
+                btn.dur:SetText(formatDur(e.timeLeft))
+            else
+                btn.dur:SetText("")
+            end
+            sizeIcon(btn)
+            btn:EnableMouse(true)
+            btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            btn:SetFrameLevel(flyLvl)
+            local idx = i - 1
+            local col = math.mod(idx, cols)
+            local row = math.floor(idx / cols)
+            local x = -(inset + col * (w + gap))
+            local y = -(inset + row * rowH)
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPRIGHT", f, "TOPRIGHT", x, y)
+            btn:Show()
+            btn.dur:Show()
+            writeStack(btn, btn._auraCount, btn._auraKeyPending)
+        else
+            btn.index = nil
+            btn.consolidated = nil
+            writeStack(btn, 0, nil)
+            btn:Hide()
+            btn.dur:SetText("")
+            btn.dur:Hide()
+        end
+    end
     f:ClearAllPoints()
     f:SetPoint("TOPRIGHT", host, "BOTTOMRIGHT", 4, -6)
     f:Show()
@@ -836,8 +861,7 @@ local function paintList(icons, root, filter)
             btn._longNames = e.names
             btn._longList = e.longs
             btn.icon:SetTexture(consIcon(opened))
-            btn.icon:SetTexCoord(0.04, 0.96, 0.04, 0.96)
-            if btn.roundMask then btn.roundMask:Hide() end
+            applyAspect(btn.icon, iconW(), iconH())
             btn._auraCount = e.count or 0
             btn._auraKeyPending = "consolidated"
             btn.dur:SetText("")

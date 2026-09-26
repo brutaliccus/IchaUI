@@ -1779,6 +1779,71 @@ function IchaUI_Cast_ClearPin(fr)
     fr._castPinDur = nil
 end
 
+-- After UNIT_CASTEVENT CAST / SPELLCAST_STOP: ignore leftover ClassicAPI times
+-- (same start) so the bar cannot bounce backward. Globals: chunk local budget.
+function IchaUI_Cast_MarkDone(key, spellID, startMs)
+    if not key then return end
+    if not IchaUI_Cast_Done then IchaUI_Cast_Done = {} end
+    local now = 0
+    if GetTime then now = GetTime() end
+    IchaUI_Cast_Done[tostring(key)] = {
+        spellId = spellID,
+        start = tonumber(startMs) or 0,
+        untilSec = now + 1.25,
+        marked = now,
+    }
+end
+
+function IchaUI_Cast_IsStale(key, spellID, startMs)
+    if not IchaUI_Cast_Done or not key then return false end
+    local d = IchaUI_Cast_Done[tostring(key)]
+    if not d then return false end
+    local now = 0
+    if GetTime then now = GetTime() end
+    if now > (d.untilSec or 0) then
+        IchaUI_Cast_Done[tostring(key)] = nil
+        return false
+    end
+    startMs = tonumber(startMs) or 0
+    if (d.start or 0) > 0 then
+        if startMs > (d.start + 80) then return false end
+    elseif (now - (d.marked or 0)) >= 0.35 then
+        return false
+    end
+    if spellID and d.spellId and tonumber(spellID) ~= tonumber(d.spellId) then
+        return false
+    end
+    return true
+end
+
+function IchaUI_Cast_LateStart(key, spellID)
+    if not IchaUI_Cast_Done or not key then return false end
+    local d = IchaUI_Cast_Done[tostring(key)]
+    if not d then return false end
+    local now = 0
+    if GetTime then now = GetTime() end
+    if now > (d.untilSec or 0) then
+        IchaUI_Cast_Done[tostring(key)] = nil
+        return false
+    end
+    if spellID and d.spellId and tonumber(spellID) ~= tonumber(d.spellId) then
+        return false
+    end
+    return (now - (d.marked or 0)) < 0.35
+end
+
+function IchaUI_Cast_FilterInfo(unit, info)
+    if not info then return nil end
+    local st = tonumber(info.start) or 0
+    local sid = info.spellId
+    if IchaUI_Swing_Guid then
+        local g = IchaUI_Swing_Guid(unit)
+        if g and IchaUI_Cast_IsStale(g, sid, st) then return nil end
+    end
+    if unit == "player" and IchaUI_Cast_IsStale("player", sid, st) then return nil end
+    return info
+end
+
 -- Vanilla pushback: jump the fill back by a fixed delay, keep original fill rate.
 -- ClassicAPI keeps startMs and extends endMs (delayMs); do not use stretched duration.
 function IchaUI_Cast_Progress(fr, info, nowMs)
@@ -1825,15 +1890,27 @@ function IchaUI_Cast_Progress(fr, info, nowMs)
     end
     if orig < 50 then orig = raw end
 
+    -- Outgoing player casts: shorten display so the fill hits 100% when the
+    -- server accepts (GetNetStats lag). Incoming / channels keep real duration.
+    local disp = orig
+    if fr and not info.channel then
+        local lag = tonumber(fr._castDispLag) or 0
+        if lag > 0 then
+            disp = orig - lag
+            if disp < 100 then disp = 100 end
+            if disp > orig then disp = orig end
+        end
+    end
+
     local pct = 0
-    if orig > 0 then
+    if disp > 0 then
         if info.channel then
             pct = (finish - nowMs) / orig
         else
             local elapsed = nowMs - start - delay
             if elapsed < 0 then elapsed = 0 end
-            if elapsed > orig then elapsed = orig end
-            pct = elapsed / orig
+            if elapsed > disp then elapsed = disp end
+            pct = elapsed / disp
         end
     end
     if pct < 0 then pct = 0 end
@@ -1994,6 +2071,11 @@ function IchaUI_Cast_QuenchFrame(fr)
     fr._testCastStart = nil
     fr._castQuenchMark = nowSec * 1000
     fr._castQuenchUntil = nowSec + 1.5
+    if IchaUI_Cast_MarkDone and fr.unit then
+        local g = IchaUI_Swing_Guid and IchaUI_Swing_Guid(fr.unit)
+        if g then IchaUI_Cast_MarkDone(g, nil, fr._castPinStart) end
+        if fr.unit == "player" then IchaUI_Cast_MarkDone("player", nil, fr._castPinStart) end
+    end
     if IchaUI_Cast_ClearPin then IchaUI_Cast_ClearPin(fr) end
     if wasLocked or hold <= nowSec then
         fr._casting = false
@@ -4120,11 +4202,20 @@ function swCastRemember(caster, castEvent, spellID, durMs)
         return
     end
     if et == "CAST" then
-        -- Successful finish: end the bar now (don't wipe before this frame's updateCast)
+        -- Successful finish: snap end to now. Channel CAST is a tick — do not end.
         local info = swCastByGuid[guid]
+        if info and info.channel then
+            return
+        end
+        local nowMs = (GetTime and GetTime() or 0) * 1000
         if info then
-            local nowMs = (GetTime and GetTime() or 0) * 1000
             info.finish = nowMs
+            info.succeeded = true
+            if IchaUI_Cast_MarkDone then
+                IchaUI_Cast_MarkDone(guid, info.spellId or spellID, info.start)
+            end
+        elseif IchaUI_Cast_MarkDone then
+            IchaUI_Cast_MarkDone(guid, spellID, nil)
         end
         return
     end
@@ -4141,6 +4232,30 @@ function swCastRemember(caster, castEvent, spellID, durMs)
         return
     end
     if et ~= "START" and et ~= "CHANNEL" then return end
+    if IchaUI_Cast_LateStart and IchaUI_Cast_LateStart(guid, spellID) then
+        return
+    end
+    local nowMs = (GetTime and GetTime() or 0) * 1000
+    local existing = swCastByGuid[guid]
+    -- Channel ticks must not reset the bar to full unless the duration grew (refresh).
+    if et == "CHANNEL" and existing and existing.channel and not existing.succeeded then
+        local same = true
+        if spellID and existing.spellId and tonumber(spellID) ~= tonumber(existing.spellId) then
+            same = false
+        end
+        if same and (tonumber(existing.finish) or 0) > nowMs + 50 then
+            local extra = tonumber(durMs) or 0
+            if extra > 0 and extra < 50 then extra = extra * 1000 end
+            if extra > 0 then
+                local newFin = nowMs + extra
+                if newFin > (tonumber(existing.finish) or 0) + 250 then
+                    existing.start = nowMs
+                    existing.finish = newFin
+                end
+            end
+            return
+        end
+    end
     -- Prefer a readable name if SuperWoW can resolve the GUID as a unit
     local uname = nil
     if type(UnitName) == "function" then
@@ -4148,6 +4263,7 @@ function swCastRemember(caster, castEvent, spellID, durMs)
         if ok and type(n) == "string" and n ~= "" then uname = n end
     end
     swCastStore(guid, uname, spellID, nil, durMs, et == "CHANNEL")
+    if IchaUI_Cast_Done then IchaUI_Cast_Done[guid] = nil end
 end
 
 function swCastFresh(info, keyGuid, keyName)
@@ -4305,9 +4421,9 @@ local function getCastInfo(unit)
     --        castID, notInterruptible, spellId [, castBarID, delayMs]
     if C_Spell and type(C_Spell) == "table" then
         local ok, info = pcall(IchaUI_Cast_FromClassic, unit, false)
-        if ok and info then return info end
+        if ok and info then return IchaUI_Cast_FilterInfo(unit, info) end
         ok, info = pcall(IchaUI_Cast_FromClassic, unit, true)
-        if ok and info then return info end
+        if ok and info then return IchaUI_Cast_FilterInfo(unit, info) end
     end
 
     -- 2) Client-provided global UnitCastingInfo / UnitChannelInfo, if any
@@ -4320,7 +4436,7 @@ local function getCastInfo(unit)
                 texture, startMs, endMs = r3, r4, r5
             end
             local info = castInfoFromParts(r1, texture, startMs, endMs, false, nil, false)
-            if info then return info end
+            if info then return IchaUI_Cast_FilterInfo(unit, info) end
         end
     end
     if type(UnitChannelInfo) == "function" then
@@ -4331,15 +4447,16 @@ local function getCastInfo(unit)
                 texture, startMs, endMs = r3, r4, r5
             end
             local info = castInfoFromParts(r1, texture, startMs, endMs, true, nil, false)
-            if info then return info end
+            if info then return IchaUI_Cast_FilterInfo(unit, info) end
         end
     end
 
     -- 3) SuperWoW / combat-log cache
-    return getSwCastInfo(unit)
+    return IchaUI_Cast_FilterInfo(unit, getSwCastInfo(unit))
 end
 
 local function getCastLatencyMs()
+    -- 1.12: down, up, lag. SuperWoW / later may add lagWorld as a 4th return.
     if type(GetNetStats) ~= "function" then return 0 end
     local _, _, lagHome, lagWorld = GetNetStats()
     local lag = tonumber(lagWorld) or tonumber(lagHome) or 0
@@ -5989,16 +6106,23 @@ local function createUnitFrame(key, unit, defaults, opts)
 
             -- Channel bg + fill + lag (StatusBar), gold / dark / red.
             -- Regular bar: empty track meets the inner border. Gold fill keeps insets.
-            -- Shield keeps its own insets so the left tip is not re-clipped.
+            -- Shield: same track height as interruptible (4px Y); keep left/right insets.
             if castBg then
                 castBg:SetTexture(IchaUI_CAST_FILL)
                 castBg:ClearAllPoints()
+                local bgTop = 4
+                local bgH = (castH or 22) - (bgTop * 2)
+                if bgH < 1 then bgH = 1 end
                 if lockedBar then
-                    castBg:SetPoint("TOPLEFT", castFrame, "TOPLEFT", insetL, -insetY)
-                    castBg:SetPoint("BOTTOMRIGHT", castFrame, "BOTTOMRIGHT", -insetR, insetY)
+                    IchaUI_SeatCastFill(castBg, castFrame, insetL, -bgTop, math.max(0.001, fillMax), bgH)
                 else
-                    castBg:SetPoint("TOPLEFT", castFrame, "TOPLEFT", 3, -4)
-                    castBg:SetPoint("BOTTOMRIGHT", castFrame, "BOTTOMRIGHT", -4, 4)
+                    castBg:SetPoint("TOPLEFT", castFrame, "TOPLEFT", 3, -bgTop)
+                    castBg:SetPoint("BOTTOMRIGHT", castFrame, "BOTTOMRIGHT", -4, bgTop)
+                    if castBg.SetHeight then castBg:SetHeight(bgH) end
+                end
+                -- 1.12 keeps UI-StatusBar at file height unless texcoords are non-identity.
+                if castBg.SetTexCoord then
+                    castBg:SetTexCoord(0.5 / 256, 1 - (0.5 / 256), 0.5 / 32, 1 - (0.5 / 32))
                 end
                 castBg:SetVertexColor(0.08, 0.07, 0.06, 1)
                 castBg:Show()
@@ -6488,12 +6612,18 @@ local function createUnitFrame(key, unit, defaults, opts)
                 -- Cast bar show/hide must not rebuild debuff icons.
                 return
             end
-            local pct, dur = IchaUI_Cast_Progress(self, info, now)
-            if dur <= 0 then dur = finish - start end
             local lagMs = 0
-            if unit == "player" then
+            local outgoing = (unit == "player")
+            if (not outgoing) and unit and UnitIsUnit then
+                local okU, sameU = pcall(UnitIsUnit, unit, "player")
+                outgoing = okU and sameU and true or false
+            end
+            if outgoing and not info.channel then
                 lagMs = getCastLatencyMs()
             end
+            self._castDispLag = lagMs
+            local pct, dur = IchaUI_Cast_Progress(self, info, now)
+            if dur <= 0 then dur = finish - start end
             local lagFrac = 0
             if dur > 0 and lagMs > 0 then
                 lagFrac = lagMs / dur
@@ -6509,6 +6639,9 @@ local function createUnitFrame(key, unit, defaults, opts)
             if castBg then castBg:Show() end
             IchaUI_Cast_PlaceSpark(self, maxW * pct)
             local remain = (finish - now) / 1000
+            if lagMs > 0 and not info.channel then
+                remain = remain - (lagMs / 1000)
+            end
             if remain < 0 then remain = 0 end
             if castTime then
                 if remain >= 10 then
@@ -11872,6 +12005,13 @@ ev:SetScript("OnEvent", function()
                 applyPlayerHealPred(pendingCastName, nil, spellID)
             end
         elseif isPlayerCaster and castEvent == "CAST" then
+            do
+                local pg = IchaUI_Swing_Guid and IchaUI_Swing_Guid("player")
+                local pinfo = pg and swCastByGuid[pg]
+                if IchaUI_Cast_MarkDone and pinfo and not pinfo.channel then
+                    IchaUI_Cast_MarkDone("player", spellID, pinfo.start)
+                end
+            end
             local sname = spellNameFromId(spellID) or pendingCastName
             -- Cache prefix of the unit this cast landed on (SuperWoW arg2 = target GUID).
             -- Instant DoTs (Flame Shock, SW:P, Serpent Sting...) have no START, so a

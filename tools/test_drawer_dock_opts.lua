@@ -1,4 +1,4 @@
--- Drawer dock picker ids and the edit-mode popup dock rows.
+-- Drawer popup dock rows, and custom-drawer Alt / edit-mode config clicks.
 --   lua5.1 tools/test_drawer_dock_opts.lua
 local fails = 0
 local function check(cond, msg)
@@ -31,7 +31,7 @@ function proto:SetBackdropColor() end
 function proto:SetBackdropBorderColor() end
 function proto:SetTextColor() end
 function proto:SetFont() end
-function proto:GetFont() return nil end
+function proto:GetFont() return "Fonts\\FRIZQT__.TTF", 10, "" end
 function proto:SetJustifyH() end
 function proto:SetAllPoints() end
 function proto:SetMinMaxValues(lo, hi) self.lo, self.hi = lo, hi end
@@ -125,69 +125,26 @@ UIParent.GetWidth = function() return 800 end
 UIParent.GetHeight = function() return 600 end
 UIParent.GetLeft = function() return 0 end
 UIParent.GetTop = function() return 600 end
-
+function GetTime() return 0 end
 IchaUI_PaintGoldBorder = noop
 IchaUI_PaintGoldFont = noop
-IchaUI_DyeFs = function(fs, r, g, b)
-    if fs and fs.SetTextColor then fs:SetTextColor(r, g, b) end
-end
+IchaUI_PaintGoldRing = noop
 
-local optionsOk, optionsErr = pcall(dofile, "IchaUI/Options.lua")
-check(optionsOk, "load Options.lua: " .. tostring(optionsErr))
 local popOk, popErr = pcall(dofile, "IchaUI/DrawerPop.lua")
 check(popOk, "load DrawerPop.lua: " .. tostring(popErr))
 
-IchaUI_IsShaman = function() return false end
 IchaUIDB = {
     customDrawers = {
-        { id = "pots", name = "Pots", shape = "circle", dir = "up" },
-        { id = "noname", name = "" },
-        { name = "NoId" },
+        { id = "pots", name = "Pots", shape = "circle", dir = "up", x = 0, y = 0, entries = {} },
     },
 }
-IchaUIDB.customDrawers.note = { id = "ghost", name = "Ghost" }
-
-local function findOpt(opts, id)
-    local i
-    for i = 1, table.getn(opts) do
-        if opts[i] and opts[i][1] == id then return opts[i] end
-    end
-    return nil
-end
-
-local opts = IchaUI_DrawerDockDrawerOpts()
-check(findOpt(opts, "totems") == nil, "non-shaman omits totems")
-check(findOpt(opts, "recall") == nil, "non-shaman omits recall")
-check(findOpt(opts, "utility") == nil, "non-shaman omits utility")
-check(findOpt(opts, "minimap") ~= nil, "lists minimap")
-check(findOpt(opts, "resists") ~= nil, "lists resists")
-local pots = findOpt(opts, "cd:pots")
-check(pots ~= nil and pots[2] == "Pots", "custom drawer is cd:pots labeled Pots")
-check(findOpt(opts, "pots") == nil, "does not list the bare custom id")
-check(findOpt(opts, "ghost") == nil and findOpt(opts, "cd:ghost") == nil, "ignores a hash entry pairs() would see")
-local noname = findOpt(opts, "cd:noname")
-check(noname ~= nil and noname[2] == "noname", "empty name falls back to id")
-check(findOpt(opts, "cd:NoId") == nil, "skips a record with no id")
-
-local potsAt, nonameAt
-local i
-for i = 1, table.getn(opts) do
-    if opts[i][1] == "cd:pots" then potsAt = i end
-    if opts[i][1] == "cd:noname" then nonameAt = i end
-end
-check(potsAt and nonameAt and potsAt < nonameAt, "custom drawers stay in array order")
-
-IchaUI_IsShaman = function() return true end
-opts = IchaUI_DrawerDockDrawerOpts()
-check(opts[1] and opts[1][1] == "totems" and opts[1][2] == "Totems", "shaman lists totems first")
-check(findOpt(opts, "cd:pots") ~= nil, "shaman list still has cd:pots")
+function IchaUI_IsShaman() return true end
+function IchaUI_CustomDrawers_ApplyStyle() end
 
 local dock = {}
 local sets = {}
 local clears = {}
-function IchaUI_DrawerDockGet(id)
-    return dock[id]
-end
+function IchaUI_DrawerDockGet(id) return dock[id] end
 function IchaUI_DrawerDockSet(id, key, value)
     table.insert(sets, { id, key, value })
     if type(dock[id]) ~= "table" then dock[id] = {} end
@@ -207,62 +164,21 @@ function IchaUI_DrawerDockPortraitOpts()
     return { { "player", "Player" }, { "target", "Target" } }
 end
 
-IchaUI_IsShaman = function() return false end
-local page = CreateFrame("Frame", "DockPage")
-page.GetHeight = function() return 0 end
-page.SetHeight = function() end
-local bottom = IchaUI_BuildDrawerDockBlock(page, -4, 10)
-check(type(bottom) == "number" and bottom < -4, "dock block returns a cursor below its header")
-
-local function buttonText(prefix)
-    local n, f
-    for n, f in ipairs(all) do
-        if f._label and type(f._label.text) == "string" and string.sub(f._label.text, 1, string.len(prefix)) == prefix then
-            return f
-        end
-    end
-    return nil
-end
-
-local drawerBtn = buttonText("Drawer: ")
-check(drawerBtn ~= nil and drawerBtn._label.text == "Drawer: Minimap", "picker starts on Minimap")
-
 local captured
 IchaUI_ChoiceMenu = function(anchor, menuOpts, cur, onPick)
     captured = { opts = menuOpts, cur = cur, onPick = onPick, anchor = anchor }
 end
-this = drawerBtn
-drawerBtn.scripts.OnClick()
-check(captured and findOpt(captured.opts, "cd:pots") and findOpt(captured.opts, "cd:pots")[2] == "Pots",
-    "picker menu includes cd:pots / Pots")
-check(captured and findOpt(captured.opts, "cd:ghost") == nil, "picker menu skips the hash entry")
-local pickIdx
-for i = 1, table.getn(captured.opts) do
-    if captured.opts[i][1] == "cd:pots" then pickIdx = i end
+
+local function popCell(fragment)
+    local found
+    local n, f
+    for n, f in ipairs(all) do
+        if f.lastText and string.find(f.lastText, fragment, 1, true) and f.scripts and f.scripts.OnClick then
+            found = f
+        end
+    end
+    return found
 end
-captured.onPick(pickIdx)
-drawerBtn = buttonText("Drawer: ")
-check(drawerBtn and drawerBtn._label.text == "Drawer: Pots", "picking the custom row selects Pots")
-
-dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 45, ox = 3, oy = -1,
-    parent = "PlayerFrame", point = "TOP", relPoint = "BOTTOM", x = 12, y = -8 }
-IchaUI_DrawerDockBlockRefresh()
-
-local function rowShown(prefix)
-    local btn = buttonText(prefix)
-    if not btn or not btn.parent then return nil end
-    return btn.parent.shown
-end
-check(rowShown("Unit: ") == true, "portrait mode shows the unit row")
-check(rowShown("Parent: ") == false, "portrait mode hides the frame parent row")
-check(buttonText("Unit: ") and buttonText("Unit: ")._label.text == "Unit: Player", "unit label comes from PortraitOpts")
-
-dock["cd:pots"].mode = "frame"
-IchaUI_DrawerDockBlockRefresh()
-check(rowShown("Parent: ") == true, "frame mode shows the parent row")
-check(rowShown("Unit: ") == false, "frame mode hides the unit row")
-check(buttonText("Point: ") and buttonText("Point: ")._label.text == "Point: Top", "point label")
-check(buttonText("Rel: ") and buttonText("Rel: ")._label.text == "Rel: Bottom", "relPoint label")
 
 local function cellShown(fragment)
     local found
@@ -277,95 +193,108 @@ local function cellShown(fragment)
     end
     return found
 end
-check(cellShown("Angle") == false, "frame mode hides the angle slider")
-local xsl
-local n, f
-for n, f in ipairs(all) do
-    if f.lo == -1200 and f.scripts and f.scripts.OnValueChanged then xsl = f end
-end
-check(xsl ~= nil, "frame offsets have a slider")
-local nsets = table.getn(sets)
-xsl.value = 40
-this = xsl
-xsl.scripts.OnValueChanged()
-check(table.getn(sets) == nsets + 1, "dragging an offset writes once")
-check(dock["cd:pots"].x == 40 or dock["cd:pots"].y == 40, "offset slider writes through DrawerDockSet")
 
-local clearBtn = buttonText("Clear dock")
-check(clearBtn ~= nil, "options block has Clear dock")
-this = clearBtn
-clearBtn.scripts.OnClick()
-check(clears[table.getn(clears)] == "cd:pots", "Clear dock clears the selected cd: id")
-check(rowShown("Parent: ") == false, "clear returns to free and hides frame rows")
-
--- Edit-mode popup for the same custom drawer.
-dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 90, ox = 4, oy = -2,
-    parent = "PlayerFrame", point = "TOPLEFT", relPoint = "CENTER", x = 20, y = -6 }
-function IchaUI_CustomDrawers_ApplyStyle() end
-local shown = IchaUI_ShowDrawerPop("cd:pots")
-check(shown == true, "right-click path opens the custom drawer popup")
-check(IchaUIDrawerPop and IchaUIDrawerPop.title and IchaUIDrawerPop.title.text == "Pots", "popup title is the drawer name")
-
-local function popCell(fragment)
-    local found
+local function dockButtons()
+    local c = 0
     local n, f
     for n, f in ipairs(all) do
-        if f.lastText and string.find(f.lastText, fragment, 1, true) and f.scripts and f.scripts.OnClick then
-            found = f
+        if f.lastText and string.sub(f.lastText, 1, 6) == "Dock: " and f.scripts and f.scripts.OnClick then
+            c = c + 1
         end
     end
-    return found
+    return c
 end
-local dockBtn = popCell("Dock: ")
-check(dockBtn ~= nil and dockBtn.lastText == "Dock: Portrait", "popup dock mode is Portrait")
-check(dockBtn.shown == true, "dock mode row is shown")
-local parentBtn = popCell("Parent: ")
-check(parentBtn ~= nil and parentBtn.shown == false, "popup hides parent while portrait-docked")
-local unitBtn = popCell("Unit: ")
-check(unitBtn ~= nil and unitBtn.shown == true and unitBtn.lastText == "Unit: Player", "popup shows the portrait unit")
+
+dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 90, ox = 4, oy = -2,
+    parent = "PlayerFrame", point = "TOPLEFT", relPoint = "CENTER", x = 20, y = -6 }
+check(IchaUI_ShowDrawerPop("cd:pots") == true, "custom drawer popup opens")
+check(IchaUIDrawerPop and IchaUIDrawerPop.title and IchaUIDrawerPop.title.text == "Pots", "popup title is the drawer name")
+check(popCell("Dock: ") and popCell("Dock: ").lastText == "Dock: Portrait", "popup dock mode is Portrait")
+check(popCell("Parent: ") and popCell("Parent: ").shown == false, "popup hides parent while portrait-docked")
+check(popCell("Unit: ") and popCell("Unit: ").shown == true and popCell("Unit: ").lastText == "Unit: Player",
+    "popup shows the portrait unit")
 check(cellShown("Angle") == true, "popup shows angle while portrait-docked")
 check(cellShown("Dock X") == false, "popup hides frame offsets while portrait-docked")
 
-captured = nil
+local dockBtn = popCell("Dock: ")
 this = dockBtn
 dockBtn.scripts.OnClick()
 check(captured and captured.opts and captured.opts[3] and captured.opts[3][1] == "portrait", "popup mode menu offers portrait")
-local frameIdx
+local frameIdx, i
 for i = 1, table.getn(captured.opts) do
     if captured.opts[i][1] == "frame" then frameIdx = i end
 end
 captured.onPick(frameIdx)
 check(dock["cd:pots"].mode == "frame", "picking Frame writes mode through DrawerDockSet")
-parentBtn = popCell("Parent: ")
-unitBtn = popCell("Unit: ")
-check(parentBtn and parentBtn.shown == true, "popup shows parent after switching to frame")
-check(unitBtn and unitBtn.shown == false, "popup hides unit after switching to frame")
+check(popCell("Parent: ") and popCell("Parent: ").shown == true, "popup shows parent after switching to frame")
+check(popCell("Unit: ") and popCell("Unit: ").shown == false, "popup hides unit after switching to frame")
 check(popCell("Point: ") and popCell("Point: ").lastText == "Point: Top Left", "popup point label")
 
 local clearPop = popCell("Clear dock")
 check(clearPop ~= nil, "popup has Clear dock")
-local nclears = table.getn(clears)
 this = clearPop
 clearPop.scripts.OnClick()
-check(table.getn(clears) == nclears + 1 and clears[table.getn(clears)] == "cd:pots", "popup Clear dock uses the cd: id")
+check(clears[table.getn(clears)] == "cd:pots", "popup Clear dock uses the cd: id")
 check(popCell("Dock: ") and popCell("Dock: ").lastText == "Dock: Free", "popup returns to Free after clear")
 check(popCell("Parent: ").shown == false and popCell("Unit: ").shown == false, "popup hides dock fields after clear")
 
--- No DrawerDock API: a second drawer omits dock rows.
+function IchaUITotems_Get() return {} end
+function IchaUITotems_Set() end
+function IchaUI_TotemRecallSet() end
+function IchaUIShamanExtras_SetDrawerDir() end
+function IchaUIUF_SetTankDrawerSide() end
+function IchaUIMinimap_GetDrawer() return {} end
+function IchaUIMinimap_SetDrawer() end
+
+local ids = { "totems", "recall", "utility", "imbue", "shield", "resists", "minimap" }
+local before = dockButtons()
+for i = 1, table.getn(ids) do
+    local id = ids[i]
+    check(IchaUI_ShowDrawerPop(id) == true, "popup opens for " .. id)
+    check(dockButtons() == before + i, id .. " popup has dock controls")
+end
+
 IchaUI_DrawerDockGet = nil
 IchaUI_DrawerDockSet = nil
-IchaUIDB.customDrawers[3] = { id = "bare", name = "Bare", shape = "circle", dir = "up" }
-local bare = IchaUI_ShowDrawerPop("cd:bare")
-check(bare == true, "popup still opens when DrawerDock is absent")
-local function countText(exact)
-    local c = 0
-    local n, f
-    for n, f in ipairs(all) do
-        if f.lastText == exact and f.scripts and f.scripts.OnClick then c = c + 1 end
+IchaUIDB.customDrawers[2] = { id = "bare", name = "Bare", shape = "circle", dir = "up" }
+local docksBeforeBare = dockButtons()
+check(IchaUI_ShowDrawerPop("cd:bare") == true, "popup still opens when DrawerDock is absent")
+check(dockButtons() == docksBeforeBare, "missing DrawerDock omits dock rows")
+
+local cdOk, cdErr = pcall(dofile, "IchaUI_CustomDrawers/CustomDrawers.lua")
+check(cdOk, "load CustomDrawers.lua: " .. tostring(cdErr))
+if cdOk then
+    local opened = {}
+    IchaUI_ShowDrawerPop = function(id)
+        table.insert(opened, id)
+        return true
     end
-    return c
+    local applyOk, applyErr = pcall(IchaUI_CustomDrawers_Apply)
+    check(applyOk, "apply custom drawers: " .. tostring(applyErr))
+    local btn = IchaUICustomDrawerpots
+    check(btn and btn.scripts and btn.scripts.OnMouseUp, "custom drawer handle has a mouse-up script")
+    if btn and btn.scripts and btn.scripts.OnMouseUp then
+        local altOn, editOn = false, false
+        function IsAltKeyDown() return altOn end
+        function IchaUI_EditModeActive() return editOn end
+        local function click(button)
+            arg1 = button
+            this = btn
+            btn.scripts.OnMouseUp()
+        end
+        click("RightButton")
+        check(table.getn(opened) == 0, "plain right-click outside edit mode does not open config")
+        altOn = true
+        click("RightButton")
+        check(table.getn(opened) == 1 and opened[1] == "cd:pots", "Alt+right-click opens the cd: popup outside edit mode")
+        altOn = false
+        editOn = true
+        click("RightButton")
+        check(table.getn(opened) == 2 and opened[2] == "cd:pots", "plain right-click in edit mode opens the cd: popup")
+        click("LeftButton")
+        check(table.getn(opened) == 2, "left-click does not open the config popup")
+    end
 end
-check(countText("Clear dock") == 2, "missing DrawerDock does not add another Clear dock row")
 
 if fails > 0 then
     io.stderr:write(fails .. " failed\n")

@@ -796,7 +796,10 @@ local function makeDrawer(rec)
     end)
     btn:SetScript("OnMouseUp", function()
         if arg1 == "RightButton" then
-            if IchaUI_DrawerEditClick then IchaUI_DrawerEditClick("cd:" .. ui.id) end
+            -- Config: Alt+right-click always, or plain right-click in /icha move.
+            if (IsAltKeyDown and IsAltKeyDown()) or (IchaUI_EditModeActive and IchaUI_EditModeActive()) then
+                if IchaUI_ShowDrawerPop then IchaUI_ShowDrawerPop("cd:" .. ui.id) end
+            end
             return
         end
         if arg1 and arg1 ~= "LeftButton" then return end

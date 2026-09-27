@@ -53,6 +53,7 @@ function IchaUI_BuildDispelOptions(page, x, y, h)
         return 0
     end
 
+    local dispelRows = {}
     local function makeRow(action, ry)
         local icon = page:CreateTexture(nil, "ARTWORK")
         icon:SetWidth(16)
@@ -92,11 +93,27 @@ function IchaUI_BuildDispelOptions(page, x, y, h)
         warn:SetWidth(170)
         warn:SetJustifyH("LEFT")
 
+        local row = { action = action, icon = icon, name = name, btn = btn, mod = mod, warn = warn, baseY = ry }
+        table.insert(dispelRows, row)
         add(function()
             local c = IchaUI_DispelDB().clicks[action]
             local spell = nil
             if action ~= "Smart" then spell = IchaUI_Dispel_SpellFor(action) end
             local knownRow = IchaUI_Dispel_ActionKnown(action)
+            -- Hide unknown class dispels entirely (Smart always stays).
+            if action ~= "Smart" and not knownRow then
+                row._hidden = true
+                icon:Hide()
+                name:Hide()
+                btn:Hide()
+                mod:Hide()
+                warn:Hide()
+                return
+            end
+            row._hidden = false
+            icon:Show()
+            name:Show()
+            btn:Show()
             if action == "Smart" then
                 icon:SetTexture(SMART_ICON)
             else
@@ -106,33 +123,48 @@ function IchaUI_BuildDispelOptions(page, x, y, h)
             if spell then
                 local pet = IchaUI_Dispel_IsPetSpell(spell) and " (pet)" or ""
                 label = label .. ": " .. spell .. pet
-            elseif action ~= "Smart" then
-                label = label .. ": not known"
             end
             name:SetText(label)
-            if knownRow then
-                IchaUI_DyeFs(name, 1, 1, 1)
-                icon:SetVertexColor(1, 1, 1)
-            else
-                IchaUI_DyeFs(name, 0.55, 0.55, 0.55)
-                icon:SetVertexColor(0.4, 0.4, 0.4)
-            end
+            IchaUI_DyeFs(name, 1, 1, 1)
+            icon:SetVertexColor(1, 1, 1)
             btn:SetText(IchaUI_Dispel_ButtonLabel(c.button))
             mod:SetText(IchaUI_Dispel_ModLabel(c.mod))
             if c.button == "OFF" then mod:Hide() else mod:Show() end
-            local w = nil
-            if knownRow then w = IchaUI_Dispel_Conflict(action) end
+            local w = IchaUI_Dispel_Conflict(action)
             warn:SetText(w or "")
             IchaUI_DyeFs(warn, 1, 0.72, 0.3)
         end)
     end
 
+    local rowsTopY = y
     local i
     for i = 1, table.getn(IchaUI_DISPEL_ACTIONS) do
         makeRow(IchaUI_DISPEL_ACTIONS[i], y)
         y = y - 22
     end
-    y = y - 6
+    local function reflowDispelRows()
+        local yy = rowsTopY
+        local r
+        for r = 1, table.getn(dispelRows) do
+            local row = dispelRows[r]
+            if not row._hidden then
+                row.icon:ClearAllPoints()
+                row.icon:SetPoint("TOPLEFT", page, "TOPLEFT", x, yy - 2)
+                row.name:ClearAllPoints()
+                row.name:SetPoint("TOPLEFT", page, "TOPLEFT", x + 20, yy - 4)
+                row.btn:ClearAllPoints()
+                row.btn:SetPoint("TOPLEFT", page, "TOPLEFT", x + 174, yy)
+                yy = yy - 22
+            end
+        end
+        return yy - 6
+    end
+    local _prevRefresh = refreshAll
+    refreshAll = function()
+        _prevRefresh()
+        reflowDispelRows()
+    end
+    y = reflowDispelRows()
 
     -- Smart order (left) and binds (right)
     local oy = y

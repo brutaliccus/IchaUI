@@ -291,6 +291,8 @@ IchaUI_BakedDefaults = {
             textSize = 9,
         },
     },
+    drawerDock = {
+    },
     fill = {
         b = 0,
         g = 0.0392156862745098,
@@ -1553,6 +1555,7 @@ IchaUI_BakedAtomic = {
     smartMarkOff = true, smartMarkFriendOff = true,
     barPlace = { ["*"] = true },
     barPopPos = true, drawerPopPos = true,
+    drawerDock = true,
     minimapButtons = { buttons = { ["*"] = true } },
     uf = { raidDebuffs = true },
     dispel = { order = true },

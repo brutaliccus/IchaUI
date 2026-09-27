@@ -11,6 +11,22 @@ local drawerDir = "down"
 local drawerSpread = 90
 local drawerArc = 360
 local drawerRot = 90
+local drawerAnchor = "BOTTOM"
+local drawerOffX = 0
+local drawerOffY = 0
+local drawerMoveOn = false
+local ANCHORS = {
+    "TOP", "BOTTOM", "LEFT", "RIGHT",
+    "TOPLEFT", "TOPRIGHT", "BOTTOMLEFT", "BOTTOMRIGHT",
+}
+local function normAnchor(a)
+    a = string.upper(tostring(a or "BOTTOM"))
+    local i
+    for i = 1, table.getn(ANCHORS) do
+        if ANCHORS[i] == a then return a end
+    end
+    return "BOTTOM"
+end
 -- Pre-rotated TGAs (1.12 SetTexCoord is 4-arg only — cannot rotate in-client)
 local function setHandleArrow(tex, open, pressed)
     if not tex then return end
@@ -33,7 +49,12 @@ local function setHandleArrow(tex, open, pressed)
         end
         tex:SetTexCoord(0, 1, 0, 1)
     elseif dir == "radial" then
-        tex:SetTexture(pressed and ARROW_UP_DOWN or ARROW_UP_UP)
+        -- Same up/down flip as Open:Down — closed points up, open points down.
+        if open then
+            tex:SetTexture(pressed and ARROW_DOWN_DOWN or ARROW_DOWN_UP)
+        else
+            tex:SetTexture(pressed and ARROW_UP_DOWN or ARROW_UP_UP)
+        end
         tex:SetTexCoord(0, 1, 0, 1)
     else
         local leftUp = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
@@ -194,6 +215,9 @@ local function loadCfg()
     else
         drawerDir = "down"
     end
+    drawerAnchor = normAnchor(d.drawerAnchor or "BOTTOM")
+    drawerOffX = tonumber(d.drawerOffX) or 0
+    drawerOffY = tonumber(d.drawerOffY) or 0
     if IchaUI_DrawerNormSpread then
         drawerSpread = IchaUI_DrawerNormSpread(d.drawerSpread)
     else
@@ -235,6 +259,9 @@ local function saveCfg()
     d.drawerSpread = drawerSpread
     d.drawerArc = drawerArc
     d.drawerRot = drawerRot
+    d.drawerAnchor = drawerAnchor
+    d.drawerOffX = drawerOffX
+    d.drawerOffY = drawerOffY
 end
 
 ----------------------------------------------------------------------
@@ -973,46 +1000,29 @@ updateDrawerVisibility = function()
         handle:SetHeight(thin)
     end
     handle:ClearAllPoints()
-    if dir == "down" then
-        -- Sit under the clock when present; otherwise under the minimap
-        local clock = getglobal("IchaUIMinimapClock")
-        if clock and clock.IsShown and clock:IsShown() then
-            handle:SetPoint("TOP", clock, "BOTTOM", 0, -2)
-        elseif Minimap then
-            handle:SetPoint("TOP", Minimap, "BOTTOM", 0, -4)
-        else
-            handle:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
-    elseif dir == "up" then
-        local zone = getglobal("IchaUIMinimapZone")
-        if zone and zone.IsShown and zone:IsShown() then
-            handle:SetPoint("BOTTOM", zone, "TOP", 0, 2)
-        elseif Minimap then
-            handle:SetPoint("BOTTOM", Minimap, "TOP", 0, 4)
-        else
-            handle:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
-    elseif dir == "left" then
-        if Minimap then
-            handle:SetPoint("RIGHT", Minimap, "LEFT", -4, 0)
-        else
-            handle:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
-    elseif dir == "radial" or dir == "down" then
-        local clock = getglobal("IchaUIMinimapClock")
-        if dir == "radial" then clock = nil end
-        if dir ~= "radial" and clock and clock.IsShown and clock:IsShown() then
-            handle:SetPoint("TOP", clock, "BOTTOM", 0, -2)
-        elseif Minimap then
-            handle:SetPoint("TOP", Minimap, "BOTTOM", 0, -4)
-        else
-            handle:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-        end
-    else
-        if Minimap then
-            handle:SetPoint("LEFT", Minimap, "RIGHT", 4, 0)
-        else
-            handle:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    do
+        local anc = normAnchor(drawerAnchor)
+        local ox = tonumber(drawerOffX) or 0
+        local oy = tonumber(drawerOffY) or 0
+        local host = Minimap
+        if not host then
+            handle:SetPoint("CENTER", UIParent, "CENTER", ox, oy)
+        elseif anc == "TOP" then
+            handle:SetPoint("BOTTOM", host, "TOP", ox, oy + 4)
+        elseif anc == "BOTTOM" then
+            handle:SetPoint("TOP", host, "BOTTOM", ox, oy - 4)
+        elseif anc == "LEFT" then
+            handle:SetPoint("RIGHT", host, "LEFT", ox - 4, oy)
+        elseif anc == "RIGHT" then
+            handle:SetPoint("LEFT", host, "RIGHT", ox + 4, oy)
+        elseif anc == "TOPLEFT" then
+            handle:SetPoint("BOTTOMRIGHT", host, "TOPLEFT", ox - 2, oy + 2)
+        elseif anc == "TOPRIGHT" then
+            handle:SetPoint("BOTTOMLEFT", host, "TOPRIGHT", ox + 2, oy + 2)
+        elseif anc == "BOTTOMLEFT" then
+            handle:SetPoint("TOPRIGHT", host, "BOTTOMLEFT", ox - 2, oy - 2)
+        else -- BOTTOMRIGHT
+            handle:SetPoint("TOPLEFT", host, "BOTTOMRIGHT", ox + 2, oy - 2)
         end
     end
     if drawerOpen then
@@ -1339,10 +1349,14 @@ function IchaUIMinimap_GetDrawer()
         drawerOpen = drawerOpen,
         iconMoving = iconMoveOn and true or false,
         moving = iconMoveOn and true or false,
+        drawerMoving = drawerMoveOn and true or false,
         drawerDir = drawerDir or "down",
         drawerSpread = drawerSpread or 90,
         drawerArc = drawerArc or 360,
         drawerRot = drawerRot,
+        drawerAnchor = drawerAnchor or "BOTTOM",
+        drawerOffX = drawerOffX or 0,
+        drawerOffY = drawerOffY or 0,
     }
 end
 
@@ -1377,6 +1391,90 @@ function IchaUIMinimap_SetDrawer(field, value)
         iconMoveOn = not iconMoveOn
         ensureDrawer()
         applyAll()
+        return
+    elseif field == "drawerMove" or field == "handleMove" then
+        drawerMoveOn = not drawerMoveOn
+        ensureDrawer()
+        if handle then
+            if drawerMoveOn then
+                handle:RegisterForDrag("LeftButton")
+                handle:SetMovable(true)
+                handle:SetScript("OnDragStart", function()
+                    if not drawerMoveOn then return end
+                    this:StartMoving()
+                end)
+                handle:SetScript("OnDragStop", function()
+                    this:StopMovingOrSizing()
+                    if not Minimap then return end
+                    -- Store offset from current anchor edge.
+                    local anc = normAnchor(drawerAnchor)
+                    local hx, hy = this:GetCenter()
+                    local mx, my = Minimap:GetCenter()
+                    if not hx or not mx then return end
+                    local scale = this:GetEffectiveScale() or 1
+                    local mscale = Minimap:GetEffectiveScale() or 1
+                    hx = hx * scale / mscale
+                    hy = hy * scale / mscale
+                    local mw = (Minimap:GetWidth() or 140) * 0.5
+                    local mh = (Minimap:GetHeight() or 140) * 0.5
+                    if anc == "TOP" then
+                        drawerOffX = hx - mx
+                        drawerOffY = hy - (my + mh) - 4
+                    elseif anc == "BOTTOM" then
+                        drawerOffX = hx - mx
+                        drawerOffY = hy - (my - mh) + 4
+                    elseif anc == "LEFT" then
+                        drawerOffX = hx - (mx - mw) + 4
+                        drawerOffY = hy - my
+                    elseif anc == "RIGHT" then
+                        drawerOffX = hx - (mx + mw) - 4
+                        drawerOffY = hy - my
+                    elseif anc == "TOPLEFT" then
+                        drawerOffX = hx - (mx - mw) + 2
+                        drawerOffY = hy - (my + mh) - 2
+                    elseif anc == "TOPRIGHT" then
+                        drawerOffX = hx - (mx + mw) - 2
+                        drawerOffY = hy - (my + mh) - 2
+                    elseif anc == "BOTTOMLEFT" then
+                        drawerOffX = hx - (mx - mw) + 2
+                        drawerOffY = hy - (my - mh) + 2
+                    else
+                        drawerOffX = hx - (mx + mw) - 2
+                        drawerOffY = hy - (my - mh) + 2
+                    end
+                    saveCfg()
+                    layoutDrawerGrid()
+                    updateDrawerVisibility()
+                end)
+            else
+                handle:SetScript("OnDragStart", nil)
+                handle:SetScript("OnDragStop", nil)
+                handle:SetMovable(false)
+            end
+        end
+        layoutDrawerGrid()
+        updateDrawerVisibility()
+        return
+    elseif field == "drawerAnchor" or field == "anchor" then
+        drawerAnchor = normAnchor(value)
+        saveCfg()
+        ensureDrawer()
+        layoutDrawerGrid()
+        updateDrawerVisibility()
+        return
+    elseif field == "drawerOffX" then
+        drawerOffX = tonumber(value) or 0
+        saveCfg()
+        ensureDrawer()
+        layoutDrawerGrid()
+        updateDrawerVisibility()
+        return
+    elseif field == "drawerOffY" then
+        drawerOffY = tonumber(value) or 0
+        saveCfg()
+        ensureDrawer()
+        layoutDrawerGrid()
+        updateDrawerVisibility()
         return
     elseif field == "dir" or field == "drawerDir" or field == "openDir" then
         local s = string.lower(tostring(value or "down"))

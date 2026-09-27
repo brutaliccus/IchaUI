@@ -1853,3 +1853,138 @@ function IchaUI_DrawerStyleWrite(id, field, value)
         IchaUI_DrawerScaleApply(id)
     end
 end
+
+
+-- Spell usable / OOM tint (match Bars Layout applyIconUsable nomana blues).
+-- Totems / ShamanExtras / any spellbook icon can call IchaUI_ApplySpellIconUsable.
+--
+-- CRITICAL (1.12): never SetSpell on the Totems/Extras paint path. Tooltip scans
+-- from OnUpdate / UNIT_MANA caused script-too-long / Lua errors that left the
+-- totem bar hidden or non-functional. Paint reads cache only; a small OnUpdate
+-- warmer fills misses a few indices per frame after SPELLS_CHANGED.
+local usableTip = nil
+local manaCostCache = {}
+local manaWarmQueue = {}
+local manaWarmSeen = {}
+
+function IchaUI_ClearSpellManaCache()
+    manaCostCache = {}
+    manaWarmQueue = {}
+    manaWarmSeen = {}
+end
+
+local function ensureUsableTip()
+    if usableTip then return usableTip end
+    if not CreateFrame then return nil end
+    local ok, tip = pcall(function()
+        return CreateFrame("GameTooltip", "IchaUIUsableTip", UIParent, "GameTooltipTemplate")
+    end)
+    if not ok or not tip then return nil end
+    pcall(function()
+        tip:SetOwner(UIParent, "ANCHOR_NONE")
+    end)
+    usableTip = tip
+    return usableTip
+end
+
+local function scanSpellManaCost(bookIndex)
+    local tip = ensureUsableTip()
+    if not tip or not tip.SetSpell then
+        return false
+    end
+    local ok = pcall(function()
+        tip:SetOwner(UIParent, "ANCHOR_NONE")
+        tip:ClearLines()
+        tip:SetSpell(bookIndex, BOOKTYPE_SPELL or "spell")
+    end)
+    if not ok then
+        return false
+    end
+    local found = nil
+    local li
+    for li = 1, 15 do
+        local left = getglobal("IchaUIUsableTipTextLeft" .. li)
+        local right = getglobal("IchaUIUsableTipTextRight" .. li)
+        local t1 = left and left.GetText and left:GetText()
+        local t2 = right and right.GetText and right:GetText()
+        local ti, txt
+        for ti = 1, 2 do
+            if ti == 1 then txt = t1 else txt = t2 end
+            if txt and txt ~= "" then
+                local _, _, num = string.find(txt, "(%d+)%s+[Mm]ana")
+                if num then
+                    found = tonumber(num)
+                    break
+                end
+            end
+        end
+        if found then break end
+    end
+    if found then
+        return found
+    end
+    return false
+end
+
+local function queueManaWarm(bookIndex)
+    if not bookIndex then return end
+    if manaCostCache[bookIndex] ~= nil then return end
+    if manaWarmSeen[bookIndex] then return end
+    manaWarmSeen[bookIndex] = true
+    table.insert(manaWarmQueue, bookIndex)
+end
+
+-- Cached cost only (nil = unknown / no mana line). Never scans.
+function IchaUI_SpellManaCost(bookIndex)
+    if not bookIndex then return nil end
+    local cached = manaCostCache[bookIndex]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+    queueManaWarm(bookIndex)
+    return nil
+end
+
+local manaCacheEvt = CreateFrame("Frame")
+manaCacheEvt:RegisterEvent("SPELLS_CHANGED")
+manaCacheEvt:SetScript("OnEvent", function()
+    IchaUI_ClearSpellManaCache()
+end)
+manaCacheEvt:SetScript("OnUpdate", function()
+    if table.getn(manaWarmQueue) == 0 then return end
+    local n = 0
+    while n < 2 and table.getn(manaWarmQueue) > 0 do
+        local idx = table.remove(manaWarmQueue, 1)
+        n = n + 1
+        if idx and manaCostCache[idx] == nil then
+            local cost = scanSpellManaCost(idx)
+            manaCostCache[idx] = cost
+            manaWarmSeen[idx] = nil
+        end
+    end
+end)
+
+-- pressed: same dim channels as Bars applyIconUsable. Returns true if OOM blue.
+-- Uses cache only; queues a warm on miss (paints full color until cost known).
+function IchaUI_ApplySpellIconUsable(icon, bookIndex, pressed)
+    if not icon or not icon.SetVertexColor then return false end
+    local cost = IchaUI_SpellManaCost(bookIndex)
+    local mana = 0
+    if UnitMana then mana = UnitMana("player") or 0 end
+    local oom = cost and cost > 0 and mana < cost
+    if oom then
+        if pressed then
+            icon:SetVertexColor(0.40, 0.40, 0.85)
+        else
+            icon:SetVertexColor(0.5, 0.5, 1)
+        end
+        return true
+    end
+    if pressed then
+        icon:SetVertexColor(0.82, 0.82, 0.82)
+    else
+        icon:SetVertexColor(1, 1, 1)
+    end
+    return false
+end

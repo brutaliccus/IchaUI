@@ -1963,6 +1963,9 @@ function buildDrawerRows(element)
         row.roundMask = round
         insetIcon(ic, row, iconSz)
         ic:SetTexture(tex)
+        if (not isNone) and IchaUITotems_Tint and IchaUITotems_Tint.icon then
+            pcall(IchaUITotems_Tint.icon, ic, base, false)
+        end
         round:SetTexture(ROUNDMASK)
         round:SetVertexColor(0, 0, 0, 1)
         round:Show()
@@ -3166,6 +3169,53 @@ local function knownEntryFor(base)
     return knownCache[base]
 end
 
+-- Bars-matching OOM blue (DrawerStyle). Closed slot uses the spell Left-click casts.
+-- Table fold: keeps chunk under Lua 5.0's 200-local limit (see TotemsFireCast.lua).
+IchaUITotems_Tint = {}
+IchaUITotems_Tint.slotCastCostBase = function(el)
+    if el == "fire" and IchaUITotems_TwistFollowBase and IchaUITotems_TwistFollowBase() then
+        return "Fire Nova Totem"
+    end
+    return getActive(el)
+end
+IchaUITotems_Tint.icon = function(icon, base, pressed)
+    if not icon then return end
+    if not base or base == "" or base == "__none__" then
+        if pressed then
+            icon:SetVertexColor(0.82, 0.82, 0.82)
+        else
+            icon:SetVertexColor(1, 1, 1, 1)
+        end
+        return
+    end
+    local entry = knownEntryFor(base)
+    local idx = entry and entry.index or nil
+    if IchaUI_ApplySpellIconUsable and idx then
+        pcall(IchaUI_ApplySpellIconUsable, icon, idx, pressed and true or false)
+        return
+    end
+    if pressed then
+        icon:SetVertexColor(0.82, 0.82, 0.82)
+    else
+        icon:SetVertexColor(1, 1, 1, 1)
+    end
+end
+IchaUITotems_Tint.slot = function(slot)
+    if not slot or not slot.icon then return end
+    IchaUITotems_Tint.icon(slot.icon, IchaUITotems_Tint.slotCastCostBase(slot.element), slot._pushed and true or false)
+end
+IchaUITotems_Tint.openRows = function(el)
+    local dr = drawers[el]
+    if not dr or not dr.IsShown or not dr:IsShown() or not dr.rows then return end
+    local ri
+    for ri = 1, table.getn(dr.rows) do
+        local row = dr.rows[ri]
+        if row and row.icon and not row.isNone then
+            IchaUITotems_Tint.icon(row.icon, row.base, row._pushed and true or false)
+        end
+    end
+end
+
 local function listElementCds(el, act, L)
     ensureKnown()
     local candidates = {}
@@ -3515,12 +3565,13 @@ function applySlotVisuals()
                 end
             end
             updateCdBadge(slot, el, act, live[el], castTextBusy)
-            if slot._pushed and slot.icon then
-                slot.icon:SetVertexColor(0.82, 0.82, 0.82)
-            end
             if el == "fire" and IchaUITotems_PaintFireTwist then
                 IchaUITotems_PaintFireTwist(slot)
             end
+            -- OOM / usable tint last (covers live icon, empty, twist art, press)
+            -- pcall: never let tint/mana helpers abort slot paint (bar stay hidden)
+            if IchaUITotems_Tint and IchaUITotems_Tint.slot then pcall(IchaUITotems_Tint.slot, slot) end
+            if IchaUITotems_Tint and IchaUITotems_Tint.openRows then pcall(IchaUITotems_Tint.openRows, el) end
         end
         -- Shift-to-open: open while hovering if Shift held
         local slot = slots[el]
@@ -3926,6 +3977,17 @@ local function makeSlot(element)
                 totemChat("No active " .. ELEMENT_LABEL[el] .. " totem — right-click a totem in the drawer to set.")
             end
         elseif arg1 == "RightButton" then
+            -- Config: Alt+right-click always, or plain right-click in /icha move
+            -- (same idea as action-bar movers). Plain right-click stays gameplay.
+            if (IsAltKeyDown and IsAltKeyDown())
+                or (IchaUI_EditModeActive and IchaUI_EditModeActive()) then
+                if IchaUI_DrawerConfigClick then
+                    IchaUI_DrawerConfigClick("totems")
+                elseif IchaUI_ShowDrawerPop then
+                    IchaUI_ShowDrawerPop("totems")
+                end
+                return
+            end
             if el == "fire" and IchaUITotems_FireCanTwist and IchaUITotems_FireCanTwist() then
                 if IchaUITotems_CycleFireTwist then
                     IchaUITotems_CycleFireTwist()
@@ -3970,6 +4032,9 @@ local function refreshActiveIcons()
 end
 
 local function restorePos()
+    if IchaUI_DrawerDockApply and IchaUI_DrawerDockApply("totems", root) then
+        return
+    end
     local d = db()
     root:ClearAllPoints()
     if d.point and d.x then
@@ -3984,6 +4049,10 @@ local function setMove(on)
     local d = db()
     d.moving = moving
     if moving then
+        if IchaUI_DrawerDockIsDocked and IchaUI_DrawerDockIsDocked("totems") then
+            if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear("totems") end
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: totems undocked for move.")
+        end
         mover:Show()
         DEFAULT_CHAT_FRAME:AddMessage("Totem bar move on — drag it, /icha totems move to lock.")
     else
@@ -4397,30 +4466,53 @@ function IchaUITotemSets.ApplyBindings()
     pcall(IchaUITotemSets.BindingLabels)
 end
 
--- Bar paging arrows (only with 2+ sets). Same caret art and paint path as
--- the minimap drawer handle / mob stats caret: native left glyph, mirrored
--- for right. Extensionless path first — this client can drop a .tga
--- SetTexture after /reload and leave the green missing-texture tile.
-IchaUITotemSets.ARROW_UP = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up"
-IchaUITotemSets.ARROW_DOWN = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Down"
+-- Bar paging arrows (only with 2+ sets). ARTWORK caret like MinimapButtons —
+-- never SetNormal/Pushed (those draw 1.12 button chrome: white dotted rect).
+-- Empty NormalTexture still paints a green missing tile, so clear/hide it.
+IchaUITotemSets.ARROW_UP = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Up.tga"
+IchaUITotemSets.ARROW_DOWN = "Interface\\AddOns\\IchaUI\\media\\Arrow-Left-Down.tga"
+
+function IchaUITotemSets.ClearArrowChrome(btn)
+    if not btn then return end
+    pcall(function()
+        if btn.SetNormalTexture then btn:SetNormalTexture("") end
+        if btn.SetPushedTexture then btn:SetPushedTexture("") end
+        if btn.SetHighlightTexture then btn:SetHighlightTexture("") end
+        if btn.SetDisabledTexture then btn:SetDisabledTexture("") end
+    end)
+    local function kill(tex)
+        if not tex then return end
+        tex:SetTexture(nil)
+        tex:SetVertexColor(1, 1, 1, 0)
+        tex:Hide()
+    end
+    kill(btn.GetNormalTexture and btn:GetNormalTexture())
+    kill(btn.GetPushedTexture and btn:GetPushedTexture())
+    kill(btn.GetHighlightTexture and btn:GetHighlightTexture())
+    kill(btn.GetDisabledTexture and btn:GetDisabledTexture())
+    if btn.SetBackdrop then pcall(function() btn:SetBackdrop(nil) end) end
+end
 
 function IchaUITotemSets.PaintArrow(btn, pressed)
-    local tex = btn and btn.arrowTex
-    if not tex then return end
-    local base = IchaUITotemSets.ARROW_UP
-    if pressed then base = IchaUITotemSets.ARROW_DOWN end
-    tex:SetTexture(base)
-    local g = tex.GetTexture and tex:GetTexture()
-    if type(g) ~= "string" or not string.find(string.lower(g), "arrow%-left") then
-        tex:SetTexture(base .. ".tga")
+    if not btn then return end
+    IchaUITotemSets.ClearArrowChrome(btn)
+    local tex = btn.arrowTex
+    if not tex then
+        local nm = (btn.GetName and btn:GetName()) or "IchaUITotemPageArrow"
+        tex = getglobal(nm .. "Art")
+        if not tex then
+            tex = btn:CreateTexture(nm .. "Art", "ARTWORK")
+        end
+        btn.arrowTex = tex
     end
-    if btn.dir < 0 then
+    local path = IchaUITotemSets.ARROW_UP
+    if pressed then path = IchaUITotemSets.ARROW_DOWN end
+    tex:SetTexture(path)
+    if btn.dir and btn.dir < 0 then
         tex:SetTexCoord(0, 1, 0, 1)
     else
         tex:SetTexCoord(1, 0, 0, 1)
     end
-    -- 1.12 SetTexture restores the 32px file size; SetAllPoints on an
-    -- unsized button left a 0x0 or native-size blob after /reload.
     local aw = btn:GetWidth()
     if not aw or aw < 8 then aw = 22 end
     tex:ClearAllPoints()
@@ -4428,6 +4520,7 @@ function IchaUITotemSets.PaintArrow(btn, pressed)
     tex:SetWidth(aw)
     tex:SetHeight(aw)
     tex:SetVertexColor(1, 1, 1, 1)
+    tex:SetDrawLayer("ARTWORK")
     tex:Show()
 end
 
@@ -4442,22 +4535,27 @@ function IchaUITotemSets.MakeArrow(dir)
     b.dir = dir
     b:EnableMouse(true)
     b:RegisterForClicks("LeftButtonUp")
-    if not b.arrowTex then
+    IchaUITotemSets.ClearArrowChrome(b)
+    -- Drop leftover non-caret Texture regions from older builds.
+    do
+        local artName = name .. "Art"
         local regions = { b:GetRegions() }
         local ri
         for ri = 1, table.getn(regions) do
             local r = regions[ri]
             if r and r.GetObjectType and r:GetObjectType() == "Texture" then
-                if not b.arrowTex then
-                    b.arrowTex = r
-                elseif r ~= b.arrowTex then
+                local rn = r.GetName and r:GetName()
+                if rn ~= artName then
+                    r:SetTexture(nil)
                     r:Hide()
+                else
+                    b.arrowTex = r
                 end
             end
         end
-        if not b.arrowTex then
-            b.arrowTex = b:CreateTexture(nil, "ARTWORK")
-        end
+    end
+    if not b.arrowTex then
+        b.arrowTex = b:CreateTexture(name .. "Art", "ARTWORK")
     end
     IchaUITotemSets.PaintArrow(b, false)
     b:SetScript("OnMouseDown", function() IchaUITotemSets.PaintArrow(this, true) end)
@@ -4479,9 +4577,6 @@ function IchaUITotemSets.MakeArrow(dir)
     return b
 end
 
--- Read-only copy of layoutCastRing's geometry: x of the cast stroke's outer
--- edge (left, right) relative to the slot center, for the slot's current
--- form/size. layoutCastRing only runs per cast, so it can't be read before.
 function IchaUITotemSets.RingExtent(slot)
     local iw = slot.icon and slot.icon:GetWidth() or 0
     if iw < 8 then
@@ -4710,6 +4805,11 @@ function IchaUITotems_Set(field, value)
             end
         end
     end
+    if IchaUI_DrawerDockReapply then
+        IchaUI_DrawerDockReapply("totems")
+    elseif IchaUI_DrawerDockApply then
+        IchaUI_DrawerDockApply("totems", root)
+    end
     if IchaUI_ApplyTotemStrata then IchaUI_ApplyTotemStrata() end
     if IchaUIShamanExtras_Apply then IchaUIShamanExtras_Apply() end
 end
@@ -4719,6 +4819,19 @@ function IchaUITotems_Apply()
     layoutBar()
     refreshActiveIcons()
     updateVisibility()
+    if IchaUI_DrawerDockReapply then
+        IchaUI_DrawerDockReapply("totems")
+    elseif IchaUI_DrawerDockApply then
+        IchaUI_DrawerDockApply("totems", root)
+    end
+    -- Re-bind recall if the icon appeared after totems Register.
+    do
+        local recallFr = getglobal and getglobal("IchaUITotemRecallIcon")
+        if recallFr and IchaUI_DrawerDockRegister then
+            IchaUI_DrawerDockRegister("recall", recallFr)
+        end
+    end
+    if IchaUI_DrawerDockApplyAll then IchaUI_DrawerDockApplyAll() end
     if IchaUI_ApplyTotemStrata then IchaUI_ApplyTotemStrata() end
     if IchaUIShamanExtras_Apply then IchaUIShamanExtras_Apply() end
 end
@@ -4955,7 +5068,15 @@ mbg:SetVertexColor(0.15, 0.45, 0.95, 0.3)
 local mlabel = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 mlabel:SetPoint("CENTER", mover, "CENTER")
 mlabel:SetText("Drag totems  |  /icha totems move")
-mover:SetScript("OnDragStart", function() root:StartMoving() end)
+mover:SetScript("OnDragStart", function()
+    if IchaUI_DrawerDockIsDocked and IchaUI_DrawerDockIsDocked("totems") then
+        if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear("totems") end
+        if DEFAULT_CHAT_FRAME then
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: totems undocked — free drag.")
+        end
+    end
+    root:StartMoving()
+end)
 mover:SetScript("OnDragStop", function()
     root:StopMovingOrSizing()
     savePos()
@@ -4963,6 +5084,15 @@ end)
 mover:SetScript("OnMouseUp", function()
     if arg1 == "RightButton" and IchaUI_DrawerEditClick then IchaUI_DrawerEditClick("totems") end
 end)
+
+if IchaUI_DrawerDockRegister then IchaUI_DrawerDockRegister("totems", root) end
+-- Recall icon is a separate frame; register when present so portrait/frame dock Apply works.
+do
+    local recallFr = getglobal and getglobal("IchaUITotemRecallIcon")
+    if recallFr and IchaUI_DrawerDockRegister then
+        IchaUI_DrawerDockRegister("recall", recallFr)
+    end
+end
 
 -- Visuals only on root (may be hidden); throw processing lives on always-shown ticker
 root:SetScript("OnUpdate", function()
@@ -5033,75 +5163,6 @@ evt:SetScript("OnUpdate", function()
     end
 end)
 
-local function chatLooksLikeFireCastStart(msg)
-    if not msg then return false end
-    local l = string.lower(tostring(msg))
-    -- Only CAST START lines — hits would re-sync mid-cast and skew the timer
-    if not (string.find(l, "begin", 1, true) or string.find(l, "starts to cast", 1, true)
-        or string.find(l, "begins to cast", 1, true) or string.find(l, "casting", 1, true)) then
-        return false
-    end
-    -- Bolt only — NOT "Searing Totem" (that is the drop / summon)
-    if string.find(l, "searing bolt", 1, true) then return true end
-    if string.find(l, "searing totem", 1, true) then return false end
-    return false
-end
-
-local function unitCastLooksLikeFire(hint)
-    if not hint then return false end
-    if type(hint) == "number" and type(SpellInfo) == "function" then
-        local ok, nm = pcall(SpellInfo, hint)
-        if ok and nm then hint = nm end
-    end
-    local s = tostring(hint)
-    local l = string.lower(s)
-    -- Ignore the totem summon itself (shows a fake cast on drop)
-    if string.find(l, "totem", 1, true) and not string.find(l, "bolt", 1, true) then
-        return false
-    end
-    if string.find(l, "searing bolt", 1, true) then return true end
-    if string.find(l, "searingtotem", 1, true) then return false end
-    -- Real bolt cast names only
-    if string.find(l, "searing", 1, true) and string.find(l, "bolt", 1, true) then return true end
-    return false
-end
-
--- SuperWoW UNIT_CASTEVENT: typically caster, target, eventType, spellID, durationMs
-local function parseUnitCastEvent()
-    local a1, a2, a3, a4, a5 = arg1, arg2, arg3, arg4, arg5
-    local eventType, spellId, durMs = nil, nil, nil
-    -- Common SuperWoW shape
-    if type(a3) == "string" and type(a4) == "number" then
-        eventType, spellId, durMs = a3, a4, a5
-    elseif type(a2) == "string" and type(a3) == "number" then
-        eventType, spellId, durMs = a2, a3, a4
-    elseif type(a4) == "number" and type(a5) == "number" then
-        spellId, durMs = a4, a5
-    end
-    local spellName = nil
-    if type(spellId) == "number" and type(SpellInfo) == "function" then
-        local ok, nm = pcall(SpellInfo, spellId)
-        if ok then spellName = nm end
-    end
-    if not spellName then
-        -- fall back to scanning args for name tokens
-        local hints = { a1, a2, a3, a4, a5 }
-        local hi
-        for hi = 1, table.getn(hints) do
-            if unitCastLooksLikeFire(hints[hi]) then
-                if type(hints[hi]) == "number" and SpellInfo then
-                    local ok, nm = pcall(SpellInfo, hints[hi])
-                    if ok then spellName = nm end
-                else
-                    spellName = tostring(hints[hi])
-                end
-                break
-            end
-        end
-    end
-    return eventType, spellId, spellName, durMs
-end
-
 evt:SetScript("OnEvent", function()
     if (event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD")
         and IchaUI_ShamanStandDown(this, root, drawers.earth, drawers.fire, drawers.water, drawers.air) then
@@ -5123,6 +5184,18 @@ evt:SetScript("OnEvent", function()
             root:Show()
         end
         pcall(layoutBar)
+        -- Re-Apply dock after restorePos/layoutBar (portrait parent may now exist).
+        -- Failed Apply must not Clear mode — DrawerDock keeps the saved row.
+        if IchaUI_DrawerDockReapply then
+            IchaUI_DrawerDockReapply("totems")
+        end
+        do
+            local recallFr = getglobal and getglobal("IchaUITotemRecallIcon")
+            if recallFr and IchaUI_DrawerDockRegister then
+                IchaUI_DrawerDockRegister("recall", recallFr)
+            end
+        end
+        if IchaUI_DrawerDockApplyAll then IchaUI_DrawerDockApplyAll() end
         if applySlotVisuals then pcall(applySlotVisuals) end
         pcall(scanSpellbook)
         pcall(scanImprovedFireTotems)
@@ -5191,7 +5264,7 @@ evt:SetScript("OnEvent", function()
             end
         end
         -- Totem bolt cast start (caster is often a GUID, not "player")
-        local eventType, spellId, spellName, durMs = parseUnitCastEvent()
+        local eventType, spellId, spellName, durMs = IchaUITotems_FireCast.parseUnitCastEvent()
         local et = eventType and string.upper(tostring(eventType)) or ""
         local isStart = (et == "" or et == "START" or et == "CAST")
         -- Ignore FAIL / channel noise; prefer START when present
@@ -5209,7 +5282,7 @@ evt:SetScript("OnEvent", function()
             local okG, pg = pcall(UnitGUID, "player")
             if okG and pg and tostring(boltCaster) == tostring(pg) then boltFromPlayer = true end
         end
-        if isStart and not boltFromPlayer and (unitCastLooksLikeFire(spellName) or unitCastLooksLikeFire(spellId)) then
+        if isStart and not boltFromPlayer and (IchaUITotems_FireCast.unitCastLooksLikeFire(spellName) or IchaUITotems_FireCast.unitCastLooksLikeFire(spellId)) then
             local dur = nil
             if type(durMs) == "number" and durMs > 0 then
                 dur = durMs > 10 and (durMs / 1000) or durMs
@@ -5245,7 +5318,7 @@ evt:SetScript("OnEvent", function()
     else
         -- Combat chat: only "begins to cast" (not hits)
         local msg = arg1 or ""
-        if chatLooksLikeFireCastStart(msg) then
+        if IchaUITotems_FireCast.chatLooksLikeFireCastStart(msg) then
             noteFireCast(msg, searingCastLength(), true)
         end
     end
@@ -5260,6 +5333,10 @@ function IchaUITotems_ReloadFromDB()
     if not IchaUI_IsShaman() then return end
     loadCfg()
     restorePos()
+    if IchaUI_DrawerDockReapply then
+        IchaUI_DrawerDockReapply("totems")
+    end
+    if IchaUI_DrawerDockApplyAll then IchaUI_DrawerDockApplyAll() end
     if IchaUITotems_Apply then IchaUITotems_Apply() end
     if applyThrowBinding then applyThrowBinding() end
     if applySlotBindings then applySlotBindings() end

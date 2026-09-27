@@ -2,6 +2,6 @@
 ## Title: IchaUI - Smart Tab
 ## Notes: Smart Tab target cycling.
 ## Dependencies: IchaUI, IchaUI_UnitFrames
-## Version: 3.5.1
+## Version: 3.6.0
 
 SmartTab.lua

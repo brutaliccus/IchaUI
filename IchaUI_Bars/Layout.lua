@@ -973,43 +973,115 @@ local function pagedId(buttonId)
     return buttonId
 end
 
+-- Per-action mana cost via hidden tooltip (fallback when IsUsableAction omits nomana).
+-- Colors match DrawerStyle IchaUI_ApplySpellIconUsable: OOM 0.5,0.5,1 / pressed 0.40,0.40,0.85
+local actionManaTip = CreateFrame("GameTooltip", "IchaUIActionManaTip", nil, "GameTooltipTemplate")
+actionManaTip:SetOwner(UIParent, "ANCHOR_NONE")
+local actionManaCache = {}
+
+local function clearActionManaCache()
+    actionManaCache = {}
+end
+
+local function actionManaCost(actionId)
+    if not actionId then return nil end
+    local cached = actionManaCache[actionId]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+    if not actionManaTip.SetAction then
+        actionManaCache[actionId] = false
+        return nil
+    end
+    actionManaTip:SetOwner(UIParent, "ANCHOR_NONE")
+    actionManaTip:ClearLines()
+    local ok = pcall(function()
+        actionManaTip:SetAction(actionId)
+    end)
+    if not ok then
+        actionManaCache[actionId] = false
+        return nil
+    end
+    local found = nil
+    local li
+    for li = 1, 15 do
+        local left = getglobal("IchaUIActionManaTipTextLeft" .. li)
+        local right = getglobal("IchaUIActionManaTipTextRight" .. li)
+        local t1 = left and left.GetText and left:GetText()
+        local t2 = right and right.GetText and right:GetText()
+        local ti, t
+        for ti = 1, 2 do
+            if ti == 1 then t = t1 else t = t2 end
+            if t and t ~= "" then
+                local _, _, num = string.find(t, "(%d+)%s+[Mm]ana")
+                if num then
+                    found = tonumber(num)
+                    break
+                end
+            end
+        end
+        if found then break end
+    end
+    if found then
+        actionManaCache[actionId] = found
+        return found
+    end
+    actionManaCache[actionId] = false
+    return nil
+end
+
 -- Keep OOM / unusable / OOR tint through press+release (no white flash)
 -- OOR grey only when a target exists; no target → full color (if usable)
+-- Lua 5.0: never treat raw API returns as booleans (0 is truthy).
 applyIconUsable = function(b, pressed)
     if not b or not b.icon or not b.buttonId then return end
     local actionId = pagedId(b.buttonId)
     if not (HasAction and HasAction(actionId)) then return end
     local usable, nomana = IsUsableAction(actionId)
+    local isUsable = (usable == 1 or usable == true)
+    local notEnoughMana = (nomana == 1 or nomana == true)
+    -- Fallback: tooltip mana cost vs current mana when API omits nomana
+    if not notEnoughMana then
+        local cost = actionManaCost(actionId)
+        if cost and cost > 0 and UnitMana then
+            local mana = UnitMana("player") or 0
+            if mana < cost then
+                notEnoughMana = true
+            end
+        end
+    end
     local oor = false
     local wantOor = true
     if IchaUI_CombatDB then
         local cd = IchaUI_CombatDB()
         if cd and cd.oorGrey == false then wantOor = false end
     end
-    if wantOor and usable and UnitExists and UnitExists("target") and IsActionInRange then
+    if wantOor and isUsable and (not notEnoughMana) and UnitExists and UnitExists("target") and IsActionInRange then
         local r = IsActionInRange(actionId)
         -- 0 = out of range; 1 = in range; nil = no range requirement
         if r == 0 then
             oor = true
         end
     end
-    if usable and not oor then
+    -- OOM first (Blizzard blue), then OOR, then usable white, else grey
+    if notEnoughMana then
         if pressed then
-            b.icon:SetVertexColor(0.82, 0.82, 0.82)
+            b.icon:SetVertexColor(0.40, 0.40, 0.85)
         else
-            b.icon:SetVertexColor(1, 1, 1)
+            b.icon:SetVertexColor(0.5, 0.5, 1)
         end
-    elseif usable and oor then
+    elseif isUsable and oor then
         if pressed then
             b.icon:SetVertexColor(0.45, 0.45, 0.45)
         else
             b.icon:SetVertexColor(0.55, 0.55, 0.55)
         end
-    elseif nomana then
+    elseif isUsable then
         if pressed then
-            b.icon:SetVertexColor(0.40, 0.40, 0.85)
+            b.icon:SetVertexColor(0.82, 0.82, 0.82)
         else
-            b.icon:SetVertexColor(0.5, 0.5, 1)
+            b.icon:SetVertexColor(1, 1, 1)
         end
     else
         if pressed then
@@ -2156,6 +2228,11 @@ f:RegisterEvent("UPDATE_BINDINGS")
 f:RegisterEvent("UNIT_INVENTORY_CHANGED")
 f:RegisterEvent("UPDATE_INVENTORY_ALERTS")
 f:RegisterEvent("BAG_UPDATE")
+f:RegisterEvent("UNIT_MANA")
+f:RegisterEvent("UNIT_ENERGY")
+f:RegisterEvent("UNIT_RAGE")
+f:RegisterEvent("UNIT_FOCUS")
+f:RegisterEvent("SPELLS_CHANGED")
 
 local lastSig, pendingLayout, layoutElapsed = nil, true, 0
 
@@ -2323,8 +2400,20 @@ f:SetScript("OnEvent", function()
         updateVisuals()
         return
     end
+    if ev == "UNIT_MANA" or ev == "UNIT_ENERGY" or ev == "UNIT_RAGE" or ev == "UNIT_FOCUS" then
+        if arg1 == "player" then
+            updateVisuals()
+        end
+        return
+    end
+    if ev == "SPELLS_CHANGED" then
+        clearActionManaCache()
+        updateVisuals()
+        return
+    end
     pendingLayout = true
     if ev == "ACTIONBAR_SLOT_CHANGED" then
+        clearActionManaCache()
         updateVisuals()
     end
 end)

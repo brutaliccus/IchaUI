@@ -317,14 +317,7 @@ end
 
 local PUSH_MS = 0.12
 
-local function applyIconTint(w)
-    if not w or not w.icon then return end
-    if w.slot and w.slot._pushed then
-        w.icon:SetVertexColor(0.82, 0.82, 0.82)
-    else
-        w.icon:SetVertexColor(1, 1, 1, 1)
-    end
-end
+local applyIconTint, applyRowUsableTint
 
 -- Imbue duration: whole minutes until under 1 min, then seconds
 local function formatTime(sec)
@@ -970,6 +963,49 @@ local function currentKey(id)
     return key
 end
 
+applyIconTint = function(w, spellKey)
+    if not w or not w.icon then return end
+    local pressed = w.slot and w.slot._pushed
+    local key = spellKey
+    if not key and w.id then key = currentKey(w.id) end
+    local idx
+    if key then
+        ensureKnown()
+        local entry = knownCache[key]
+        idx = entry and entry.index or nil
+    end
+    if IchaUI_ApplySpellIconUsable and idx then
+        pcall(IchaUI_ApplySpellIconUsable, w.icon, idx, pressed and true or false)
+        return
+    end
+    if pressed then
+        w.icon:SetVertexColor(0.82, 0.82, 0.82)
+    else
+        w.icon:SetVertexColor(1, 1, 1, 1)
+    end
+end
+
+applyRowUsableTint = function(row)
+    if not row or not row.icon or row.isNone then return end
+    local pressed = row._pushed
+    local idx
+    if row.base then
+        ensureKnown()
+        local entry = knownCache[row.base]
+        idx = entry and entry.index or nil
+    end
+    if IchaUI_ApplySpellIconUsable and idx then
+        pcall(IchaUI_ApplySpellIconUsable, row.icon, idx, pressed and true or false)
+        return
+    end
+    if pressed then
+        row.icon:SetVertexColor(0.82, 0.82, 0.82)
+    else
+        row.icon:SetVertexColor(1, 1, 1)
+    end
+end
+
+
 ----------------------------------------------------------------
 -- Generic circle widget factory
 ----------------------------------------------------------------
@@ -1264,6 +1300,7 @@ local function buildDrawer(w)
         row.roundMask = round
         insetIcon(ic, row, iconSz)
         ic:SetTexture(tex)
+        if applyRowUsableTint then applyRowUsableTint(row) end
         round:SetTexture(ROUNDMASK)
         round:SetVertexColor(0, 0, 0, 1)
         round:Show()
@@ -1324,20 +1361,29 @@ local function buildDrawer(w)
                 ww.closeAt = (GetTime and GetTime() or 0) + DRAWER_CLOSE_DELAY
             end
         end)
-        -- Open-drawer click assigns the closed-circle set spell only. Never
-        -- CastSpell here — hardware cast is the closed slot's OnClick.
+        -- Left-click: cast AND set active. Right-click: set active only.
+        -- (Totem drawers stay L=cast / R=set — this is imbue/shield/utility only.)
         row:SetScript("OnClick", function()
             if this.isNone then return end
             local ww = widgets[this.widgetId]
-            if ww then
-                rememberLast(ww.id, this.base)
+            if not ww then return end
+            local base = this.base
+            local function setActiveFromRow()
+                rememberLast(ww.id, base)
                 if ww.icon then
-                    ww.icon:SetTexture(iconFor(this.base, ww.iconTable))
-                    ww.icon:SetVertexColor(1, 1, 1, 1)
+                    ww.icon:SetTexture(iconFor(base, ww.iconTable))
                 end
                 ww.drawer:Hide()
                 ww.pinned = nil
                 refreshWidget(ww)
+            end
+            if arg1 == "RightButton" then
+                setActiveFromRow()
+                return
+            end
+            if arg1 == "LeftButton" or arg1 == nil then
+                if base then castSpell(base) end
+                setActiveFromRow()
             end
         end)
         table.insert(dr.rows, row)
@@ -1477,9 +1523,19 @@ local function layoutWidget(w)
         end
     end
     if w.mover then w.mover:SetAllPoints(w.root) end
+    if w.id and IchaUI_DrawerDockIsDocked and IchaUI_DrawerDockIsDocked(w.id) then
+        if IchaUI_DrawerDockReapply then
+            IchaUI_DrawerDockReapply(w.id)
+        elseif IchaUI_DrawerDockApply then
+            IchaUI_DrawerDockApply(w.id, w.root)
+        end
+    end
 end
 
 local function restorePos(w)
+    if IchaUI_DrawerDockApply and IchaUI_DrawerDockApply(w.id, w.root) then
+        return
+    end
     local d = db()[w.id]
     w.root:ClearAllPoints()
     if d and d.point and d.x ~= nil then
@@ -1679,7 +1735,9 @@ refreshWidget = function(w)
     if w.drawer and w.drawer.IsShown and w.drawer:IsShown() and w.drawer.rows then
         local ri
         for ri = 1, table.getn(w.drawer.rows) do
-            paintDrawerRowText(w.drawer.rows[ri])
+            local row = w.drawer.rows[ri]
+            paintDrawerRowText(row)
+            if applyRowUsableTint then applyRowUsableTint(row) end
         end
     end
 end
@@ -1756,7 +1814,15 @@ local function makeWidget(id, spellList, iconTable, paintFn)
     local ml = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     ml:SetPoint("CENTER", mover, "CENTER")
     ml:SetText("Drag " .. id)
-    mover:SetScript("OnDragStart", function() root:StartMoving() end)
+    mover:SetScript("OnDragStart", function()
+        if IchaUI_DrawerDockIsDocked and IchaUI_DrawerDockIsDocked(w.id) then
+            if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear(w.id) end
+            if DEFAULT_CHAT_FRAME then
+                DEFAULT_CHAT_FRAME:AddMessage("IchaUI: " .. w.id .. " undocked — free drag.")
+            end
+        end
+        root:StartMoving()
+    end)
     mover:SetScript("OnDragStop", function()
         root:StopMovingOrSizing()
         savePos(w)
@@ -1834,6 +1900,15 @@ local function makeWidget(id, spellList, iconTable, paintFn)
                 showDrawer(w, false)
             end
         elseif arg1 == "RightButton" then
+            if (IsAltKeyDown and IsAltKeyDown())
+                or (IchaUI_EditModeActive and IchaUI_EditModeActive()) then
+                if IchaUI_DrawerConfigClick then
+                    IchaUI_DrawerConfigClick(id)
+                elseif IchaUI_ShowDrawerPop then
+                    IchaUI_ShowDrawerPop(id)
+                end
+                return
+            end
             if shiftDrawerRequired() and not (IsShiftKeyDown and IsShiftKeyDown()) then
                 return
             end
@@ -1859,6 +1934,7 @@ local function makeWidget(id, spellList, iconTable, paintFn)
     icon:SetTexture(iconFor(defKey, defIcons))
     widgets[id] = w
     applyWidgetStrata(w, false)
+    if IchaUI_DrawerDockRegister then IchaUI_DrawerDockRegister(id, root) end
     restorePos(w)
     layoutWidget(w)
     updateVisibility(w)
@@ -2016,6 +2092,10 @@ function IchaUIShamanExtras_SetMove(which, on)
     if not w or not IchaUI_IsShaman() then return end
     w.moving = on and true or false
     if w.moving then
+        if IchaUI_DrawerDockIsDocked and IchaUI_DrawerDockIsDocked(which) then
+            if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear(which) end
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: " .. which .. " undocked for move.")
+        end
         w.mover:Show()
         w.root:Show()
         DEFAULT_CHAT_FRAME:AddMessage("IchaUI: drag " .. which .. " — click Move again to lock.")
@@ -2244,6 +2324,8 @@ pcall(function() evt:RegisterEvent("UNIT_SPELLCAST_STOP") end)
 pcall(function() evt:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED") end)
 pcall(function() evt:RegisterEvent("SPELL_UPDATE_COOLDOWN") end)
 pcall(function() evt:RegisterEvent("BAG_UPDATE") end)
+pcall(function() evt:RegisterEvent("UNIT_MANA") end)
+pcall(function() evt:RegisterEvent("UNIT_MAXMANA") end)
 
 local function extrasStandDown()
     if not IchaUI_ShamanStandDown(evt, imbueW.root, shieldW.root, utilityW.root) then return false end
@@ -2271,10 +2353,12 @@ evt:SetScript("OnEvent", function()
     elseif event == "PLAYER_AURAS_CHANGED" or event == "UNIT_AURA" or event == "UNIT_INVENTORY_CHANGED"
         or event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED"
         or event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_SUCCEEDED"
-        or event == "SPELL_UPDATE_COOLDOWN" then
+        or event == "SPELL_UPDATE_COOLDOWN"
+        or event == "UNIT_MANA" or event == "UNIT_MAXMANA" then
         if event == "UNIT_AURA" and arg1 and arg1 ~= "player" then return end
         if event == "UNIT_INVENTORY_CHANGED" and arg1 and arg1 ~= "player" then return end
         if (event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_SUCCEEDED") and arg1 and arg1 ~= "player" then return end
+        if (event == "UNIT_MANA" or event == "UNIT_MAXMANA") and arg1 and arg1 ~= "player" then return end
         refreshWidget(imbueW)
         refreshWidget(shieldW)
         refreshWidget(utilityW)

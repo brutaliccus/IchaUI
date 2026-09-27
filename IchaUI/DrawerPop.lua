@@ -163,6 +163,374 @@ local function addStyle(list, id, skipText, skipShape)
     end
 end
 
+-- Same fields as the Drawers-tab dock block. DrawerDock owns the saved record
+-- and the portrait edge-ride; this only reads and writes it. No rows when the
+-- API is not loaded.
+local DOCK_POINTS = {
+    { "CENTER", "Center" },
+    { "TOP", "Top" },
+    { "BOTTOM", "Bottom" },
+    { "LEFT", "Left" },
+    { "RIGHT", "Right" },
+    { "TOPLEFT", "Top Left" },
+    { "TOPRIGHT", "Top Right" },
+    { "BOTTOMLEFT", "Bottom Left" },
+    { "BOTTOMRIGHT", "Bottom Right" },
+}
+local DOCK_MODES = { { "free", "Free" }, { "frame", "Frame" }, { "portrait", "Portrait" } }
+
+local function dockIdx(opts, v)
+    if type(opts) ~= "table" then return 0 end
+    local i
+    for i = 1, table.getn(opts) do
+        if opts[i] and opts[i][1] == v then return i end
+    end
+    return 0
+end
+
+local function dockLabel(opts, value, fallback)
+    local i = dockIdx(opts, value)
+    if i > 0 and opts[i][2] then return opts[i][2] end
+    if value ~= nil and value ~= "" then return tostring(value) end
+    return fallback
+end
+
+local function addDock(list, id)
+    if not id or id == "" then return end
+    if not IchaUI_DrawerDockGet or not IchaUI_DrawerDockSet then return end
+    local function field(key, fallback)
+        local d = IchaUI_DrawerDockGet(id)
+        if type(d) ~= "table" or d[key] == nil or d[key] == "" then return fallback end
+        return d[key]
+    end
+    local function num(key, fallback)
+        local n = tonumber(field(key, fallback))
+        if not n then return fallback end
+        return n
+    end
+    local function mode()
+        local m = field("mode", "free")
+        if m == "frame" or m == "portrait" then return m end
+        return "free"
+    end
+    local function put(key, value)
+        if value == nil then return end
+        IchaUI_DrawerDockSet(id, { [key] = value })
+    end
+    local function modeOpts()
+        if IchaUI_DrawerDockModeOpts then
+            local o = IchaUI_DrawerDockModeOpts()
+            if type(o) == "table" and table.getn(o) > 0 then return o end
+        end
+        return DOCK_MODES
+    end
+    local function parentOpts()
+        if IchaUI_DrawerDockParentOpts then
+            local o = IchaUI_DrawerDockParentOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function portraitOpts()
+        if IchaUI_DrawerDockPortraitOpts then
+            local o = IchaUI_DrawerDockPortraitOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function step(opts, cur, key)
+        local n = type(opts) == "table" and table.getn(opts) or 0
+        if n < 1 then return end
+        local i = dockIdx(opts, cur) + 1
+        if i < 1 or i > n then i = 1 end
+        if opts[i] then put(key, opts[i][1]) end
+    end
+    local function pick(opts, key, fallback)
+        return function()
+            local cur = field(key, fallback)
+            return opts, dockIdx(opts, cur), function(i)
+                if opts[i] then put(key, opts[i][1]) end
+            end
+        end
+    end
+    table.insert(list, cycle(function()
+        local opts = modeOpts()
+        return "Dock: " .. dockLabel(opts, mode(), "Free")
+    end, function()
+        step(modeOpts(), mode(), "mode")
+    end, nil, function()
+        local opts = modeOpts()
+        return opts, dockIdx(opts, mode()), function(i)
+            if opts[i] then put("mode", opts[i][1]) end
+        end
+    end))
+    local function frameOn() return mode() == "frame" end
+    local function portOn() return mode() == "portrait" end
+    table.insert(list, cycle(function()
+        return "Parent: " .. dockLabel(parentOpts(), field("parent", nil), "—")
+    end, function()
+        step(parentOpts(), field("parent", nil), "parent")
+    end, frameOn, function()
+        local opts = parentOpts()
+        return opts, dockIdx(opts, field("parent", nil)), function(i)
+            if opts[i] then put("parent", opts[i][1]) end
+        end
+    end))
+    table.insert(list, cycle(function()
+        return "Point: " .. dockLabel(DOCK_POINTS, field("point", "CENTER"), "Center")
+    end, function()
+        step(DOCK_POINTS, field("point", "CENTER"), "point")
+    end, frameOn, pick(DOCK_POINTS, "point", "CENTER")))
+    table.insert(list, cycle(function()
+        return "Rel: " .. dockLabel(DOCK_POINTS, field("relPoint", "CENTER"), "Center")
+    end, function()
+        step(DOCK_POINTS, field("relPoint", "CENTER"), "relPoint")
+    end, frameOn, pick(DOCK_POINTS, "relPoint", "CENTER")))
+    table.insert(list, slider("Dock X", -1200, 1200, 1, function()
+        return num("x", 0)
+    end, function(v) put("x", v) end, frameOn))
+    table.insert(list, slider("Dock Y", -1200, 1200, 1, function()
+        return num("y", 0)
+    end, function(v) put("y", v) end, frameOn))
+    table.insert(list, cycle(function()
+        return "Unit: " .. dockLabel(portraitOpts(), field("unit", nil), "—")
+    end, function()
+        step(portraitOpts(), field("unit", nil), "unit")
+    end, portOn, function()
+        local opts = portraitOpts()
+        return opts, dockIdx(opts, field("unit", nil)), function(i)
+            if opts[i] then put("unit", opts[i][1]) end
+        end
+    end))
+    table.insert(list, slider("Angle", 0, 360, 1, function()
+        return num("angle", 0)
+    end, function(v) put("angle", v) end, portOn))
+    table.insert(list, slider("Ox", -120, 120, 1, function()
+        return num("ox", 0)
+    end, function(v) put("ox", v) end, portOn))
+    table.insert(list, slider("Oy", -120, 120, 1, function()
+        return num("oy", 0)
+    end, function(v) put("oy", v) end, portOn))
+    table.insert(list, cycle(function()
+        return "Clear dock"
+    end, function()
+        if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear(id) end
+    end))
+end
+
+-- Per-drawer dock controls for a Frame parent (custom drawer options rows).
+-- Not IchaUI_BuildDrawerDockControls: Options.lua owns that name and loads
+-- later, with its own button and slider arguments. Same fields as addDock.
+-- Returns the y under the block. Omits every row when DrawerDock is not
+-- loaded. Parent gets _ichaDockLayout(), which repositions for the current
+-- mode and returns the new bottom y. Clicks call parent._ichaDockOnChange
+-- when that hook is set.
+function IchaUI_BuildDrawerDockBlock(parent, id, x, y)
+    if not parent or not id or id == "" then return y or 0 end
+    x = x or 0
+    y = y or 0
+    if not IchaUI_DrawerDockGet or not IchaUI_DrawerDockSet then return y end
+    local block = CreateFrame("Frame", nil, parent)
+    block:SetWidth(500)
+    block:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    local lines = {}
+    local place, refresh
+    local function field(key, fallback)
+        local d = IchaUI_DrawerDockGet(id)
+        if type(d) ~= "table" or d[key] == nil or d[key] == "" then return fallback end
+        return d[key]
+    end
+    local function num(key, fallback)
+        local n = tonumber(field(key, fallback))
+        if not n then return fallback end
+        return n
+    end
+    local function mode()
+        local m = field("mode", "free")
+        if m == "frame" or m == "portrait" then return m end
+        return "free"
+    end
+    local function put(key, value)
+        if value == nil then return end
+        IchaUI_DrawerDockSet(id, { [key] = value })
+    end
+    local function modeOpts()
+        if IchaUI_DrawerDockModeOpts then
+            local o = IchaUI_DrawerDockModeOpts()
+            if type(o) == "table" and table.getn(o) > 0 then return o end
+        end
+        return DOCK_MODES
+    end
+    local function parentOpts()
+        if IchaUI_DrawerDockParentOpts then
+            local o = IchaUI_DrawerDockParentOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function portraitOpts()
+        if IchaUI_DrawerDockPortraitOpts then
+            local o = IchaUI_DrawerDockPortraitOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function addLine(frame, kind, h)
+        table.insert(lines, { frame = frame, kind = kind, h = h or 22 })
+    end
+    local function makeChoice(owner, width, textFn, optsFn, key, fallback)
+        local b = CreateFrame("Button", nil, owner)
+        b:SetWidth(width)
+        b:SetHeight(18)
+        paintBox(b, 0.9)
+        local fs = whiteFs(b)
+        fs:SetPoint("LEFT", b, "LEFT", 6, 0)
+        fs:SetPoint("RIGHT", b, "RIGHT", -16, 0)
+        b.label = fs
+        b._label = fs
+        if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(b) end
+        b:SetScript("OnClick", function()
+            local opts = optsFn()
+            if type(opts) ~= "table" then opts = {} end
+            local cur = fallback
+            if key == "mode" then cur = mode() else cur = field(key, fallback) end
+            if IchaUI_ChoiceMenu then
+                IchaUI_ChoiceMenu(this, opts, dockIdx(opts, cur), function(i)
+                    if opts[i] then put(key, opts[i][1]) end
+                    if refresh then refresh() end
+                end)
+            else
+                local n = table.getn(opts)
+                if n < 1 then return end
+                local i = dockIdx(opts, cur) + 1
+                if i < 1 or i > n then i = 1 end
+                if opts[i] then put(key, opts[i][1]) end
+                if refresh then refresh() end
+            end
+        end)
+        b._dockPaint = function()
+            fs:SetText(textFn())
+        end
+        return b
+    end
+    local function makeSlider(label, lo, hi, step, key)
+        local cell = CreateFrame("Frame", nil, block)
+        cell:SetWidth(480)
+        cell:SetHeight(20)
+        local cap = whiteFs(cell, label)
+        cap:SetPoint("LEFT", cell, "LEFT", 0, 0)
+        cap:SetWidth(56)
+        cap:SetJustifyH("LEFT")
+        local sl = CreateFrame("Slider", nil, cell, "OptionsSliderTemplate")
+        sl:SetPoint("LEFT", cap, "RIGHT", 4, 0)
+        sl:SetWidth(150)
+        sl:SetHeight(16)
+        sl:SetMinMaxValues(lo, hi)
+        sl:SetValueStep(step)
+        local val = whiteFs(cell, "")
+        val:SetPoint("LEFT", sl, "RIGHT", 6, 0)
+        local busy = false
+        sl:SetScript("OnValueChanged", function()
+            if busy then return end
+            local v = this:GetValue() or lo
+            if step >= 1 then v = math.floor(v + 0.5) end
+            if v < lo then v = lo end
+            if v > hi then v = hi end
+            val:SetText(tostring(v))
+            put(key, v)
+        end)
+        cell._dockPaint = function()
+            local v = num(key, 0)
+            if v < lo then v = lo end
+            if v > hi then v = hi end
+            if step >= 1 then v = math.floor(v + 0.5) end
+            busy = true
+            sl:SetValue(v)
+            busy = false
+            val:SetText(tostring(v))
+            cap:SetText(label)
+        end
+        return cell
+    end
+
+    local head = CreateFrame("Frame", nil, block)
+    head:SetWidth(480)
+    head:SetHeight(20)
+    local modeBtn = makeChoice(head, 200, function()
+        return "Dock: " .. dockLabel(modeOpts(), mode(), "Free")
+    end, modeOpts, "mode", "free")
+    modeBtn:SetPoint("TOPLEFT", head, "TOPLEFT", 0, 0)
+    local clearBtn = CreateFrame("Button", nil, head)
+    clearBtn:SetWidth(110)
+    clearBtn:SetHeight(18)
+    clearBtn:SetPoint("LEFT", modeBtn, "RIGHT", 6, 0)
+    paintBox(clearBtn, 0.9)
+    local clearFs = whiteFs(clearBtn, "Clear dock")
+    clearFs:SetPoint("CENTER", clearBtn, "CENTER", 0, 0)
+    clearBtn:SetScript("OnClick", function()
+        if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear(id) end
+        if refresh then refresh() end
+    end)
+    head._dockPaint = function()
+        if modeBtn._dockPaint then modeBtn._dockPaint() end
+    end
+    addLine(head, "always", 22)
+
+    local parentBtn = makeChoice(block, 240, function()
+        return "Parent: " .. dockLabel(parentOpts(), field("parent", nil), "—")
+    end, parentOpts, "parent", nil)
+    addLine(parentBtn, "frame", 22)
+    local pointBtn = makeChoice(block, 220, function()
+        return "Point: " .. dockLabel(DOCK_POINTS, field("point", "CENTER"), "Center")
+    end, function() return DOCK_POINTS end, "point", "CENTER")
+    addLine(pointBtn, "frame", 22)
+    local relBtn = makeChoice(block, 220, function()
+        return "Rel: " .. dockLabel(DOCK_POINTS, field("relPoint", "CENTER"), "Center")
+    end, function() return DOCK_POINTS end, "relPoint", "CENTER")
+    addLine(relBtn, "frame", 22)
+    addLine(makeSlider("Dock X", -1200, 1200, 1, "x"), "frame", 22)
+    addLine(makeSlider("Dock Y", -1200, 1200, 1, "y"), "frame", 22)
+
+    local unitBtn = makeChoice(block, 220, function()
+        return "Unit: " .. dockLabel(portraitOpts(), field("unit", nil), "—")
+    end, portraitOpts, "unit", nil)
+    addLine(unitBtn, "portrait", 22)
+    addLine(makeSlider("Angle", 0, 360, 1, "angle"), "portrait", 22)
+    addLine(makeSlider("Ox", -120, 120, 1, "ox"), "portrait", 22)
+    addLine(makeSlider("Oy", -120, 120, 1, "oy"), "portrait", 22)
+
+    place = function()
+        local m = mode()
+        local yy = 0
+        local i
+        for i = 1, table.getn(lines) do
+            local line = lines[i]
+            local fr = line.frame
+            if fr._dockPaint then fr._dockPaint() end
+            local on = line.kind == "always" or line.kind == m
+            if on then
+                fr:ClearAllPoints()
+                fr:SetPoint("TOPLEFT", block, "TOPLEFT", 0, yy)
+                fr:Show()
+                yy = yy - line.h
+            else
+                fr:Hide()
+            end
+        end
+        if yy == 0 then yy = -1 end
+        block:SetHeight(-yy)
+        block:Show()
+        return y + yy
+    end
+    refresh = function()
+        local ny = place()
+        if parent._ichaDockOnChange then parent._ichaDockOnChange(ny) end
+        return ny
+    end
+    parent._ichaDockLayout = place
+    return place()
+end
+
 local function totemsList()
     if not IchaUITotems_Get or not IchaUITotems_Set then return nil end
     local function tget(k, d)
@@ -212,6 +580,7 @@ local function totemsList()
         tget("drawerArc", 360), tset("drawerArc"),
         tget("drawerRot", 90), tset("drawerRot"))
     addStyle(list, "totems", true)
+    addDock(list, "totems")
     return list
 end
 
@@ -236,6 +605,7 @@ local function recallList()
         end, function(v) IchaUI_TotemRecallIcon_ScaleSet(v) end))
     end
     addStyle(list, "recall")
+    addDock(list, "recall")
     return list
 end
 
@@ -284,6 +654,7 @@ local function extrasList(which)
         end))
     end
     addStyle(list, which)
+    addDock(list, which)
     return list
 end
 
@@ -326,6 +697,7 @@ local function resistsList()
         end,
         function(v) if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end end)
     addStyle(list, "resists")
+    addDock(list, "resists")
     return list
 end
 
@@ -354,6 +726,7 @@ local function minimapList()
         mget("drawerArc", 360), mset("drawerArc"),
         mget("drawerRot", 90), mset("drawerRot"))
     addStyle(list, "minimap")
+    addDock(list, "minimap")
     return list
 end
 
@@ -372,9 +745,11 @@ end
 local function customList(sid)
     if not IchaUI_CustomDrawers_ApplyStyle then return nil end
     local rid = string.sub(sid, 4)
-    if not customRec(rid) then return nil end
+    if rid == "" or not customRec(rid) then return nil end
+    -- Same drawer id DrawerStyle uses. One IchaUIDB.drawerDock row per drawer.
+    local styleId = "cd:" .. rid
     local function live() return customRec(rid) end
-    local function refresh() IchaUI_CustomDrawers_ApplyStyle(sid) end
+    local function refresh() IchaUI_CustomDrawers_ApplyStyle(styleId) end
     local function dir()
         local rec = live()
         local d = rec and rec.dir
@@ -464,7 +839,8 @@ local function customList(sid)
         if n >= 1 then rec.useCols = nil else rec.useCols = true end
         refresh()
     end))
-    addStyle(list, sid, false, true)
+    addStyle(list, styleId, false, true)
+    addDock(list, styleId)
     return list
 end
 

@@ -654,12 +654,21 @@ local function captureSlot(actionId)
             texture = itex or tex,
         }
     end
-    if infoType == "spell" and type(infoId) == "number" and GetSpellName then
-        local sname, srank = GetSpellName(infoId, BOOKTYPE_SPELL or "spell")
+    -- GetActionInfo (SuperWoW/ClassicAPI) returns a spell ID, not a book slot.
+    -- GetSpellName only accepts book slots — calling it with a spell ID errors.
+    if infoType == "spell" and type(infoId) == "number" then
+        local sname, srank = nil, nil
+        if type(SpellInfo) == "function" then
+            local ok, a, b = pcall(SpellInfo, infoId)
+            if ok and type(a) == "string" and a ~= "" then
+                sname, srank = a, b
+            end
+        end
         if sname then
             name = sname
             rank = normRank(srank) or rank
         end
+        -- else keep tooltip name/rank from tooltipNameRank above
     elseif infoType == "spell" and type(infoId) == "string" and infoId ~= "" then
         name = infoId
     end

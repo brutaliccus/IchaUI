@@ -1364,7 +1364,12 @@ local function timerFont(b)
         fs._size = size
     end
     fs:ClearAllPoints()
-    fs:SetPoint("CENTER", b, "CENTER", b._iconDX or 0, b._iconDY or 0)
+    -- Prefer icon center so CD/charge text tracks FormPress / _iconDX hole nudge.
+    if b.icon then
+        fs:SetPoint("CENTER", b.icon, "CENTER", 0, 0)
+    else
+        fs:SetPoint("CENTER", b, "CENTER", b._iconDX or 0, b._iconDY or 0)
+    end
     return fs
 end
 

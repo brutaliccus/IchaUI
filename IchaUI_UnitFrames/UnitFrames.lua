@@ -4703,17 +4703,32 @@ local function getCastInfo(unit)
         return IchaUI_Cast_PlayerInfo()
     end
 
-    -- 1) ClassicAPI C_Spell — authoritative for target/ToT/party on RavenCraft
+    -- Non-player order (mirrors IchaUI_Cast_PollPlayer): live SW first, then
+    -- Classic / UnitAPI. Filter nil must fall through — Classic leftovers must
+    -- not block a live SuperWoW / combat-log cast on target NPCs.
+    local sw = getSwCastInfo(unit)
+    if sw then
+        local filtered = IchaUI_Cast_FilterInfo(unit, sw)
+        if filtered then return filtered end
+    end
+
+    -- ClassicAPI C_Spell
     -- Shape: name, displayName, texture, startMs, endMs, isTradeSkill,
     --        castID, notInterruptible, spellId [, castBarID, delayMs]
     if C_Spell and type(C_Spell) == "table" then
         local ok, info = pcall(IchaUI_Cast_FromClassic, unit, false)
-        if ok and info then return IchaUI_Cast_FilterInfo(unit, info) end
+        if ok and info then
+            local filtered = IchaUI_Cast_FilterInfo(unit, info)
+            if filtered then return filtered end
+        end
         ok, info = pcall(IchaUI_Cast_FromClassic, unit, true)
-        if ok and info then return IchaUI_Cast_FilterInfo(unit, info) end
+        if ok and info then
+            local filtered = IchaUI_Cast_FilterInfo(unit, info)
+            if filtered then return filtered end
+        end
     end
 
-    -- 2) Client-provided global UnitCastingInfo / UnitChannelInfo, if any
+    -- Client-provided global UnitCastingInfo / UnitChannelInfo, if any
     if type(UnitCastingInfo) == "function" then
         local ok, r1, r2, r3, r4, r5, r6 = pcall(UnitCastingInfo, unit)
         if ok and r1 then
@@ -4723,7 +4738,10 @@ local function getCastInfo(unit)
                 texture, startMs, endMs = r3, r4, r5
             end
             local info = castInfoFromParts(r1, texture, startMs, endMs, false, nil, false)
-            if info then return IchaUI_Cast_FilterInfo(unit, info) end
+            if info then
+                local filtered = IchaUI_Cast_FilterInfo(unit, info)
+                if filtered then return filtered end
+            end
         end
     end
     if type(UnitChannelInfo) == "function" then
@@ -4734,12 +4752,15 @@ local function getCastInfo(unit)
                 texture, startMs, endMs = r3, r4, r5
             end
             local info = castInfoFromParts(r1, texture, startMs, endMs, true, nil, false)
-            if info then return IchaUI_Cast_FilterInfo(unit, info) end
+            if info then
+                local filtered = IchaUI_Cast_FilterInfo(unit, info)
+                if filtered then return filtered end
+            end
         end
     end
 
-    -- 3) SuperWoW / combat-log cache
-    return IchaUI_Cast_FilterInfo(unit, getSwCastInfo(unit))
+    -- SW already tried above; skip duplicate last-resort call
+    return nil
 end
 
 local function getCastLatencyMs()
@@ -9072,8 +9093,8 @@ local TANK_DRAWER_W = 118
 local TANK_DRAWER_H = BASE_H
 local TANK_GAP = 0
 local TANK_ARROW_NUDGE_X = -4 -- screen-left a few px
--- Nestled (closed): overlap into caret. Open: flush against caret (border clears itself).
-local TANK_MINIMAL_SEP = 6
+-- Nestled (closed): negative sep pulls resist strip into/against caret. Open: flush (border clears itself).
+local TANK_MINIMAL_SEP = -4
 local TANK_OPEN_SEP = 2
 
 function IchaUIUF_tankDrawerOpen()
@@ -9286,7 +9307,7 @@ local TANK_RES_STEP = 8 -- overridden in layout to fit full height
 local TANK_RES_COL_W = 30 -- room for "999" with outline, no clip
 local TANK_RIGHT_X = 4 + TANK_RES_COL_W + 4
 local TANK_RIGHT_W = TANK_DRAWER_W - TANK_RIGHT_X - 4 -- ~74: fits "Humanoid", "1234–5678"
-local TANK_OVERLAP = 14 -- snug caret to frame + drawer
+local TANK_OVERLAP = 18 -- snug caret to frame + drawer
 
 local tankRes = {}
 do

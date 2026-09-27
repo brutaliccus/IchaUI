@@ -3,5 +3,5 @@
 ## Notes: Action bars. /icha scale, gap, hotkeys, bind.
 ## Dependencies: IchaUI
 ## OptionalDeps: IchaUI_Hero
-## Version: 3.5.0
+## Version: 3.5.1
 Layout.lua

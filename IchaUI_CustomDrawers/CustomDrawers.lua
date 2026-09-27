@@ -162,6 +162,7 @@ end
 local function restorePos(btn, rec)
     if not btn or not rec then return end
     if btn.dragged then return end
+    if IchaUI_DrawerDockApply and IchaUI_DrawerDockApply("cd:" .. rec.id, btn) then return end
     pinCenter(btn, tonumber(rec.x) or 0, tonumber(rec.y) or 0)
 end
 
@@ -755,6 +756,7 @@ local function makeDrawer(rec)
     btn:SetScript("OnDragStart", function()
         if not ui.moving then return end
         this.dragged = true
+        if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear("cd:" .. ui.id) end
         this:StartMoving()
     end)
     btn:SetScript("OnDragStop", function()
@@ -808,6 +810,7 @@ local function makeDrawer(rec)
     pinCenter(btn, tonumber(rec.x) or 0, tonumber(rec.y) or 0)
     drawers[rec.id] = ui
     applyChrome(ui)
+    if IchaUI_DrawerDockRegister then IchaUI_DrawerDockRegister("cd:" .. rec.id, btn) end
     return ui
 end
 

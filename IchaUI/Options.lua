@@ -1096,9 +1096,11 @@ local CONTENT_PAD = 12
 local PAD = 10
 local ROW = 26
 local SLW = 140
--- Right column origin inside a page (page width is PANEL_W minus pads and scrollbar)
-local COL2 = 560
-local COL_TIP = 470
+-- Column origins inside a page (page width is PANEL_W minus pads and scrollbar).
+-- Bars and Drawers use COL1=PAD, COL2, COL3; other tabs still use PAD + COL2.
+local COL2 = 390
+local COL3 = 770
+local COL_TIP = 360
 
 -- Smart Mark tab. Lives outside build() to keep its locals/upvalues under Lua 5.0 limits.
 local function smWhite(parent, text, x, y, w)
@@ -1467,7 +1469,7 @@ local function build()
     ------------------------------------------------------------------
     -- Left tab column (pages sit to the right; profile bar sits below)
     ------------------------------------------------------------------
-    local TAB_NAMES = { "Bars", "Hero", "Buffs", "Frames", "Plates", "Drawers", "Map", "Combat", "Mark", "Chat", "Skin" }
+    local TAB_NAMES = { "Bars", "Buffs", "Frames", "Plates", "Drawers", "Map", "Combat", "Mark", "Chat", "Skin" }
     local tabBtns = {}
     local pages = {}
     local activeTab = nil
@@ -1521,6 +1523,9 @@ local function build()
         end
         if name == "Drawers" and pages._drawersRefresh then
             pages._drawersRefresh()
+        end
+        if name == "Bars" and pages._stanceRefresh then
+            pages._stanceRefresh()
         end
         if name == "Combat" and pages._combatRefresh then
             pages._combatRefresh()
@@ -1735,9 +1740,9 @@ local function build()
     end
 
     ------------------------------------------------------------------
-    -- TAB 1: Bars (action bars, shield binds, XP)
+    -- TAB 1: Bars (action bars, XP under COL1; hero COL2; stance COL3)
     ------------------------------------------------------------------
-    local pageBars = makePage("Bars", 400)
+    local pageBars = makePage("Bars", 1400)
     local y1 = -4
 
     sectionHeader(pageBars, "Action bars", PAD, y1); y1 = y1 - 18
@@ -1801,11 +1806,6 @@ local function build()
         return y - 22
     end
     y1 = placeActionAdds(pageBars, y1)
-    tip(pageBars, "Side bars sit against the hero bar. Add makes another bar while free slots remain. Right-click a bar in Edit positions for scale, opacity, and its grid.", PAD, y1, 520)
-    y1 = y1 - 16
-    tip(pageBars, IchaUI_IsShaman() and "Strata: action bars, hero, totem bar, and all drawers. DIALOG is still below tooltips."
-        or "Strata: action bars, hero, and all drawers. DIALOG is still below tooltips.", PAD, y1, 520)
-    y1 = y1 - 28
     if not IchaUI_BarFormPick then IchaUI_BarFormPick = 1 end
     local barFormBtn = makeButton(pageBars, "Bar 1", 70, 20, function()
         local n = IchaUI_ActionBarCount and IchaUI_ActionBarCount() or 6
@@ -1921,50 +1921,24 @@ local function build()
     end
     pageBars._formRefresh()
 
-    y1 = -4
-    local shieldRows = {}
-    if IchaUI_IsShaman() then
-        sectionHeader(pageBars, "Shield binds", COL2, y1); y1 = y1 - 18
-        local shi
-        for shi = 1, 3 do
-            local idx = shi
-            local spellFallback = { "Lightning Shield", "Water Shield", "Earth Shield" }
-            local spellName = spellFallback[idx]
-            if IchaUIShieldBinds_GetSpell then
-                spellName = IchaUIShieldBinds_GetSpell(idx) or spellName
-            end
-            local row = makeKeyBindRow(pageBars, spellName, COL2, y1,
-                function()
-                    if IchaUIShieldBinds_GetKey then return IchaUIShieldBinds_GetKey(idx) end
-                    return ""
-                end,
-                function(key)
-                    if IchaUIShieldBinds_ApplyKey then IchaUIShieldBinds_ApplyKey(idx, key) end
-                end)
-            table.insert(shieldRows, row)
-            y1 = y1 - 24
-        end
-        tip(pageBars, "Click a key, then press keyboard or mouse (Alt-M4 ok). /icha shieldbind", COL2, y1, 520)
-        y1 = y1 - 22
-    end
-
-    sectionHeader(pageBars, "XP bar", COL2, y1); y1 = y1 - 18
-    local xpW = makeSliderRow(pageBars, "Width", COL2, y1, SLW, 80, 1200, 10,
+    -- COL1 (PAD): XP bar under Action bars
+    sectionHeader(pageBars, "XP bar", PAD, y1); y1 = y1 - 18
+    local xpW = makeSliderRow(pageBars, "Width", PAD, y1, SLW, 80, 1200, 10,
         function() local x = db().xp or {}; return x.width or 400 end,
         function(v) if IchaUIXP_Slash then IchaUIXP_Slash("width " .. v) end end)
     y1 = y1 - ROW
-    local xpH = makeSliderRow(pageBars, "Height", COL2, y1, SLW, 6, 80, 1,
+    local xpH = makeSliderRow(pageBars, "Height", PAD, y1, SLW, 6, 80, 1,
         function() local x = db().xp or {}; return x.height or 14 end,
         function(v) if IchaUIXP_Slash then IchaUIXP_Slash("height " .. v) end end)
     y1 = y1 - ROW
-    local xpS = makeSliderRow(pageBars, "Scale", COL2, y1, SLW, 0.4, 3.0, 0.05,
+    local xpS = makeSliderRow(pageBars, "Scale", PAD, y1, SLW, 0.4, 3.0, 0.05,
         function() local x = db().xp or {}; return x.scale or 1 end,
         function(v) if IchaUIXP_Slash then IchaUIXP_Slash("scale " .. v) end end)
     y1 = y1 - ROW
     local xpMove = makeButton(pageBars, "Move XP", 70, 20, function()
         if IchaUIXP_Slash then IchaUIXP_Slash("move") end
     end)
-    xpMove:SetPoint("TOPLEFT", pageBars, "TOPLEFT", COL2, y1)
+    xpMove:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y1)
     local xpShow = makeButton(pageBars, "Show", 48, 20, function()
         if IchaUIXP_Slash then IchaUIXP_Slash("show") end
     end)
@@ -1976,12 +1950,6 @@ local function build()
     y1 = y1 - 30
 
 
-    ------------------------------------------------------------------
-    -- TAB: Hero bar (grid, per-button binds, shock)
-    ------------------------------------------------------------------
-    local pageHero = makePage("Hero", 420)
-    y1 = -4
-    sectionHeader(pageHero, "Hero bar", PAD, y1); y1 = y1 - 18
     local function placeHeroPicks(page, y)
         IchaUI_HeroPick = IchaUI_HeroPick or 1
         local heroPickBtns = {}
@@ -2022,7 +1990,7 @@ local function build()
                 if IchaUIOptions and IchaUIOptions.refresh then IchaUIOptions.refresh() end
             end)
             if idx == 1 then
-                b:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, y)
+                b:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, y)
             else
                 b:SetPoint("LEFT", heroPickBtns[idx - 1], "RIGHT", 3, 0)
             end
@@ -2038,7 +2006,7 @@ local function build()
             paintHeroPicks()
             if IchaUIOptions and IchaUIOptions.refresh then IchaUIOptions.refresh() end
         end)
-        heroAddBtn:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, y - 20)
+        heroAddBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, y - 20)
         heroRemoveBtn = makeButton(page, "Remove", 58, 18, function()
             local pick = IchaUI_HeroPick or 1
             if pick > 1 and IchaUI_HeroBarRemove then IchaUI_HeroBarRemove(pick) end
@@ -2052,135 +2020,160 @@ local function build()
         paintHeroPicks()
         return y - 42
     end
-    y1 = placeHeroPicks(pageHero, y1)
-    makeSliderRow(pageHero, "Scale", PAD, y1, SLW, 0.5, 3.0, 0.05,
-        function()
+
+    ------------------------------------------------------------------
+    -- COL2: Hero Bar  |  COL3: Stance
+    ------------------------------------------------------------------
+    do
+        local yHero = -4
+
+        sectionHeader(pageBars, "Hero Bar", COL2, yHero); yHero = yHero - 18
+        yHero = placeHeroPicks(pageBars, yHero)
+        makeSliderRow(pageBars, "Scale", COL2, yHero, SLW, 0.5, 3.0, 0.05,
+            function()
+                local pick = IchaUI_HeroPick or 1
+                if pick <= 1 then return (db().heroScale or 1.55) end
+                if IchaUI_HeroBarScale then return IchaUI_HeroBarScale(pick) or 1.55 end
+                return 1.55
+            end,
+            function(v)
+                local pick = IchaUI_HeroPick or 1
+                if pick <= 1 then
+                    if SlashCmdList and SlashCmdList["ICHA"] then SlashCmdList["ICHA"]("heroscale " .. v) end
+                elseif IchaUI_HeroBarSetScale then
+                    IchaUI_HeroBarSetScale(pick, v)
+                end
+            end)
+        yHero = yHero - ROW
+        makeSliderRow(pageBars, "Cols", COL2, yHero, SLW, 1, 12, 1,
+            function()
+                local pick = IchaUI_HeroPick or 1
+                if IchaUI_HeroBarGrid then
+                    local c = IchaUI_HeroBarGrid(pick)
+                    return c or 4
+                end
+                if IchaUI_HeroGrid then
+                    local c = IchaUI_HeroGrid()
+                    return c
+                end
+                return 4
+            end,
+            function(v)
+                if IchaUI_HeroSetCols then IchaUI_HeroSetCols(v) end
+            end)
+        yHero = yHero - ROW
+        makeSliderRow(pageBars, "Rows", COL2, yHero, SLW, 1, 5, 1,
+            function()
+                local pick = IchaUI_HeroPick or 1
+                if IchaUI_HeroBarGrid then
+                    local c, r = IchaUI_HeroBarGrid(pick)
+                    return r or 2
+                end
+                if IchaUI_HeroGrid then
+                    local c, r = IchaUI_HeroGrid()
+                    return r
+                end
+                return 2
+            end,
+            function(v)
+                if IchaUI_HeroSetRows then IchaUI_HeroSetRows(v) end
+            end)
+        yHero = yHero - ROW
+        makeButton(pageBars, "Hero setup", 92, 20, function()
             local pick = IchaUI_HeroPick or 1
-            if pick <= 1 then return (db().heroScale or 1.55) end
-            if IchaUI_HeroBarScale then return IchaUI_HeroBarScale(pick) or 1.55 end
-            return 1.55
-        end,
-        function(v)
-            local pick = IchaUI_HeroPick or 1
-            if pick <= 1 then
-                if SlashCmdList and SlashCmdList["ICHA"] then SlashCmdList["ICHA"]("heroscale " .. v) end
-            elseif IchaUI_HeroBarSetScale then
-                IchaUI_HeroBarSetScale(pick, v)
-            end
+            if IchaUI_HeroFocus then IchaUI_HeroFocus(pick) end
+            if IchaUI_HeroSetup_Toggle then IchaUI_HeroSetup_Toggle() end
+        end):SetPoint("TOPLEFT", pageBars, "TOPLEFT", COL2, yHero)
+        yHero = yHero - 24
+        local heroShape = makeButton(pageBars, "Shape: Square", 140, 20, function()
+            local id = IchaUI_HeroPick or 1
+            local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
+            if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
+            if IchaUI_FormShapeNext then shape = IchaUI_FormShapeNext(shape) end
+            if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, rot) end
+            local lab = shape
+            if IchaUI_FormShapeLabel then lab = IchaUI_FormShapeLabel(shape) end
+            this:SetText("Shape: " .. lab)
         end)
-    y1 = y1 - ROW
-    makeSliderRow(pageHero, "Cols", PAD, y1, SLW, 1, 12, 1,
-        function()
-            local pick = IchaUI_HeroPick or 1
-            if IchaUI_HeroBarGrid then
-                local c = IchaUI_HeroBarGrid(pick)
-                return c or 4
-            end
-            if IchaUI_HeroGrid then
-                local c = IchaUI_HeroGrid()
-                return c
-            end
-            return 4
-        end,
-        function(v)
-            if IchaUI_HeroSetCols then IchaUI_HeroSetCols(v) end
+        heroShape:SetPoint("TOPLEFT", pageBars, "TOPLEFT", COL2, yHero)
+        if IchaUI_ShapeDropdown then
+            IchaUI_ShapeDropdown(heroShape, function()
+                if not IchaUI_HeroBarForm then return "square" end
+                return (IchaUI_HeroBarForm(IchaUI_HeroPick or 1))
+            end)
+        end
+        local heroLay = makeButton(pageBars, "Layout: Grid", 120, 20, function()
+            local id = IchaUI_HeroPick or 1
+            local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
+            if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
+            if layout == "radial" then layout = "grid" else layout = "radial" end
+            if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, rot) end
+            if layout == "radial" then this:SetText("Layout: Radial") else this:SetText("Layout: Grid") end
         end)
-    y1 = y1 - ROW
-    makeSliderRow(pageHero, "Rows", PAD, y1, SLW, 1, 5, 1,
-        function()
-            local pick = IchaUI_HeroPick or 1
-            if IchaUI_HeroBarGrid then
-                local c, r = IchaUI_HeroBarGrid(pick)
-                return r or 2
-            end
-            if IchaUI_HeroGrid then
-                local c, r = IchaUI_HeroGrid()
-                return r
-            end
-            return 2
-        end,
-        function(v)
-            if IchaUI_HeroSetRows then IchaUI_HeroSetRows(v) end
-        end)
-    y1 = y1 - ROW
-    makeButton(pageHero, "Hero setup", 92, 20, function()
-        local pick = IchaUI_HeroPick or 1
-        if IchaUI_HeroFocus then IchaUI_HeroFocus(pick) end
-        if IchaUI_HeroSetup_Toggle then IchaUI_HeroSetup_Toggle() end
-    end):SetPoint("TOPLEFT", pageHero, "TOPLEFT", PAD, y1)
-    y1 = y1 - 24
-    local heroShape = makeButton(pageHero, "Shape: Square", 140, 20, function()
-        local id = IchaUI_HeroPick or 1
-        local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
-        if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
-        if IchaUI_FormShapeNext then shape = IchaUI_FormShapeNext(shape) end
-        if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, rot) end
-        local lab = shape
-        if IchaUI_FormShapeLabel then lab = IchaUI_FormShapeLabel(shape) end
-        this:SetText("Shape: " .. lab)
-    end)
-    heroShape:SetPoint("TOPLEFT", pageHero, "TOPLEFT", PAD, y1)
-    if IchaUI_ShapeDropdown then
-        IchaUI_ShapeDropdown(heroShape, function()
-            if not IchaUI_HeroBarForm then return "square" end
-            return (IchaUI_HeroBarForm(IchaUI_HeroPick or 1))
-        end)
+        heroLay:SetPoint("LEFT", heroShape, "RIGHT", 4, 0)
+        yHero = yHero - ROW
+        makeSliderRow(pageBars, "Spread", COL2, yHero, SLW, 10, 360, 1,
+            function()
+                local id = IchaUI_HeroPick or 1
+                local spread = 90
+                if IchaUI_HeroBarForm then local _, _, s = IchaUI_HeroBarForm(id); spread = s end
+                return spread or 90
+            end,
+            function(v)
+                local id = IchaUI_HeroPick or 1
+                local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
+                if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
+                if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, v, arc, rot) end
+            end)
+        yHero = yHero - ROW
+        makeSliderRow(pageBars, "Arc", COL2, yHero, SLW, 10, 360, 1,
+            function()
+                local id = IchaUI_HeroPick or 1
+                local arc = 360
+                if IchaUI_HeroBarForm then local _, _, _, a = IchaUI_HeroBarForm(id); arc = a end
+                return arc or 360
+            end,
+            function(v)
+                local id = IchaUI_HeroPick or 1
+                local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
+                if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
+                if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, v, rot) end
+            end)
+        yHero = yHero - ROW
+        makeSliderRow(pageBars, "Sh Rot", COL2, yHero, SLW, -360, 360, 1,
+            function()
+                local id = IchaUI_HeroPick or 1
+                local rot = 90
+                if IchaUI_HeroBarForm then local _, _, _, _, r = IchaUI_HeroBarForm(id); rot = r end
+                return rot or 90
+            end,
+            function(v)
+                local id = IchaUI_HeroPick or 1
+                local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
+                if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
+                if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, v) end
+            end)
     end
-    local heroLay = makeButton(pageHero, "Layout: Grid", 120, 20, function()
-        local id = IchaUI_HeroPick or 1
-        local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
-        if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
-        if layout == "radial" then layout = "grid" else layout = "radial" end
-        if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, rot) end
-        if layout == "radial" then this:SetText("Layout: Radial") else this:SetText("Layout: Grid") end
-    end)
-    heroLay:SetPoint("LEFT", heroShape, "RIGHT", 4, 0)
-    y1 = y1 - ROW
-    makeSliderRow(pageHero, "Spread", PAD, y1, SLW, 10, 360, 1,
-        function()
-            local id = IchaUI_HeroPick or 1
-            local spread = 90
-            if IchaUI_HeroBarForm then local _, _, s = IchaUI_HeroBarForm(id); spread = s end
-            return spread or 90
-        end,
-        function(v)
-            local id = IchaUI_HeroPick or 1
-            local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
-            if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
-            if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, v, arc, rot) end
-        end)
-    y1 = y1 - ROW
-    makeSliderRow(pageHero, "Arc", PAD, y1, SLW, 10, 360, 1,
-        function()
-            local id = IchaUI_HeroPick or 1
-            local arc = 360
-            if IchaUI_HeroBarForm then local _, _, _, a = IchaUI_HeroBarForm(id); arc = a end
-            return arc or 360
-        end,
-        function(v)
-            local id = IchaUI_HeroPick or 1
-            local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
-            if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
-            if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, v, rot) end
-        end)
-    y1 = y1 - ROW
-    makeSliderRow(pageHero, "Sh Rot", PAD, y1, SLW, -360, 360, 1,
-        function()
-            local id = IchaUI_HeroPick or 1
-            local rot = 90
-            if IchaUI_HeroBarForm then local _, _, _, _, r = IchaUI_HeroBarForm(id); rot = r end
-            return rot or 90
-        end,
-        function(v)
-            local id = IchaUI_HeroPick or 1
-            local shape, layout, spread, arc, rot = "square", "grid", 90, 360, 90
-            if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
-            if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, v) end
-        end)
-    y1 = y1 - ROW
-    tip(pageHero, "Same scale, columns, rows, and setup on each hero bar. Shape and radial layout follow the hero you have selected. Edit positions on Bars moves them.", PAD, y1, 500)
-    y1 = y1 - 36
-    tip(pageHero, "Hero setup shows the bar. Drag a slot to move its abilities. Edit abilities, pick several, then Save. Macros and bag consumables are in that picker. Spell keys still use Target, Mouseover, or Focus.", PAD, y1, 500)
+
+    -- Stance on COL3 (narrow tip width for ~360 col)
+    do
+        local yStance = -4
+        if IchaUI_BuildStanceOptions then
+            local stanceRefresh, stanceY = IchaUI_BuildStanceOptions(pageBars, COL3, yStance, {
+                sectionHeader = sectionHeader,
+                tip = function(p, t, tx, ty, tw)
+                    return tip(p, t, tx, ty, 340)
+                end,
+                makeButton = makeButton,
+                makeGoldToggle = makeGoldToggle,
+                paintGoldToggle = paintGoldToggle,
+            })
+            pages._stanceRefresh = stanceRefresh
+        else
+            tip(pageBars, "Stance module not loaded.", COL3, yStance, 340)
+            pages._stanceRefresh = function() end
+        end
+    end
 
 
     ------------------------------------------------------------------
@@ -2360,7 +2353,7 @@ local function build()
 
 
     ------------------------------------------------------------------
-    -- TAB 5: Drawers (was Totems — nested to stay under build()'s 200 locals)
+    -- TAB 5: Drawers (3-col when shaman: Totems|Recall+Util+Resists|Imbue+Shield)
     ------------------------------------------------------------------
     local function fillDrawersPage()
         local page = makePage("Drawers", 1680)
@@ -2426,6 +2419,7 @@ local function build()
         local sham = IchaUI_IsShaman()
         local throwBind, shiftDr, recallMove, refreshRecallOn
         local yC = -4
+        local yR = 0
         if sham then
             sectionHeader(page, "Totems", PAD, yL); yL = yL - 18
             makeSliderRow(page, "Scale", PAD, yL, SLW, 0.4, 3.0, 0.05,
@@ -2503,7 +2497,7 @@ local function build()
             end)
             totHide:SetPoint("LEFT", totShow, "RIGHT", 4, 0)
             yL = yL - 22
-            tip(page, "T.strata: totem duration / tick numbers (default HIGH, below tooltips). Icon layer is Bars → Strata.", PAD, yL, 520)
+            tip(page, "T.strata: totem duration / tick numbers (default HIGH, below tooltips). Icon layer is Bars → Strata.", PAD, yL, COL_TIP)
             yL = yL - 26
 
             throwBind = makeKeyBindRow(page, "Throw current", PAD, yL,
@@ -2514,7 +2508,12 @@ local function build()
                 function(key)
                     if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
                 end)
-            local nextSetBind = makeKeyBindRow(page, "Next set", PAD + 240, yL,
+            local totThrow = makeButton(page, "Throw now", 72, 20, function()
+                if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
+            end)
+            totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 220, yL + 3)
+            yL = yL - 26
+            local nextSetBind = makeKeyBindRow(page, "Next set", PAD, yL,
                 function()
                     if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
                     return ""
@@ -2523,10 +2522,6 @@ local function build()
                     if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
                 end)
             table.insert(slotRows, nextSetBind)
-            local totThrow = makeButton(page, "Throw now", 72, 20, function()
-                if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
-            end)
-            totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 464, yL + 3)
             yL = yL - 26
             if IchaUI_BuildTotemSetsBlock then
                 yL = IchaUI_BuildTotemSetsBlock(page, PAD, yL, sectionHeader, makeButton, makeEdit, makeKeyBindRow, slotRows)
@@ -2576,9 +2571,9 @@ local function build()
             end)
             shiftDr:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
             yL = yL - 22
-            tip(page, "Open: element drawers grow from the slot. Default Up. Shift: also imbue / shield / utility.", PAD, yL, 520)
+            tip(page, "Open: element drawers grow from the slot. Default Up. Shift: also imbue / shield / utility.", PAD, yL, COL_TIP)
             yL = yL - 16
-            tip(page, "Off = hover opens. On = hold Shift. Click = cast. Right-click drawer row = set throw.", PAD, yL, 500)
+            tip(page, "Off = hover opens. On = hold Shift. Imbue/shield/utility: left-click = cast + set active; right-click = set only. Totems: left = cast, right = set. Button left = use active.", PAD, yL, COL_TIP)
             yL = yL - 28
             if IchaUI_DrawerStyleControls then
                 yL = IchaUI_DrawerStyleControls(page, "totems", PAD, yL, true)
@@ -2610,7 +2605,7 @@ local function build()
                     if IchaUI_TotemRecallDelaySet then IchaUI_TotemRecallDelaySet(v) end
                 end)
             yC = yC - ROW
-            tip(page, "Wait: seconds out of range of every live totem (out of combat) before the icon appears.", COL2, yC, 500)
+            tip(page, "Wait: seconds out of range of every live totem (out of combat) before the icon appears.", COL2, yC, COL_TIP)
             yC = yC - 28
             recallMove = makeButton(page, "Move icon", 90, 20, function()
                 if IchaUI_TotemRecallIcon_ToggleMove then
@@ -2634,12 +2629,13 @@ local function build()
             end
             yC = yC - 8
 
-            local function extrasRow(which, label)
-                sectionHeader(page, label, COL2, yC); yC = yC - 20
+            local function extrasRow(which, label, colX, yStart)
+                local y = yStart
+                sectionHeader(page, label, colX, y); y = y - 20
                 local mv = makeButton(page, "Move", 55, 20, function()
                     if IchaUIShamanExtras_ToggleMove then IchaUIShamanExtras_ToggleMove(which) end
                 end)
-                mv:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+                mv:SetPoint("TOPLEFT", page, "TOPLEFT", colX, y)
                 local sh = makeButton(page, "Show", 48, 20, function()
                     if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, false) end
                 end)
@@ -2648,15 +2644,38 @@ local function build()
                     if IchaUIShamanExtras_SetHidden then IchaUIShamanExtras_SetHidden(which, true) end
                 end)
                 hi:SetPoint("LEFT", sh, "RIGHT", 4, 0)
-                yC = yC - 24
+                y = y - 24
+                if which == "shield" then
+                    local shi
+                    for shi = 1, 3 do
+                        local idx = shi
+                        local spellFallback = { "Lightning Shield", "Water Shield", "Earth Shield" }
+                        local spellName = spellFallback[idx]
+                        if IchaUIShieldBinds_GetSpell then
+                            spellName = IchaUIShieldBinds_GetSpell(idx) or spellName
+                        end
+                        local row = makeKeyBindRow(page, spellName, colX, y,
+                            function()
+                                if IchaUIShieldBinds_GetKey then return IchaUIShieldBinds_GetKey(idx) end
+                                return ""
+                            end,
+                            function(key)
+                                if IchaUIShieldBinds_ApplyKey then IchaUIShieldBinds_ApplyKey(idx, key) end
+                            end)
+                        table.insert(slotRows, row)
+                        y = y - 24
+                    end
+                    tip(page, "Click a key, then press keyboard or mouse (Alt-M4 ok). /icha shieldbind", colX, y, 340)
+                    y = y - 22
+                end
                 if which == "utility" and IchaUIShamanExtras_UtilityEntries and IchaUIShamanExtras_SetUtilityShown then
                     local cap = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                    cap:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
+                    cap:SetPoint("TOPLEFT", page, "TOPLEFT", colX, y)
                     cap:SetText("Show in drawer")
                     IchaUI_PaintGoldFont(cap, 0.93, 0.78, 0.35)
-                    yC = yC - 14
+                    y = y - 14
                     local keys = IchaUIShamanExtras_UtilityEntries()
-                    local UCOLS, UCW, UROW = 3, 160, 20
+                    local UCOLS, UCW, UROW = 2, 170, 20
                     local ui
                     for ui = 1, table.getn(keys) do
                         local key = keys[ui]
@@ -2665,7 +2684,7 @@ local function build()
                         local cb = CreateFrame("CheckButton", nil, page)
                         cb:SetWidth(20)
                         cb:SetHeight(20)
-                        cb:SetPoint("TOPLEFT", page, "TOPLEFT", COL2 + col * UCW, yC - row * UROW)
+                        cb:SetPoint("TOPLEFT", page, "TOPLEFT", colX + col * UCW, y - row * UROW)
                         cb:SetNormalTexture("Interface\\Buttons\\UI-CheckBox-Up")
                         cb:SetPushedTexture("Interface\\Buttons\\UI-CheckBox-Down")
                         cb:SetHighlightTexture("Interface\\Buttons\\UI-CheckBox-Highlight", "ADD")
@@ -2682,9 +2701,9 @@ local function build()
                             cb:SetChecked(IchaUIShamanExtras_GetUtilityShown(key) and 1 or nil)
                         end)
                     end
-                    yC = yC - math.floor((table.getn(keys) + UCOLS - 1) / UCOLS) * UROW - 4
+                    y = y - math.floor((table.getn(keys) + UCOLS - 1) / UCOLS) * UROW - 4
                 end
-                makeDirBtn(page, COL2, yC,
+                makeDirBtn(page, colX, y,
                     function()
                         if IchaUIShamanExtras_GetDrawerDir then return IchaUIShamanExtras_GetDrawerDir(which) end
                         return "up"
@@ -2692,8 +2711,8 @@ local function build()
                     function(d)
                         if IchaUIShamanExtras_SetDrawerDir then IchaUIShamanExtras_SetDrawerDir(which, d) end
                     end)
-                yC = yC - 26
-                makeSpread(page, COL2, yC,
+                y = y - 26
+                makeSpread(page, colX, y,
                     function()
                         if IchaUIShamanExtras_GetDrawerSpread then return IchaUIShamanExtras_GetDrawerSpread(which) end
                         return 90
@@ -2701,8 +2720,8 @@ local function build()
                     function(v)
                         if IchaUIShamanExtras_SetDrawerSpread then IchaUIShamanExtras_SetDrawerSpread(which, v) end
                     end)
-                yC = yC - 26
-                makeArc(page, COL2, yC,
+                y = y - 26
+                makeArc(page, colX, y,
                     function()
                         if IchaUIShamanExtras_GetDrawerArc then return IchaUIShamanExtras_GetDrawerArc(which) end
                         return 360
@@ -2710,8 +2729,8 @@ local function build()
                     function(v)
                         if IchaUIShamanExtras_SetDrawerArc then IchaUIShamanExtras_SetDrawerArc(which, v) end
                     end)
-                yC = yC - 26
-                makeRot(page, COL2, yC,
+                y = y - 26
+                makeRot(page, colX, y,
                     function()
                         if IchaUIShamanExtras_GetDrawerRot then return IchaUIShamanExtras_GetDrawerRot(which) end
                         return 90
@@ -2719,7 +2738,7 @@ local function build()
                     function(v)
                         if IchaUIShamanExtras_SetDrawerRot then IchaUIShamanExtras_SetDrawerRot(which, v) end
                     end)
-                yC = yC - 26
+                y = y - 26
                 if which == "imbue" or which == "shield" then
                     local textBtn = makeButton(page, "Text: On", 80, 20, function()
                         local on = false
@@ -2731,23 +2750,25 @@ local function build()
                         end
                         this:SetText(on and "Text: On" or "Text: Off")
                     end)
-                    textBtn:SetPoint("TOPLEFT", page, "TOPLEFT", COL2, yC)
-                    yC = yC - 24
+                    textBtn:SetPoint("TOPLEFT", page, "TOPLEFT", colX, y)
+                    y = y - 24
                     table.insert(textRefresh, function()
                         local on = IchaUIShamanExtras_GetShowText and IchaUIShamanExtras_GetShowText(which)
                         textBtn:SetText(on and "Text: On" or "Text: Off")
                     end)
                 end
                 if IchaUI_DrawerStyleControls then
-                    yC = IchaUI_DrawerStyleControls(page, which, COL2, yC)
+                    y = IchaUI_DrawerStyleControls(page, which, colX, y)
                 end
-                yC = yC - 6
+                y = y - 6
+                return y
             end
-            extrasRow("utility", "Utility")
-            extrasRow("imbue", "Imbue")
-            extrasRow("shield", "Shield")
-            tip(page, "Detached circles. Open default Up. Red when imbue <60s / shield ≤2 / water buff <60s or 0 reagents.", COL2, yC, 500)
-            yC = yC - 28
+            yC = extrasRow("utility", "Utility", COL2, yC)
+            yR = -4
+            yR = extrasRow("imbue", "Imbue", COL3, yR)
+            yR = extrasRow("shield", "Shield", COL3, yR)
+            tip(page, "Detached circles. Open default Up. Red when imbue <60s / shield ≤2 / water buff <60s or 0 reagents.", COL3, yR, COL_TIP)
+            yR = yR - 28
         end
 
         local RX = sham and COL2 or PAD
@@ -2804,7 +2825,7 @@ local function build()
                 if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end
             end)
         yC = yC - 26
-        tip(page, "Default Open: Left (inside). Minimal On = resists nestled by caret when closed.", RX, yC, 500)
+        tip(page, "Default Open: Left (inside). Minimal On = resists nestled by caret when closed.", RX, yC, COL_TIP)
         yC = yC - 20
         if IchaUI_DrawerStyleControls then
             yC = IchaUI_DrawerStyleControls(page, "resists", RX, yC)
@@ -2830,11 +2851,11 @@ local function build()
                 table.insert(slotRows, row)
                 yL = yL - 24
             end
-            tip(page, "Casts the totem selected on that slot (right-click drawer to set).", PAD, yL, 500)
+            tip(page, "Casts the active totem on that slot. Left-click drawer = use; right-click = set active.", PAD, yL, COL_TIP)
             yL = yL - 22
 
             sectionHeader(page, "Spell binds", PAD, yL); yL = yL - 18
-            tip(page, "Binds cast that totem directly so you can drop action-bar buttons.", PAD, yL, 500)
+            tip(page, "Binds cast that totem directly so you can drop action-bar buttons.", PAD, yL, COL_TIP)
             yL = yL - 20
             local spellBindList = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
             local spellElHeaders = { earth = "Earth", fire = "Fire", water = "Water", air = "Air" }
@@ -2872,6 +2893,7 @@ local function build()
         end
         local needH = sham and -yL or 0
         if -yC > needH then needH = -yC end
+        if -yR > needH then needH = -yR end
         needH = needH + 80
         if page.GetHeight and (page:GetHeight() or 0) < needH then
             page:SetHeight(needH)
@@ -3754,13 +3776,6 @@ local function build()
         if IchaUIUF_GetRaidDebuffsText and raidEdit then
             raidEdit:SetText(IchaUIUF_GetRaidDebuffsText())
         end
-        -- Row tables kept as lists to avoid upvalue blowups
-        local shri
-        if shieldRows then
-            for shri = 1, table.getn(shieldRows) do
-                if shieldRows[shri] and shieldRows[shri].refresh then shieldRows[shri].refresh() end
-            end
-        end
         if pageCombat and pageCombat._combatRefresh then pageCombat._combatRefresh() end
         if pages._markRefresh then pages._markRefresh() end
     end
@@ -4030,7 +4045,6 @@ local function build()
     -- Default / last-used tab (Extras → Skin, Totems → Drawers)
     local function dropUnloadedTabs()
         local function tabLoaded(name)
-            if name == "Hero" then return IchaUI_HeroGrid and true or false end
             if name == "Buffs" then return IchaUIBuffBars_Set and true or false end
             if name == "Frames" then return IchaUIUF_Get and true or false end
             if name == "Plates" then return IchaPlates_BuildOptions and true or false end
@@ -4076,6 +4090,7 @@ local function build()
     if startTab == "Extras" then startTab = "Skin" end
     if startTab == "Totems" then startTab = "Drawers" end
     if startTab == "Text" then startTab = "Frames" end
+    if startTab == "Hero" or startTab == "Stance" then startTab = "Bars" end
     local known = false
     local ki
     for ki = 1, table.getn(TAB_NAMES) do

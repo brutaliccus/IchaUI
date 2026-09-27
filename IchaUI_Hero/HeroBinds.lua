@@ -69,8 +69,10 @@ local function barStart(barId)
 end
 
 local function pagedId(buttonId)
-    if BActionButton and BActionButton.GetPagedID then
-        return BActionButton.GetPagedID(buttonId)
+    -- Hero pages swap heroSetup, then place onto this button's own slot.
+    -- IchaUI_GetPagedID is identity (action-bar stance uses kits, not offsets).
+    if IchaUI_GetPagedID then
+        return IchaUI_GetPagedID(buttonId)
     end
     return buttonId
 end
@@ -996,6 +998,10 @@ local function syncBarIcons()
 end
 
 local function placeLastIcons()
+    syncBarIcons()
+end
+
+function IchaUI_HeroSyncIcons()
     syncBarIcons()
 end
 

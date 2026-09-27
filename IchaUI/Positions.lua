@@ -812,6 +812,26 @@ local function paintGridPop()
     setSl(gridPop.spreadSl, 10, 360, tonumber(spread) or 90)
     setSl(gridPop.arcSl, 10, 360, tonumber(arc) or 360)
     setSl(gridPop.rotSl, -360, 360, tonumber(rot) or 90)
+    if gridPop.stanceBtn and gridPop.stanceBtn.label then
+        local lab = "Stance: live"
+        if IchaUI_StanceState and IchaUI_StanceName then
+            local st = IchaUI_StanceState()
+            local nm = IchaUI_StanceName(st)
+            local sim = nil
+            if IchaUIDB and type(IchaUIDB.stance) == "table" then sim = IchaUIDB.stance.sim end
+            if sim ~= nil then
+                lab = "Stance: " .. tostring(nm) .. " (sim)"
+            else
+                lab = "Stance: " .. tostring(nm)
+            end
+        end
+        gridPop.stanceBtn.label:SetText(lab)
+        if gridPop.kind == "action" or gridPop.kind == "hero" then
+            gridPop.stanceBtn:Show()
+        else
+            gridPop.stanceBtn:Hide()
+        end
+    end
     gridPop.skip = nil
 end
 
@@ -873,7 +893,7 @@ function IchaUI_ShowActionGridPop(kind, index, anchor)
     if not gridPop then
         gridPop = CreateFrame("Frame", "IchaUIBarGridPop", UIParent)
         gridPop:SetWidth(250)
-        gridPop:SetHeight(360)
+        gridPop:SetHeight(420)
         gridPop:SetFrameStrata("TOOLTIP")
         gridPop:SetBackdrop({
             bgFile = "Interface/Tooltips/UI-Tooltip-Background",
@@ -1008,6 +1028,66 @@ function IchaUI_ShowActionGridPop(kind, index, anchor)
                 IchaUI_ActionBarSetForm(gridFor, shape, layout, spread, arc, rot)
             end
             paintGridPop()
+        end)
+        -- Stance picker: select a kit page. Action bars can copy or clear that bar's kit.
+        -- IchaUI_ChoiceMenu onPick receives the 1-based opts index (not the value).
+        gridPop.stanceBtn = formButton("Stance: Default", -344, function()
+            if not IchaUI_StanceSetSim then return end
+            local opts = {}
+            table.insert(opts, { "clear", "Clear sim (live)" })
+            local ids = IchaUI_StanceClassIds and IchaUI_StanceClassIds() or { 0, 1, 2, 3 }
+            local i
+            for i = 1, table.getn(ids) do
+                local sid = ids[i]
+                local name = IchaUI_StanceName and IchaUI_StanceName(sid) or ("Stance " .. tostring(sid))
+                table.insert(opts, { sid, name .. " (" .. tostring(sid) .. ")" })
+            end
+            if gridPop.kind == "action" and IchaUI_StanceCopyKits then
+                table.insert(opts, { "copy0", "Copy this bar from Default" })
+                table.insert(opts, { "clearkit", "Clear this bar kit" })
+            end
+            local want = "clear"
+            if IchaUIDB and type(IchaUIDB.stance) == "table" and IchaUIDB.stance.sim ~= nil then
+                want = tonumber(IchaUIDB.stance.sim)
+            end
+            local curIdx = 1
+            for i = 1, table.getn(opts) do
+                if opts[i][1] == want then curIdx = i break end
+            end
+            local function onPick(idx)
+                local o = opts[idx]
+                if not o then return end
+                local val = o[1]
+                if val == "clear" then
+                    IchaUI_StanceSetSim(nil)
+                elseif val == "copy0" and gridPop.kind == "action" and IchaUI_StanceCopyKits then
+                    local st = IchaUI_StanceState and IchaUI_StanceState() or 0
+                    IchaUI_StanceCopyKits(0, st, gridFor)
+                elseif val == "clearkit" and gridPop.kind == "action" and IchaUI_StanceClearKits then
+                    local st = IchaUI_StanceState and IchaUI_StanceState() or 0
+                    IchaUI_StanceClearKits(st, gridFor)
+                else
+                    IchaUI_StanceSetSim(val)
+                end
+                paintGridPop()
+            end
+            if IchaUI_ChoiceMenu then
+                IchaUI_ChoiceMenu(this, opts, curIdx, onPick)
+            else
+                local st = IchaUI_StanceState and IchaUI_StanceState() or 0
+                local nextId = nil
+                local found = false
+                for i = 1, table.getn(ids) do
+                    if found then nextId = ids[i] break end
+                    if ids[i] == st then found = true end
+                end
+                if nextId == nil then
+                    IchaUI_StanceSetSim(nil)
+                else
+                    IchaUI_StanceSetSim(nextId)
+                end
+                paintGridPop()
+            end
         end)
     end
     gridPop.kind = kind

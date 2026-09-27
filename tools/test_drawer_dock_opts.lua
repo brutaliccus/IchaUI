@@ -129,6 +129,7 @@ function GetTime() return 0 end
 IchaUI_PaintGoldBorder = noop
 IchaUI_PaintGoldFont = noop
 IchaUI_PaintGoldRing = noop
+IchaUI_PaintGoldLightBorder = noop
 
 local popOk, popErr = pcall(dofile, "IchaUI/DrawerPop.lua")
 check(popOk, "load DrawerPop.lua: " .. tostring(popErr))
@@ -254,6 +255,7 @@ for i = 1, table.getn(ids) do
     check(dockButtons() == before + i, id .. " popup has dock controls")
 end
 
+local savedDockGet, savedDockSet = IchaUI_DrawerDockGet, IchaUI_DrawerDockSet
 IchaUI_DrawerDockGet = nil
 IchaUI_DrawerDockSet = nil
 IchaUIDB.customDrawers[2] = { id = "bare", name = "Bare", shape = "circle", dir = "up" }
@@ -316,6 +318,134 @@ if cdOk then
         click("RightButton")
         check(table.getn(opened) == 1, "plain right-click still does not open config without DrawerConfigClick")
     end
+
+    IchaUI_DrawerDockGet = savedDockGet
+    IchaUI_DrawerDockSet = savedDockSet
+    dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 90, ox = 4, oy = -2,
+        parent = "PlayerFrame", point = "TOPLEFT", relPoint = "CENTER", x = 20, y = -6 }
+    local page = CreateFrame("Frame", "IchaUIOptPage", UIParent)
+    page:SetWidth(560)
+    page:SetHeight(40)
+    local optOk, optErr = pcall(IchaUI_BuildCustomDrawerOptions, page, -4, 10)
+    check(optOk, "build custom drawer options: " .. tostring(optErr))
+
+    local function under(f, root)
+        local g, guard = f, 0
+        while g and guard < 16 do
+            if g == root then return true end
+            g = g.parent
+            guard = guard + 1
+        end
+        return false
+    end
+    local function labeledUnder(root, fragment, wantClick)
+        local found
+        local n, f
+        for n, f in ipairs(all) do
+            if under(f, root) and f.lastText and string.find(f.lastText, fragment, 1, true) then
+                if not wantClick or (f.scripts and f.scripts.OnClick) then found = f end
+            end
+        end
+        return found
+    end
+    local function countDock(root)
+        local c, n, f = 0
+        for n, f in ipairs(all) do
+            if under(f, root) and f.lastText and string.sub(f.lastText, 1, 6) == "Dock: "
+                and f.scripts and f.scripts.OnClick then
+                c = c + 1
+            end
+        end
+        return c
+    end
+
+    local function anyShown(fragment)
+        local n, f
+        for n, f in ipairs(all) do
+            if under(f, page) and f.shown ~= false and f.lastText and string.find(f.lastText, fragment, 1, true) then
+                return true
+            end
+        end
+        return false
+    end
+    local function siblingClick(modeText, label)
+        local modeBtn = labeledUnder(page, modeText, true)
+        if not modeBtn then return nil end
+        local n, f
+        for n, f in ipairs(all) do
+            if f.parent == modeBtn.parent and f.lastText == label and f.scripts and f.scripts.OnClick then
+                return f
+            end
+        end
+        return nil
+    end
+
+    check(countDock(page) == 2, "each existing custom drawer row has dock controls")
+    local potsDock = labeledUnder(page, "Dock: Portrait", true)
+    check(potsDock ~= nil, "portrait-docked drawer shows Dock: Portrait on its row")
+    check(labeledUnder(page, "Unit: Player", true) and labeledUnder(page, "Unit: Player", true).shown ~= false,
+        "portrait row shows the unit control")
+    check(anyShown("Angle"), "portrait row shows angle")
+    check(not anyShown("Parent: "), "portrait rows hide the frame parent")
+    check(not anyShown("Dock X"), "portrait rows hide frame offsets")
+
+    captured = nil
+    this = potsDock
+    potsDock.scripts.OnClick()
+    check(captured and captured.opts and captured.opts[2] and captured.opts[2][1] == "frame",
+        "row dock mode menu offers frame")
+    captured.onPick(2)
+    check(dock["cd:pots"].mode == "frame", "row dock mode writes through DrawerDockSet")
+    check(labeledUnder(page, "Parent: Player", true) and labeledUnder(page, "Parent: Player", true).shown ~= false,
+        "frame row shows parent")
+    check(not anyShown("Unit: "), "frame row hides unit")
+    check(anyShown("Dock X"), "frame row shows Dock X")
+    local xCell
+    for n, f in ipairs(all) do
+        if under(f, page) and f.shown ~= false and f.lastText == "Dock X" then xCell = f end
+    end
+    local xSlider
+    local n, f
+    for n, f in ipairs(all) do
+        if f.parent == xCell and f.kind == "Slider" then xSlider = f end
+    end
+    check(xSlider ~= nil and xCell.shown ~= false, "frame row has a Dock X slider")
+    if xSlider then
+        xSlider:SetValue(33)
+        check(dock["cd:pots"].x == 33, "Dock X writes through DrawerDockSet")
+    end
+    local clearRow = siblingClick("Dock: Frame", "Clear dock")
+    check(clearRow ~= nil, "row has Clear dock")
+    this = clearRow
+    clearRow.scripts.OnClick()
+    check(clears[table.getn(clears)] == "cd:pots", "row Clear dock uses the cd: id")
+    check(dock["cd:pots"].mode == "free", "row clear resets the dock record")
+    check(not anyShown("Parent: ") and not anyShown("Unit: "), "free row hides frame and portrait fields")
+
+    local beforeNew = countDock(page)
+    local nid = IchaUI_CustomDrawers_Create("Food", {})
+    check(nid ~= nil, "create returns an id")
+    check(countDock(page) == beforeNew + 1, "a newly created drawer row gets dock controls")
+    local foodDock
+    for n, f in ipairs(all) do
+        if under(f, page) and f.lastText and string.sub(f.lastText, 1, 6) == "Dock: "
+            and f.scripts and f.scripts.OnClick then
+            foodDock = f
+        end
+    end
+    captured = nil
+    this = foodDock
+    foodDock.scripts.OnClick()
+    captured.onPick(3)
+    check(dock["cd:" .. nid] and dock["cd:" .. nid].mode == "portrait",
+        "new drawer dock controls bind cd:" .. tostring(nid))
+
+    IchaUI_DrawerDockGet = nil
+    IchaUI_DrawerDockSet = nil
+    local bareHost = CreateFrame("Frame", nil, UIParent)
+    local yBare = IchaUI_BuildDrawerDockControls(bareHost, "cd:bare", 0, -10)
+    check(yBare == -10, "helper omits dock rows when DrawerDock is missing")
+    check(bareHost._ichaDockLayout == nil, "helper does not install a layout when DrawerDock is missing")
 end
 
 if fails > 0 then

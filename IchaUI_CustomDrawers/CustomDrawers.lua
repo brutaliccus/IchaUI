@@ -1223,12 +1223,21 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     if IchaUI_DrawerStyleControls then
                         bottom = IchaUI_DrawerStyleControls(row, "cd:" .. rid, 0, -110)
                     end
-                    local rh = -bottom + 6
-                    if rh < 110 then rh = 110 end
-                    row:SetHeight(rh)
-                    row._h = rh
+                    row._styleBottom = bottom
+                    row._ichaDockOnChange = function()
+                        if optionRefresh then optionRefresh() end
+                    end
                     rowById[rid] = row
                 end
+                if not row._ichaDockLayout and IchaUI_BuildDrawerDockControls then
+                    IchaUI_BuildDrawerDockControls(row, "cd:" .. rid, 0, (row._styleBottom or -110) - 4)
+                end
+                local dockBottom = row._styleBottom or -110
+                if row._ichaDockLayout then dockBottom = row._ichaDockLayout() end
+                local rh = -dockBottom + 6
+                if rh < 110 then rh = 110 end
+                row:SetHeight(rh)
+                row._h = rh
                 row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, yy)
                 row.name:SetText(rec.name or rid)

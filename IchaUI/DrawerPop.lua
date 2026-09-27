@@ -163,6 +163,161 @@ local function addStyle(list, id, skipText, skipShape)
     end
 end
 
+-- Same fields as the Drawers-tab dock block. DrawerDock owns the saved record
+-- and the portrait edge-ride; this only reads and writes it. No rows when the
+-- API is not loaded.
+local DOCK_POINTS = {
+    { "CENTER", "Center" },
+    { "TOP", "Top" },
+    { "BOTTOM", "Bottom" },
+    { "LEFT", "Left" },
+    { "RIGHT", "Right" },
+    { "TOPLEFT", "Top Left" },
+    { "TOPRIGHT", "Top Right" },
+    { "BOTTOMLEFT", "Bottom Left" },
+    { "BOTTOMRIGHT", "Bottom Right" },
+}
+local DOCK_MODES = { { "free", "Free" }, { "frame", "Frame" }, { "portrait", "Portrait" } }
+
+local function dockIdx(opts, v)
+    if type(opts) ~= "table" then return 0 end
+    local i
+    for i = 1, table.getn(opts) do
+        if opts[i] and opts[i][1] == v then return i end
+    end
+    return 0
+end
+
+local function dockLabel(opts, value, fallback)
+    local i = dockIdx(opts, value)
+    if i > 0 and opts[i][2] then return opts[i][2] end
+    if value ~= nil and value ~= "" then return tostring(value) end
+    return fallback
+end
+
+local function addDock(list, id)
+    if not id or id == "" then return end
+    if not IchaUI_DrawerDockGet or not IchaUI_DrawerDockSet then return end
+    local function field(key, fallback)
+        local d = IchaUI_DrawerDockGet(id)
+        if type(d) ~= "table" or d[key] == nil or d[key] == "" then return fallback end
+        return d[key]
+    end
+    local function num(key, fallback)
+        local n = tonumber(field(key, fallback))
+        if not n then return fallback end
+        return n
+    end
+    local function mode()
+        local m = field("mode", "free")
+        if m == "frame" or m == "portrait" then return m end
+        return "free"
+    end
+    local function put(key, value)
+        if value == nil then return end
+        IchaUI_DrawerDockSet(id, key, value)
+    end
+    local function modeOpts()
+        if IchaUI_DrawerDockModeOpts then
+            local o = IchaUI_DrawerDockModeOpts()
+            if type(o) == "table" and table.getn(o) > 0 then return o end
+        end
+        return DOCK_MODES
+    end
+    local function parentOpts()
+        if IchaUI_DrawerDockParentOpts then
+            local o = IchaUI_DrawerDockParentOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function portraitOpts()
+        if IchaUI_DrawerDockPortraitOpts then
+            local o = IchaUI_DrawerDockPortraitOpts()
+            if type(o) == "table" then return o end
+        end
+        return {}
+    end
+    local function step(opts, cur, key)
+        local n = type(opts) == "table" and table.getn(opts) or 0
+        if n < 1 then return end
+        local i = dockIdx(opts, cur) + 1
+        if i < 1 or i > n then i = 1 end
+        if opts[i] then put(key, opts[i][1]) end
+    end
+    local function pick(opts, key, fallback)
+        return function()
+            local cur = field(key, fallback)
+            return opts, dockIdx(opts, cur), function(i)
+                if opts[i] then put(key, opts[i][1]) end
+            end
+        end
+    end
+    table.insert(list, cycle(function()
+        local opts = modeOpts()
+        return "Dock: " .. dockLabel(opts, mode(), "Free")
+    end, function()
+        step(modeOpts(), mode(), "mode")
+    end, nil, function()
+        local opts = modeOpts()
+        return opts, dockIdx(opts, mode()), function(i)
+            if opts[i] then put("mode", opts[i][1]) end
+        end
+    end))
+    local function frameOn() return mode() == "frame" end
+    local function portOn() return mode() == "portrait" end
+    table.insert(list, cycle(function()
+        return "Parent: " .. dockLabel(parentOpts(), field("parent", nil), "—")
+    end, function()
+        step(parentOpts(), field("parent", nil), "parent")
+    end, frameOn, function()
+        local opts = parentOpts()
+        return opts, dockIdx(opts, field("parent", nil)), function(i)
+            if opts[i] then put("parent", opts[i][1]) end
+        end
+    end))
+    table.insert(list, cycle(function()
+        return "Point: " .. dockLabel(DOCK_POINTS, field("point", "CENTER"), "Center")
+    end, function()
+        step(DOCK_POINTS, field("point", "CENTER"), "point")
+    end, frameOn, pick(DOCK_POINTS, "point", "CENTER")))
+    table.insert(list, cycle(function()
+        return "Rel: " .. dockLabel(DOCK_POINTS, field("relPoint", "CENTER"), "Center")
+    end, function()
+        step(DOCK_POINTS, field("relPoint", "CENTER"), "relPoint")
+    end, frameOn, pick(DOCK_POINTS, "relPoint", "CENTER")))
+    table.insert(list, slider("Dock X", -1200, 1200, 1, function()
+        return num("x", 0)
+    end, function(v) put("x", v) end, frameOn))
+    table.insert(list, slider("Dock Y", -1200, 1200, 1, function()
+        return num("y", 0)
+    end, function(v) put("y", v) end, frameOn))
+    table.insert(list, cycle(function()
+        return "Unit: " .. dockLabel(portraitOpts(), field("unit", nil), "—")
+    end, function()
+        step(portraitOpts(), field("unit", nil), "unit")
+    end, portOn, function()
+        local opts = portraitOpts()
+        return opts, dockIdx(opts, field("unit", nil)), function(i)
+            if opts[i] then put("unit", opts[i][1]) end
+        end
+    end))
+    table.insert(list, slider("Angle", 0, 360, 1, function()
+        return num("angle", 0)
+    end, function(v) put("angle", v) end, portOn))
+    table.insert(list, slider("Ox", -120, 120, 1, function()
+        return num("ox", 0)
+    end, function(v) put("ox", v) end, portOn))
+    table.insert(list, slider("Oy", -120, 120, 1, function()
+        return num("oy", 0)
+    end, function(v) put("oy", v) end, portOn))
+    table.insert(list, cycle(function()
+        return "Clear dock"
+    end, function()
+        if IchaUI_DrawerDockClear then IchaUI_DrawerDockClear(id) end
+    end))
+end
+
 local function totemsList()
     if not IchaUITotems_Get or not IchaUITotems_Set then return nil end
     local function tget(k, d)
@@ -212,6 +367,7 @@ local function totemsList()
         tget("drawerArc", 360), tset("drawerArc"),
         tget("drawerRot", 90), tset("drawerRot"))
     addStyle(list, "totems", true)
+    addDock(list, "totems")
     return list
 end
 
@@ -236,6 +392,7 @@ local function recallList()
         end, function(v) IchaUI_TotemRecallIcon_ScaleSet(v) end))
     end
     addStyle(list, "recall")
+    addDock(list, "recall")
     return list
 end
 
@@ -284,6 +441,7 @@ local function extrasList(which)
         end))
     end
     addStyle(list, which)
+    addDock(list, which)
     return list
 end
 
@@ -326,6 +484,7 @@ local function resistsList()
         end,
         function(v) if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end end)
     addStyle(list, "resists")
+    addDock(list, "resists")
     return list
 end
 
@@ -354,6 +513,7 @@ local function minimapList()
         mget("drawerArc", 360), mset("drawerArc"),
         mget("drawerRot", 90), mset("drawerRot"))
     addStyle(list, "minimap")
+    addDock(list, "minimap")
     return list
 end
 
@@ -465,6 +625,7 @@ local function customList(sid)
         refresh()
     end))
     addStyle(list, sid, false, true)
+    addDock(list, sid)
     return list
 end
 

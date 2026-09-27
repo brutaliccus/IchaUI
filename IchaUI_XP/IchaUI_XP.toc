@@ -2,6 +2,6 @@
 ## Title: IchaUI - XP
 ## Notes: Experience bar.
 ## Dependencies: IchaUI
-## Version: 3.5.1
+## Version: 3.6.0
 
 XPBar.lua

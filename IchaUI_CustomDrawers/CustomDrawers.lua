@@ -795,8 +795,16 @@ local function makeDrawer(rec)
         ui.closeAt = (GetTime and GetTime() or 0) + CLOSE_DELAY
     end)
     btn:SetScript("OnMouseUp", function()
-        if arg1 == "RightButton" then
-            if IchaUI_DrawerEditClick then IchaUI_DrawerEditClick("cd:" .. ui.id) end
+        -- Config: Alt+right-click always, or plain right-click in /icha move.
+        -- Any other right-click stays a gameplay click.
+        if arg1 == "RightButton"
+            and ((IsAltKeyDown and IsAltKeyDown()) or (IchaUI_EditModeActive and IchaUI_EditModeActive())) then
+            local cid = "cd:" .. ui.id
+            if IchaUI_DrawerConfigClick then
+                IchaUI_DrawerConfigClick(cid)
+            elseif IchaUI_ShowDrawerPop then
+                IchaUI_ShowDrawerPop(cid)
+            end
             return
         end
         if arg1 and arg1 ~= "LeftButton" then return end
@@ -1211,16 +1219,28 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     row.rows:SetPoint("LEFT", row.cols, "RIGHT", 4, 0)
                     row.arc, row.arcCap = degSlider(row, "arc", "Arc", 0, -86, 10, 360, 360)
                     row.rot, row.rotCap = degSlider(row, "rot", "Sh Rot", 220, -86, -360, 360, 90)
+                    -- Frozen per drawer. Later rows must not reuse this key.
+                    row._dockId = "cd:" .. rid
                     local bottom = -110
                     if IchaUI_DrawerStyleControls then
-                        bottom = IchaUI_DrawerStyleControls(row, "cd:" .. rid, 0, -110)
+                        bottom = IchaUI_DrawerStyleControls(row, row._dockId, 0, -110)
                     end
-                    local rh = -bottom + 6
-                    if rh < 110 then rh = 110 end
-                    row:SetHeight(rh)
-                    row._h = rh
+                    row._styleBottom = bottom
+                    row._ichaDockOnChange = function()
+                        if optionRefresh then optionRefresh() end
+                    end
                     rowById[rid] = row
                 end
+                if not row._dockId then row._dockId = "cd:" .. rid end
+                if not row._ichaDockLayout and IchaUI_BuildDrawerDockBlock then
+                    IchaUI_BuildDrawerDockBlock(row, row._dockId, 0, (row._styleBottom or -110) - 4)
+                end
+                local dockBottom = row._styleBottom or -110
+                if row._ichaDockLayout then dockBottom = row._ichaDockLayout() end
+                local rh = -dockBottom + 6
+                if rh < 110 then rh = 110 end
+                row:SetHeight(rh)
+                row._h = rh
                 row:ClearAllPoints()
                 row:SetPoint("TOPLEFT", host, "TOPLEFT", 0, yy)
                 row.name:SetText(rec.name or rid)

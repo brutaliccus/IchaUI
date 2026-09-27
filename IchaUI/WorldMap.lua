@@ -545,7 +545,9 @@ local function installIchaUIWorldMap()
         local m = zoom.model
         if m then
             hookScript(m, "OnShow", function()
-                if st.active and native and zoom.z > 1.001 then this:Hide() end
+                -- Turtle Models clear their viewport to opaque black; never
+                -- show the stock 3D pin while IchaUI owns the map.
+                if st.active and native then this:Hide() end
             end)
             return m
         end
@@ -611,6 +613,72 @@ local function installIchaUIWorldMap()
         end
     end
 
+    -- Turtle/C++ Model pins clear their backbuffer to opaque black (the solid
+    -- square under the silver arrow + yellow diamonds). Prefer Hide of any
+    -- BACKGROUND fill textures; always keep the Models themselves hidden
+    -- while IchaUI is active and draw a 2D pin instead.
+    local function stripBlackFill(fr)
+        if not fr then return end
+        if fr.GetRegions then
+            local regs = { fr:GetRegions() }
+            local i
+            for i = 1, table.getn(regs) do
+                local r = regs[i]
+                if r and r.GetObjectType and r:GetObjectType() == "Texture" then
+                    local layer = r.GetDrawLayer and r:GetDrawLayer()
+                    if layer == "BACKGROUND" or layer == "BORDER" then
+                        r:SetTexture(nil)
+                        r:Hide()
+                    end
+                end
+            end
+        end
+        if fr.GetChildren then
+            local kids = { fr:GetChildren() }
+            local i
+            for i = 1, table.getn(kids) do
+                local k = kids[i]
+                if k and k.GetFrameType and k:GetFrameType() == "Model" then
+                    if k.Hide then k:Hide() end
+                elseif k then
+                    stripBlackFill(k)
+                end
+            end
+        end
+    end
+
+    local function hideStockPlayerModels()
+        local m = arrowModel()
+        if m and m.Hide then m:Hide() end
+        local pl = getglobal("WorldMapPlayer")
+        if pl then
+            if not zoom.playerNeutered then
+                zoom.playerNeutered = true
+                zoom.playerShow = pl.Show
+                pl.Show = function(self)
+                    if st.active then return end
+                    local old = zoom.playerShow
+                    if old then old(self) end
+                end
+            end
+            if pl.Hide then pl:Hide() end
+            stripBlackFill(pl)
+        end
+        if m then stripBlackFill(m) end
+        local ping = getglobal("WorldMapPing")
+        if ping then stripBlackFill(ping) end
+        hideStockPing()
+    end
+
+    local function restoreStockPlayerModels()
+        local pl = getglobal("WorldMapPlayer")
+        if pl and zoom.playerNeutered then
+            if zoom.playerShow then pl.Show = zoom.playerShow end
+            zoom.playerShow, zoom.playerNeutered = nil, nil
+        end
+        restoreStockPing()
+    end
+
     local function ensureIchaPing()
         if zoom.ichaPing then return zoom.ichaPing end
         local host = WorldMapButton
@@ -621,6 +689,7 @@ local function installIchaUIWorldMap()
         p:SetFrameLevel((host:GetFrameLevel() or 1) + 9)
         p.tex = p:CreateTexture(nil, "OVERLAY")
         p.tex:SetTexture("Interface\\Minimap\\Ping\\ping5")
+        if p.tex.SetBlendMode then p.tex:SetBlendMode("ADD") end
         p.tex:SetPoint("CENTER", p, "CENTER", 0, 0)
         p.tex:SetWidth(32)
         p.tex:SetHeight(32)
@@ -653,7 +722,7 @@ local function installIchaUIWorldMap()
 
     local function updatePing()
         if not st.active or not native then return end
-        hideStockPing()
+        hideStockPlayerModels()
         local x, y = playerMapOffset()
         local p = ensureIchaPing()
         if not p then return end
@@ -674,15 +743,17 @@ local function installIchaUIWorldMap()
         if zoom.lvButton then p:SetFrameLevel((zoom.lvButton or 1) + 9) end
     end
 
-    -- The client places its player arrow model in unzoomed units (Blizzard
-    -- scales by WorldMapDetailFrame:GetScale(), which stays 1), and the model
-    -- is not clipped. While zoomed, hide it and draw an arrow on WorldMapButton.
+    -- Stock player/ping Models paint an opaque black square (Model clear
+    -- color). Always hide them while IchaUI owns the map and draw a 2D pin
+    -- (arrow + yellow direction markers) on WorldMapButton instead — at every
+    -- zoom, including 1.0.
     local function updateArrow()
         local a = zoom.arrow
         if a then
-            if not st.active or zoom.z <= 1.001 then
+            if not st.active then
                 a:Hide()
             else
+                hideStockPlayerModels()
                 local px, py = GetPlayerMapPosition("player")
                 if not px or (px == 0 and py == 0) then
                     a:Hide()
@@ -690,19 +761,41 @@ local function installIchaUIWorldMap()
                     local b = WorldMapButton
                     a:ClearAllPoints()
                     a:SetPoint("CENTER", b, "TOPLEFT", px * (b:GetWidth() or ART_W), -py * (b:GetHeight() or ART_H))
-                    local size = 28 / zoom.z
+                    local z = zoom.z or 1
+                    if z < 0.001 then z = 1 end
+                    local size = 28 / z
                     a.tex:SetWidth(size)
                     a.tex:SetHeight(size)
+                    local r = 0
                     local m = arrowModel()
                     if m and m.GetFacing then
-                        local r = m:GetFacing() or 0
-                        local s2 = math.sqrt(2)
-                        local q = math.pi / 4
-                        a.tex:SetTexCoord(
-                            0.5 + math.cos(r + 5 * q) / s2, 0.5 + math.sin(r + 5 * q) / s2,
-                            0.5 + math.cos(r + 3 * q) / s2, 0.5 + math.sin(r + 3 * q) / s2,
-                            0.5 + math.cos(r - q) / s2, 0.5 + math.sin(r - q) / s2,
-                            0.5 + math.cos(r + q) / s2, 0.5 + math.sin(r + q) / s2)
+                        r = m:GetFacing() or 0
+                    elseif GetPlayerFacing then
+                        r = GetPlayerFacing() or 0
+                    end
+                    local s2 = math.sqrt(2)
+                    local q = math.pi / 4
+                    a.tex:SetTexCoord(
+                        0.5 + math.cos(r + 5 * q) / s2, 0.5 + math.sin(r + 5 * q) / s2,
+                        0.5 + math.cos(r + 3 * q) / s2, 0.5 + math.sin(r + 3 * q) / s2,
+                        0.5 + math.cos(r - q) / s2, 0.5 + math.sin(r - q) / s2,
+                        0.5 + math.cos(r + q) / s2, 0.5 + math.sin(r + q) / s2)
+                    -- Keep yellow markers sized with the pin.
+                    if a.marks then
+                        local ms = 10 / z
+                        local off = 14 / z
+                        local mi
+                        for mi = 1, 4 do
+                            local mk = a.marks[mi]
+                            if mk then
+                                mk:SetWidth(ms)
+                                mk:SetHeight(ms)
+                            end
+                        end
+                        if a.marks[1] then a.marks[1]:SetPoint("CENTER", a, "CENTER", 0, off) end
+                        if a.marks[2] then a.marks[2]:SetPoint("CENTER", a, "CENTER", 0, -off) end
+                        if a.marks[3] then a.marks[3]:SetPoint("CENTER", a, "CENTER", -off, 0) end
+                        if a.marks[4] then a.marks[4]:SetPoint("CENTER", a, "CENTER", off, 0) end
                     end
                     a:Show()
                 end
@@ -712,8 +805,7 @@ local function installIchaUIWorldMap()
     end
 
     local function zoomChanged()
-        local m = arrowModel()
-        if m and zoom.z > 1.001 then m:Hide() end
+        if st.active then hideStockPlayerModels() end
         updateArrow()
         -- pfQuest-turtle sizes its continent pins from WorldMapButton's
         -- effective scale inside its WorldMapDetailFrame.SetScale hook.
@@ -866,9 +958,26 @@ local function installIchaUIWorldMap()
         a:SetWidth(1)
         a:SetHeight(1)
         a:SetFrameLevel((WorldMapButton:GetFrameLevel() or 1) + 8)
+        -- No backdrop / BACKGROUND fill — only the arrow + yellow markers.
         a.tex = a:CreateTexture(nil, "OVERLAY")
         a.tex:SetTexture("Interface\\Minimap\\MinimapArrow")
+        if a.tex.SetBlendMode then a.tex:SetBlendMode("BLEND") end
         a.tex:SetPoint("CENTER", a, "CENTER", 0, 0)
+        -- Four yellow direction diamonds (stand-in for stock WorldMapPing
+        -- markers) so the pin keeps the classic look without the Model's
+        -- opaque black clear-color square.
+        a.marks = {}
+        local mofs = { {0, 14}, {0, -14}, {-14, 0}, {14, 0} }
+        local mi
+        for mi = 1, 4 do
+            local mk = a:CreateTexture(nil, "OVERLAY")
+            mk:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcon_3")
+            mk:SetVertexColor(1, 0.92, 0.15)
+            mk:SetWidth(10)
+            mk:SetHeight(10)
+            mk:SetPoint("CENTER", a, "CENTER", mofs[mi][1], mofs[mi][2])
+            a.marks[mi] = mk
+        end
         a:Hide()
         zoom.arrow = a
 
@@ -877,7 +986,7 @@ local function installIchaUIWorldMap()
             zoom.pingHooked = true
             hookScript(ping, "OnShow", function()
                 if not st.active then return end
-                hideStockPing()
+                hideStockPlayerModels()
                 startPingPulse()
                 updatePing()
             end)
@@ -1068,10 +1177,10 @@ local function installIchaUIWorldMap()
         st.hookedPingPlayer = true
         local orig = WorldMapFrame_PingPlayerPosition
         WorldMapFrame_PingPlayerPosition = function(a1, a2, a3, a4, a5)
-            if st.active then hideStockPing() end
+            if st.active then hideStockPlayerModels() end
             orig(a1, a2, a3, a4, a5)
             if st.active then
-                hideStockPing()
+                hideStockPlayerModels()
                 startPingPulse()
                 updatePing()
             end
@@ -1104,7 +1213,7 @@ local function installIchaUIWorldMap()
         zoom.z, zoom.h, zoom.v = 1, 0, 0
         panStop()
         if zoom.arrow then zoom.arrow:Hide() end
-        restoreStockPing()
+        restoreStockPlayerModels()
         local df, b = WorldMapDetailFrame, WorldMapButton
         local ws = 1
         if not maximized() then ws = tonumber(WORLDMAP_WINDOWED_SCALE) or 0.7 end

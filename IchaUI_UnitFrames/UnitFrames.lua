@@ -10,13 +10,30 @@ local GOLD = { 0.78, 0.58, 0.16, 1 }
 -- Cast fill gold (StatusBar texture takes this cleanly)
 local CAST_GOLD = { 0.95, 0.78, 0.22, 1 }
 -- Portrait: circular fill + face + gold ring (no alpha mask — Vanilla-safe)
-local PORTRAIT_BG = "Interface\\AddOns\\IchaUI\\media\\portrait-circular-bg.tga"
+local PORTRAIT_BG = "Interface\\AddOns\\IchaUI\\media\\circledisc.tga" -- black disc under face (same as level badge)
 local PORTRAIT_MASK = "Interface\\AddOns\\IchaUI\\media\\portrait-mask.tga"
 local PORTRAIT_RING = "Interface\\AddOns\\IchaUI\\media\\PortraitFrame.tga"
 local PORTRAIT_RING_BACKUP = "Interface\\AddOns\\IchaUI\\media\\AzeriteGoldRing.tga" -- keep as fallback
 local PORTRAIT_DEFAULT_SCALE = 1.22 -- portrait diameter vs frame height (overhang)
 local PORTRAIT_DEFAULT_RING = 1.28 -- ring size / portrait size (thin rim needs overhang)
 local PORTRAIT_FACE_INSET = 0.04
+
+
+-- Black circular fill behind SetPortraitTexture face (badge-matching).
+-- Never IchaUI_PaintPortraitFill — that paints theme brown/gold and would recolor on refresh.
+-- GLOBAL: Lua 5.0 upvalue budget (createUnitFrame).
+function applyPortraitBlackBg(tex)
+    if not tex then return end
+    tex:SetTexture(PORTRAIT_BG)
+    tex:SetVertexColor(0.05, 0.05, 0.06, 1)
+    if tex.SetBlendMode then
+        tex:SetBlendMode("BLEND")
+    end
+    if tex.SetTexCoord then
+        tex:SetTexCoord(0, 1, 0, 1)
+    end
+    tex:SetAlpha(1)
+end
 
 -- Portrait gold ring: Art PortraitFrame.tga (OneDrive portrait.png). Never MiniMap-TrackingBorder.
 -- Backup: AzeriteGoldRing.tga (PORTRAIT_RING_BACKUP). Ring on UIParent (HIGH) so port cannot clip it.
@@ -63,6 +80,381 @@ local function applyPortraitRing(ringTex, parent, size)
             .. " " .. shown
         )
     end
+end
+
+
+-- Portrait shape = same form set as action bars (DrawerStyle FORM_SHAPES).
+-- Default circle keeps gold PortraitFrame via applyPortraitRing (never TrackingBorder).
+-- Other shapes mirror IchaUI_ApplyButtonForm chrome onto UF portrait bg/face/ring.
+local PORTRAIT_FORM_TIP = "Interface\\AddOns\\IchaUI\\media\\minimapshapes\\tooltip-ring.tga"
+local PORTRAIT_FORM_PORT = "Interface\\AddOns\\IchaUI\\media\\minimapshapes\\x4\\PortraitFrame.tga"
+local PORTRAIT_SQUARE_FILL = "Interface\\Buttons\\WHITE8X8"
+local PORTRAIT_FORM_ICON_GROW = 1.13
+
+-- GLOBAL: Lua 5.0 upvalue budget (createUnitFrame).
+function normPortraitShape(v)
+    if v == nil or v == "" then return "circle" end
+    if IchaUI_FormShapeNorm then
+        return IchaUI_FormShapeNorm(v)
+    end
+    return "circle"
+end
+
+local function ensurePortraitEdgeBorder(fr)
+    local port = fr and fr.portraitFrame
+    if not port then return nil end
+    if fr.portraitEdgeBorder then return fr.portraitEdgeBorder end
+    local border = CreateFrame("Frame", nil, port)
+    if border.EnableMouse then border:EnableMouse(false) end
+    border:SetFrameLevel((port:GetFrameLevel() or 1) + 6)
+    fr.portraitEdgeBorder = border
+    return border
+end
+
+-- Portrait face TexCoord: square = uniform pad; rect = L/R-fit crop (bars/totems).
+-- Call after SetPortraitTexture / ApplyPortraitFace (those can reset coords).
+-- GLOBAL: Lua 5.0 upvalue budget (createUnitFrame).
+function applyPortraitFaceTexCoord(fr)
+    if not fr or not fr.portraitTex or not fr.portraitTex.SetTexCoord then return end
+    local shape = normPortraitShape(fr.portraitShape)
+    local edged = false
+    if IchaUI_FormIsEdged then
+        edged = IchaUI_FormIsEdged(shape) and true or false
+    else
+        edged = (shape == "square" or shape == "rect" or shape == "pfsquare" or shape == "pfblizz") and true or false
+    end
+    -- Circle / tooltip / portrait FORM rings: full face coords (clear square/rect crop).
+    if not edged then
+        fr.portraitTex:SetTexCoord(0, 1, 0, 1)
+        return
+    end
+    local port = fr.portraitFrame
+    local u0, u1 = 0.08, 0.92
+    local span = u1 - u0
+    if shape == "rect" and port and port.GetWidth and port.GetHeight then
+        local bw = port:GetWidth() or 1
+        local bh = port:GetHeight() or 1
+        if bw < 1 then bw = 1 end
+        if bh < 1 then bh = 1 end
+        if bw > bh then
+            local crop = (1 - (bh / bw)) / 2
+            if crop < 0 then crop = 0 end
+            if crop > 0.45 then crop = 0.45 end
+            fr.portraitTex:SetTexCoord(u0, u1, u0 + crop * span, u1 - crop * span)
+            return
+        end
+    end
+    -- Square / pf* edged: uniform pad inside hole (same as action bars).
+    fr.portraitTex:SetTexCoord(u0, u1, u0, u1)
+end
+
+-- ph = portrait height (diameter for circle/square); ringSz = circle gold ring size.
+-- Rect port is sized wider (4/3) in applySize; chrome uses live port width/height.
+-- GLOBAL: Lua 5.0 upvalue budget (createUnitFrame).
+function applyPortraitShapeChrome(fr, ph, ringSz)
+    if not fr or not fr.portraitFrame then return end
+    local shape = normPortraitShape(fr.portraitShape)
+    fr.portraitShape = shape
+    local port = fr.portraitFrame
+    local side = tonumber(ph) or (port.GetHeight and port:GetHeight()) or (port.GetWidth and port:GetWidth()) or 48
+    if side < 16 then side = 16 end
+    ringSz = tonumber(ringSz) or side
+    if ringSz < 16 then ringSz = 16 end
+
+    local def = nil
+    if IchaUI_FormShapeDef then def = IchaUI_FormShapeDef(shape) end
+    local edged = false
+    if IchaUI_FormIsEdged then
+        edged = IchaUI_FormIsEdged(shape) and true or false
+    else
+        edged = (shape == "square" or shape == "rect" or (def and def.edge)) and true or false
+    end
+
+    if edged then
+        if fr.portraitRingTex then fr.portraitRingTex:Hide() end
+        if fr.portraitRingFrame then fr.portraitRingFrame:Hide() end
+        local border = ensurePortraitEdgeBorder(fr)
+        local inset = 2
+        if border then
+            local e = 10
+            border:ClearAllPoints()
+            border:SetFrameLevel((port:GetFrameLevel() or 1) + 6)
+            if def and def.edge then
+                local o = def.outset or 0
+                e = 8
+                inset = def.inset or 1
+                border:SetPoint("TOPLEFT", port, "TOPLEFT", -o, o)
+                border:SetPoint("BOTTOMRIGHT", port, "BOTTOMRIGHT", o, -o)
+                border:SetBackdrop({
+                    bgFile = nil,
+                    edgeFile = def.edge,
+                    tile = true, tileSize = 8, edgeSize = e,
+                    insets = { left = 0, right = 0, top = 0, bottom = 0 },
+                })
+                border:SetBackdropBorderColor(1, 1, 1, 1)
+            else
+                e = math.floor(side * 0.22 + 0.5)
+                if e < 8 then e = 8 end
+                if e > 14 then e = 14 end
+                border:SetPoint("TOPLEFT", port, "TOPLEFT", 0, 0)
+                border:SetPoint("BOTTOMRIGHT", port, "BOTTOMRIGHT", 0, 0)
+                border:SetBackdrop({
+                    bgFile = nil,
+                    edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+                    tile = true, tileSize = 8, edgeSize = e,
+                    insets = { left = 2, right = 2, top = 2, bottom = 2 },
+                })
+                if IchaUI_PaintGoldBorder then IchaUI_PaintGoldBorder(border, 1) end
+                inset = math.floor(e * 4 / 16 + 0.5)
+            end
+            if inset < 1 then inset = 1 end
+            border:Show()
+        end
+        -- Black fill + face share the form hole (inside edge chrome).
+        -- Explicit W/H + CENTER (not dual-point) so leftover circle faceSz does not fight anchors.
+        local pw = (port.GetWidth and port:GetWidth()) or side
+        local phh = (port.GetHeight and port:GetHeight()) or side
+        if pw < 1 then pw = side end
+        if phh < 1 then phh = side end
+        local holeW = pw - (inset * 2)
+        local holeH = phh - (inset * 2)
+        if holeW < 1 then holeW = 1 end
+        if holeH < 1 then holeH = 1 end
+        if fr.portraitBg then
+            fr.portraitBg:Show()
+            fr.portraitBg:ClearAllPoints()
+            fr.portraitBg:SetTexture(PORTRAIT_SQUARE_FILL)
+            fr.portraitBg:SetVertexColor(0.05, 0.05, 0.06, 1)
+            if fr.portraitBg.SetTexCoord then fr.portraitBg:SetTexCoord(0, 1, 0, 1) end
+            if fr.portraitBg.SetBlendMode then fr.portraitBg:SetBlendMode("BLEND") end
+            fr.portraitBg:SetAlpha(1)
+            fr.portraitBg:SetWidth(holeW)
+            fr.portraitBg:SetHeight(holeH)
+            fr.portraitBg:SetPoint("CENTER", port, "CENTER", 0, 0)
+        end
+        if fr.portraitTex then
+            fr.portraitTex:ClearAllPoints()
+            fr.portraitTex:SetWidth(holeW)
+            fr.portraitTex:SetHeight(holeH)
+            fr.portraitTex:SetPoint("CENTER", port, "CENTER", 0, 0)
+            applyPortraitFaceTexCoord(fr)
+        end
+        return
+    end
+
+    -- Round / FORM ring shapes: circledisc fill covers the port (circular art).
+    if fr.portraitBg then
+        fr.portraitBg:Show()
+        fr.portraitBg:ClearAllPoints()
+        fr.portraitBg:SetAllPoints(port)
+        applyPortraitBlackBg(fr.portraitBg)
+    end
+
+    if fr.portraitEdgeBorder then
+        if fr.portraitEdgeBorder.SetBackdrop then fr.portraitEdgeBorder:SetBackdrop(nil) end
+        fr.portraitEdgeBorder:Hide()
+    end
+
+    local faceSz
+    if shape == "tooltip" then
+        faceSz = math.floor(side * 0.96 + 0.5)
+    elseif shape == "portrait" then
+        faceSz = math.floor(side * 0.94 + 0.5)
+    elseif def and def.hole then
+        faceSz = math.floor(side * def.hole * PORTRAIT_FORM_ICON_GROW + 0.5)
+    else
+        -- circle (and unknown round fallback): existing face inset
+        faceSz = math.floor(side * (1 - 2 * PORTRAIT_FACE_INSET) + 0.5)
+    end
+    if faceSz < 12 then faceSz = 12 end
+
+    if fr.portraitTex then
+        fr.portraitTex:ClearAllPoints()
+        fr.portraitTex:SetWidth(faceSz)
+        fr.portraitTex:SetHeight(faceSz)
+        fr.portraitTex:SetPoint("CENTER", port, "CENTER", 0, 0)
+        if fr.portraitTex.SetTexCoord then
+            fr.portraitTex:SetTexCoord(0, 1, 0, 1)
+        end
+    end
+
+    if not fr.portraitRingFrame or not fr.portraitRingTex then return end
+    local rf = fr.portraitRingFrame
+    local ring = fr.portraitRingTex
+    rf:Show()
+    rf:ClearAllPoints()
+    rf:SetPoint("CENTER", port, "CENTER", 0, 0)
+    rf:SetFrameStrata("MEDIUM")
+
+    if shape == "circle" then
+        -- Default UF look: gold PortraitFrame.tga — never MiniMap-TrackingBorder
+        rf:SetWidth(ringSz)
+        rf:SetHeight(ringSz)
+        applyPortraitRing(ring, rf, ringSz)
+        return
+    end
+
+    local tex = nil
+    local rw = side
+    if shape == "tooltip" then
+        tex = PORTRAIT_FORM_TIP
+    elseif shape == "portrait" then
+        tex = PORTRAIT_FORM_PORT
+    elseif def and def.ring then
+        tex = def.ring
+        if def.outer and def.outer > 0 then
+            rw = side / def.outer
+        end
+    end
+    if not tex then
+        rf:SetWidth(ringSz)
+        rf:SetHeight(ringSz)
+        applyPortraitRing(ring, rf, ringSz)
+        return
+    end
+    rf:SetWidth(rw)
+    rf:SetHeight(rw)
+    ring:ClearAllPoints()
+    ring:SetWidth(rw)
+    ring:SetHeight(rw)
+    ring:SetPoint("CENTER", rf, "CENTER", 0, 0)
+    ring:SetTexture(tex)
+    if shape == "portrait" and ring.GetTexture then
+        local g = ring:GetTexture()
+        if not g or g == "" then
+            ring:SetTexture(PORTRAIT_RING)
+        end
+    end
+    if ring.SetBlendMode then ring:SetBlendMode("BLEND") end
+    if ring.SetTexCoord then ring:SetTexCoord(0, 1, 0, 1) end
+    if def and def.ring then
+        ring:SetVertexColor(1, 1, 1, 1)
+    elseif shape == "tooltip" or shape == "portrait" then
+        if IchaUI_PaintGoldVertex then
+            IchaUI_PaintGoldVertex(ring, 0.75, 0.52, 0.04, 1)
+        else
+            ring:SetVertexColor(0.75, 0.52, 0.04, 1)
+        end
+    end
+    ring:SetAlpha(1)
+    ring:Show()
+end
+
+-- GLOBAL: Lua 5.0 upvalue budget (createUnitFrame).
+function layoutPortraitChrome(fr)
+    if not fr or not fr.hasPortrait or not fr.portraitFrame then return end
+    if fr.portraitEnabled == false then return end
+    local port = fr.portraitFrame
+    -- Height is the portrait "size"; rect is wider (4/3) so do not use GetWidth here.
+    local ph = 48
+    if port.GetHeight then ph = port:GetHeight() or 48 end
+    if (not ph or ph < 16) and port.GetWidth then ph = port:GetWidth() or 48 end
+    if ph < 16 then ph = 16 end
+    local pring = tonumber(fr.portraitRing) or PORTRAIT_DEFAULT_RING
+    local ringSz = math.floor(ph * pring + 0.5)
+    if ringSz < 16 then ringSz = 16 end
+    applyPortraitShapeChrome(fr, ph, ringSz)
+end
+
+-- Rim offsets for portrait-attached chrome (badge / shield). GLOBAL: Lua 5.0 local budget.
+-- ang: 0 = bottom, clockwise (same as badgeAngle). ph = portrait side length.
+-- edged: square/rect/pf* — ride rectangle perimeter; else circular orbit.
+function IchaUIUF_PortraitShapeIsEdged(shape)
+    if IchaUI_FormShapeNorm then shape = IchaUI_FormShapeNorm(shape) end
+    if IchaUI_FormIsEdged then return IchaUI_FormIsEdged(shape) and true or false end
+    if shape == "square" or shape == "rect" then return true end
+    if shape == "pfsquare" or shape == "pfblizz" then return true end
+    return false
+end
+
+-- ph = portrait height; optional pw = portrait width (rect is wider). Defaults pw=ph.
+function IchaUIUF_PortraitRimXY(ph, ang, itemSize, ox, oy, edged, pw)
+    ph = tonumber(ph) or 48
+    if ph < 16 then ph = 16 end
+    pw = tonumber(pw) or ph
+    if pw < 16 then pw = 16 end
+    itemSize = tonumber(itemSize) or 16
+    ox = tonumber(ox) or 0
+    oy = tonumber(oy) or 0
+    ang = tonumber(ang) or 0
+    while ang < 0 do ang = ang + 360 end
+    while ang >= 360 do ang = ang - 360 end
+    local rad = ang * math.pi / 180
+    local dx = math.sin(rad)
+    local dy = -math.cos(rad)
+    local inset = itemSize * 0.15
+    if edged then
+        local hw = pw * 0.5 - inset
+        local hh = ph * 0.5 - inset
+        if hw < pw * 0.25 then hw = pw * 0.25 end
+        if hh < ph * 0.25 then hh = ph * 0.25 end
+        local adx = dx
+        if adx < 0 then adx = -adx end
+        local ady = dy
+        if ady < 0 then ady = -ady end
+        local tx, ty = 1e9, 1e9
+        if adx > 0.0001 then tx = hw / adx end
+        if ady > 0.0001 then ty = hh / ady end
+        local t = tx
+        if ty < t then t = ty end
+        return dx * t + ox, dy * t + oy
+    end
+    local radius = (ph * 0.5) - inset
+    if radius < ph * 0.25 then radius = ph * 0.25 end
+    return dx * radius + ox, dy * radius + oy
+end
+
+-- Totems/Options: dock against live portrait. GLOBAL (Lua 5.0 upvalue budget).
+-- Nil-safe if UF not loaded / no portrait. Does not capture createUnitFrame locals.
+function IchaUIUF_PortraitDockParent(keyOrFr)
+    local fr = keyOrFr
+    if type(keyOrFr) == "string" then
+        if not IchaUIUF_Get then return nil end
+        fr = IchaUIUF_Get(keyOrFr)
+        if not fr and keyOrFr == "party" then
+            fr = IchaUIUF_Get("party1")
+        end
+    end
+    if type(fr) ~= "table" then return nil end
+    if not fr.hasPortrait or not fr.portraitFrame then return nil end
+    if fr.portraitEnabled == false then return nil end
+    return fr.portraitFrame
+end
+
+-- dx, dy from portrait CENTER. ang nil -> fr.badgeAngle.
+-- Uses live port w/h + IchaUIUF_PortraitShapeIsEdged + IchaUIUF_PortraitRimXY.
+function IchaUIUF_PortraitDockXY(keyOrFr, ang, itemSize, ox, oy)
+    local fr = keyOrFr
+    if type(keyOrFr) == "string" then
+        if not IchaUIUF_Get then return 0, 0 end
+        fr = IchaUIUF_Get(keyOrFr)
+        if not fr and keyOrFr == "party" then
+            fr = IchaUIUF_Get("party1")
+        end
+    end
+    if type(fr) ~= "table" then return 0, 0 end
+    if not fr.hasPortrait or not fr.portraitFrame then return 0, 0 end
+    local port = fr.portraitFrame
+    local ph = 48
+    if port.GetHeight then ph = port:GetHeight() or 48 end
+    if (not ph or ph < 16) and port.GetWidth then ph = port:GetWidth() or 48 end
+    if ph < 16 then ph = 16 end
+    local pw = ph
+    if port.GetWidth then pw = port:GetWidth() or ph end
+    if pw < 16 then pw = 16 end
+    if ang == nil then ang = fr.badgeAngle end
+    ang = tonumber(ang) or 0
+    itemSize = tonumber(itemSize) or 16
+    ox = tonumber(ox) or 0
+    oy = tonumber(oy) or 0
+    local edged = false
+    if IchaUIUF_PortraitShapeIsEdged then
+        edged = IchaUIUF_PortraitShapeIsEdged(fr.portraitShape) and true or false
+    end
+    if IchaUIUF_PortraitRimXY then
+        return IchaUIUF_PortraitRimXY(ph, ang, itemSize, ox, oy, edged, pw)
+    end
+    return 0, 0
 end
 
 local function db()
@@ -3106,6 +3498,7 @@ local function saveFrame(key, fr)
         s.portrait = fr.portraitEnabled and true or false
         s.portraitScale = fr.portraitScale or PORTRAIT_DEFAULT_SCALE
         s.portraitRing = fr.portraitRing or PORTRAIT_DEFAULT_RING
+        s.portraitShape = normPortraitShape(fr.portraitShape)
         s.portraitOffsetX = fr.portraitOffsetX or 0
         s.portraitOffsetY = fr.portraitOffsetY or 0
         s.badgeAngle = fr.badgeAngle or 0
@@ -3182,6 +3575,7 @@ local function loadFrame(key, defaults)
         portrait = portraitOn and true or false,
         portraitScale = clamp(tonumber(pick("portraitScale", defaults.portraitScale or PORTRAIT_DEFAULT_SCALE)) or PORTRAIT_DEFAULT_SCALE, 0.8, 2.5),
         portraitRing = clamp(tonumber(pick("portraitRing", defaults.portraitRing or PORTRAIT_DEFAULT_RING)) or PORTRAIT_DEFAULT_RING, 0.90, 1.40),
+        portraitShape = normPortraitShape(pick("portraitShape", defaults.portraitShape or "circle")),
         portraitOffsetX = clamp(tonumber(pick("portraitOffsetX", defaults.portraitOffsetX or 0)) or 0, -40, 40),
         portraitOffsetY = clamp(tonumber(pick("portraitOffsetY", defaults.portraitOffsetY or 0)) or 0, -40, 40),
         badgeAngle = clamp(tonumber(pick("badgeAngle", defaults.badgeAngle or 0)) or 0, 0, 360),
@@ -5427,6 +5821,7 @@ local function createUnitFrame(key, unit, defaults, opts)
         portraitEnabled = wantPortrait and (cfg.portrait and true or false),
         portraitScale = cfg.portraitScale or PORTRAIT_DEFAULT_SCALE,
         portraitRing = cfg.portraitRing or PORTRAIT_DEFAULT_RING,
+        portraitShape = normPortraitShape(cfg.portraitShape or "circle"),
         portraitOffsetX = cfg.portraitOffsetX or 0,
         portraitOffsetY = cfg.portraitOffsetY or 0,
         badgeAngle = cfg.badgeAngle or 0,
@@ -5486,14 +5881,9 @@ local function createUnitFrame(key, unit, defaults, opts)
         end)
         fr.portraitFrame = port
 
-        -- Totem-style circular backdrop (proven on this client)
+        -- Black disc under portrait face (same circledisc as level/combat badge)
         local circleBg = port:CreateTexture(nil, "BACKGROUND")
-        circleBg:SetTexture("Interface/Minimap/UI-Minimap-Background")
-        if IchaUI_PaintPortraitFill then
-            IchaUI_PaintPortraitFill(circleBg)
-        else
-            circleBg:SetVertexColor(0.12, 0.08, 0.02, 1)
-        end
+        applyPortraitBlackBg(circleBg)
         fr.portraitBg = circleBg
 
         local ptex = port:CreateTexture(nil, "ARTWORK")
@@ -5884,41 +6274,34 @@ local function createUnitFrame(key, unit, defaults, opts)
 
                 local port = self.portraitFrame
                 port:Show()
-                port:SetWidth(ph)
+                -- Rect = wider aspect (totem/bars 4:3); square/circle stay 1:1.
+                local shapeNow = normPortraitShape(self.portraitShape)
+                local pw = ph
+                if shapeNow == "rect" then
+                    pw = math.floor(ph * 4 / 3 + 0.5)
+                    if pw < 28 then pw = 28 end
+                end
+                port:SetWidth(pw)
                 port:SetHeight(ph)
                 port:ClearAllPoints()
                 local cutIn = math.floor(ph * 0.32 + 0.5)
                 local ox = tonumber(self.portraitOffsetX) or 0
                 local oy = tonumber(self.portraitOffsetY) or 0
                 if self.portraitSide == "right" then
-                    local rightOff = (ph - cutIn) + ox
+                    local rightOff = (pw - cutIn) + ox
                     port:SetPoint("RIGHT", root, "RIGHT", rightOff, oy)
                 else
-                    local leftOff = -(ph - cutIn) + ox
+                    local leftOff = -(pw - cutIn) + ox
                     port:SetPoint("LEFT", root, "LEFT", leftOff, oy)
                 end
                 port:SetFrameLevel((root:GetFrameLevel() or 1) + 40)
 
-                local faceSz = math.floor(ph * (1 - 2 * PORTRAIT_FACE_INSET) + 0.5)
-                if faceSz < 12 then faceSz = 12 end
-
-                if self.portraitBg then
-                    self.portraitBg:Show()
-                    self.portraitBg:ClearAllPoints()
-                    self.portraitBg:SetAllPoints(port)
-                    self.portraitBg:SetTexture("Interface/Minimap/UI-Minimap-Background")
-                    if IchaUI_PaintPortraitFill then
-                        IchaUI_PaintPortraitFill(self.portraitBg)
-                    else
-                        self.portraitBg:SetVertexColor(0.12, 0.08, 0.02, 1)
-                    end
+                applyPortraitShapeChrome(self, ph, ringSz)
+                if self.portraitRingFrame then
+                    self.portraitRingFrame:SetFrameLevel((root:GetFrameLevel() or 1) + 50)
                 end
 
                 if self.portraitTex then
-                    self.portraitTex:ClearAllPoints()
-                    self.portraitTex:SetWidth(faceSz)
-                    self.portraitTex:SetHeight(faceSz)
-                    self.portraitTex:SetPoint("CENTER", port, "CENTER", 0, 0)
                     if IchaUI_ApplyPortraitFace then
                         IchaUI_ApplyPortraitFace(self.portraitTex, unit)
                     else
@@ -5927,6 +6310,7 @@ local function createUnitFrame(key, unit, defaults, opts)
                         end
                         self.portraitTex:Show()
                     end
+                    applyPortraitFaceTexCoord(self)
                     if (isPartyUnit(unit) or isRaidUnit(unit)) and unit ~= "" and unit ~= "none" then
                         if UnitIsConnected and not UnitIsConnected(unit) then
                             self.portraitTex:SetVertexColor(0.45, 0.45, 0.45)
@@ -5941,18 +6325,6 @@ local function createUnitFrame(key, unit, defaults, opts)
                         end
                     end
                 end
-
-                if self.portraitRingFrame and self.portraitRingTex then
-                    local rf = self.portraitRingFrame
-                    rf:Show()
-                    rf:SetWidth(ringSz)
-                    rf:SetHeight(ringSz)
-                    rf:ClearAllPoints()
-                    rf:SetPoint("CENTER", port, "CENTER", 0, 0)
-                    rf:SetFrameStrata("MEDIUM")
-                    rf:SetFrameLevel((root:GetFrameLevel() or 1) + 50)
-                    applyPortraitRing(self.portraitRingTex, rf, ringSz)
-                end
                 if self.combatBadge then
                     local bsc = tonumber(self.badgeScale) or 1
                     if bsc < 0.5 then bsc = 0.5 end
@@ -5964,15 +6336,14 @@ local function createUnitFrame(key, unit, defaults, opts)
                     badge:SetWidth(csz)
                     badge:SetHeight(csz)
                     badge:ClearAllPoints()
-                    -- Angle 0 = bottom of portrait; increases clockwise around the rim
+                    -- Angle 0 = bottom; clockwise. Edged shapes ride rectangle perimeter.
                     local ang = tonumber(self.badgeAngle) or 0
-                    while ang < 0 do ang = ang + 360 end
-                    while ang >= 360 do ang = ang - 360 end
-                    local rad = ang * math.pi / 180
-                    local radius = (ph * 0.5) - (csz * 0.15)
-                    if radius < ph * 0.25 then radius = ph * 0.25 end
-                    local bx = math.sin(rad) * radius + (tonumber(self.badgeOffsetX) or 0)
-                    local by = -math.cos(rad) * radius + (tonumber(self.badgeOffsetY) or 0)
+                    local edged = false
+                    if IchaUIUF_PortraitShapeIsEdged then
+                        edged = IchaUIUF_PortraitShapeIsEdged(self.portraitShape)
+                    end
+                    local bx, by = IchaUIUF_PortraitRimXY(ph, ang, csz,
+                        tonumber(self.badgeOffsetX) or 0, tonumber(self.badgeOffsetY) or 0, edged, pw)
                     local badgeRel = port
                     if self.badgeHost == "frame" then
                         badgeRel = root
@@ -6045,6 +6416,10 @@ local function createUnitFrame(key, unit, defaults, opts)
             end
             if IchaUI_UpdateUnitRaidMark then IchaUI_UpdateUnitRaidMark(self) end
             if IchaUI_UpdateUnitRoleIcons then IchaUI_UpdateUnitRoleIcons(self) end
+            -- Totems drawer dock: re-pin when portrait size/shape/offset flips live.
+            if IchaUI_DrawerDockOnPortraitChanged and self.key then
+                IchaUI_DrawerDockOnPortraitChanged(self.key)
+            end
         end
 
         border:ClearAllPoints()
@@ -8123,21 +8498,24 @@ local function createUnitFrame(key, unit, defaults, opts)
         local csz = math.floor(ph * 0.38 * bsc + 0.5)
         if csz < 12 then csz = 12 end
         if csz > 40 then csz = 40 end
-        local radius = (ph * 0.5) - (csz * 0.15)
-        if radius < ph * 0.25 then radius = ph * 0.25 end
+        local edgedRim = false
+        if IchaUIUF_PortraitShapeIsEdged then
+            edgedRim = IchaUIUF_PortraitShapeIsEdged(self.portraitShape)
+        end
 
         local ballSz = math.floor((tonumber(self.shieldChargeSize) or 10) + 0.5)
         if ballSz < 6 then ballSz = 6 end
         if ballSz > 28 then ballSz = 28 end
 
+        local pwRim = ph
+        if port and port.GetWidth then
+            pwRim = port:GetWidth() or ph
+        elseif edgedRim and normPortraitShape(self.portraitShape) == "rect" then
+            pwRim = math.floor(ph * 4 / 3 + 0.5)
+        end
         local function rimXY(a, ox, oy)
-            local twoPi = math.pi * 2
-            local rad = a * math.pi / 180
-            rad = math.mod(rad, twoPi)
-            if rad < 0 then rad = rad + twoPi end
-            local bx = math.floor(math.sin(rad) * radius + ox + 0.5)
-            local by = math.floor(-math.cos(rad) * radius + oy + 0.5)
-            return bx, by
+            local bx, by = IchaUIUF_PortraitRimXY(ph, a, csz, ox, oy, edgedRim, pwRim)
+            return math.floor(bx + 0.5), math.floor(by + 0.5)
         end
 
         -- 0=bottom; persist signed Sh Rot; wrap only for trig (0..2π).
@@ -8261,15 +8639,14 @@ local function createUnitFrame(key, unit, defaults, opts)
                     pcall(function() mp:SetDesaturated(0) end)
                 end
                 if self.portraitBg then
-                    if IchaUI_PaintPortraitFill then
-                        IchaUI_PaintPortraitFill(self.portraitBg)
-                    end
+                    layoutPortraitChrome(self)
                     self.portraitBg:Show()
                 end
                 if self.portraitTex then
                     if IchaUI_ApplyPortraitFace then
                         IchaUI_ApplyPortraitFace(self.portraitTex, unit)
                     end
+                    applyPortraitFaceTexCoord(self)
                     self.portraitTex:SetVertexColor(1, 1, 1)
                     if self.portraitTex.SetDesaturated then
                         pcall(function() self.portraitTex:SetDesaturated(0) end)
@@ -8527,9 +8904,7 @@ local function createUnitFrame(key, unit, defaults, opts)
             end
             self._portraitChromeOn = true
             if self.portraitBg then
-                if IchaUI_PaintPortraitFill then
-                    IchaUI_PaintPortraitFill(self.portraitBg)
-                end
+                layoutPortraitChrome(self)
                 self.portraitBg:Show()
             end
             if self.portraitTex then
@@ -8538,6 +8913,7 @@ local function createUnitFrame(key, unit, defaults, opts)
                 elseif SetPortraitTexture and unit and unit ~= "none" and unit ~= "" then
                     pcall(SetPortraitTexture, self.portraitTex, unit)
                 end
+                applyPortraitFaceTexCoord(self)
             end
             if self.portraitTex and (isPartyUnit(unit) or isRaidUnit(unit)) then
                 if offline then
@@ -8555,15 +8931,8 @@ local function createUnitFrame(key, unit, defaults, opts)
             if self.portraitFrame then self.portraitFrame:Show() end
             if self.portraitRingFrame then self.portraitRingFrame:Show() end
             -- Always re-show ring tex (Hide on no-unit); re-apply texture if helper present
-            if self.portraitRingTex then
-                if applyPortraitRing and self.portraitRingFrame then
-                    local rf = self.portraitRingFrame
-                    local ringSz = rf:GetWidth() or rf:GetHeight() or 48
-                    if ringSz < 16 then ringSz = 16 end
-                    applyPortraitRing(self.portraitRingTex, rf, ringSz)
-                else
-                    self.portraitRingTex:Show()
-                end
+            if self.portraitRingTex or self.portraitEdgeBorder then
+                layoutPortraitChrome(self)
             end
         elseif self.hasPortrait then
             self._portraitChromeOn = false
@@ -8661,6 +9030,7 @@ local function createUnitFrame(key, unit, defaults, opts)
             self.portraitEnabled = s.portrait and true or false
             self.portraitScale = s.portraitScale or PORTRAIT_DEFAULT_SCALE
             self.portraitRing = s.portraitRing or PORTRAIT_DEFAULT_RING
+            self.portraitShape = normPortraitShape(s.portraitShape or "circle")
             self.portraitOffsetX = s.portraitOffsetX or 0
             self.portraitOffsetY = s.portraitOffsetY or 0
             self.badgeAngle = s.badgeAngle or 0
@@ -9133,9 +9503,14 @@ function IchaUIUF_targetPortraitOverhang()
     local psc = tonumber(target.portraitScale) or PORTRAIT_DEFAULT_SCALE
     local ph = math.floor(h * psc + 0.5)
     if ph < 28 then ph = 28 end
+    local pw = ph
+    if normPortraitShape(target.portraitShape) == "rect" then
+        pw = math.floor(ph * 4 / 3 + 0.5)
+        if pw < 28 then pw = 28 end
+    end
     local cutIn = math.floor(ph * 0.32 + 0.5)
     local ox = tonumber(target.portraitOffsetX) or 0
-    local overhang = (ph - cutIn) + ox
+    local overhang = (pw - cutIn) + ox
     if overhang < 0 then overhang = 0 end
     local pring = tonumber(target.portraitRing) or PORTRAIT_DEFAULT_RING
     local ringSz = math.floor(ph * pring + 0.5)
@@ -9153,6 +9528,7 @@ tankCaret:SetHeight(BASE_H)
 tankCaret:SetFrameLevel((target.root:GetFrameLevel() or 1) + 12)
 tankCaret:EnableMouse(true)
 tankCaret:RegisterForClicks("LeftButtonUp")
+if IchaUI_DrawerDockRegister then IchaUI_DrawerDockRegister("resists", tankCaret) end
 do
     -- Arrow only — no border / background (MoneyFrame Left arrow)
     if tankCaret.SetBackdrop then tankCaret:SetBackdrop(nil) end
@@ -10656,15 +11032,8 @@ function IchaUIUF_RefreshGoldChrome()
                     if e > 20 then e = 20 end
                     applyGold(fr.border, e)
                 end
-                if fr.portraitRingTex and fr.portraitRingFrame then
-                    local rf = fr.portraitRingFrame
-                    local ringSz = 48
-                    if rf.GetWidth then ringSz = rf:GetWidth() or 48 end
-                    if ringSz < 16 then ringSz = 16 end
-                    applyPortraitRing(fr.portraitRingTex, rf, ringSz)
-                end
-                if fr.portraitBg and IchaUI_PaintPortraitFill then
-                    IchaUI_PaintPortraitFill(fr.portraitBg)
+                if fr.hasPortrait and fr.portraitFrame then
+                    layoutPortraitChrome(fr)
                 end
                 if IchaUI_Cast_TintArt then IchaUI_Cast_TintArt(fr) end
                 if fr.castIconRing then
@@ -10794,6 +11163,78 @@ function IchaUIUF_ApplyAll()
     IchaUIUF_refreshAll()
 end
 
+
+-- Portrait shape (bar FORM_SHAPES). Default circle. Options can bind these.
+function IchaUIUF_PortraitShapeOpts()
+    if IchaUI_FormShapeOpts then return IchaUI_FormShapeOpts() end
+    return {
+        { "rect", "Rectangle" }, { "square", "Square" }, { "circle", "Circle" },
+        { "tooltip", "Tooltip Ring" }, { "portrait", "Portrait" },
+    }
+end
+
+function IchaUIUF_GetPortraitShape(key)
+    if not key then return "circle" end
+    if key == "party" then
+        local g = IchaUIUF_PartyGet and IchaUIUF_PartyGet()
+        if g and g.portraitShape then return normPortraitShape(g.portraitShape) end
+        return "circle"
+    end
+    local fr = IchaUIUF_Get and IchaUIUF_Get(key)
+    if fr and fr.hasPortrait then
+        return normPortraitShape(fr.portraitShape or "circle")
+    end
+    local d = IchaUIDB and IchaUIDB.uf and IchaUIDB.uf[key]
+    if type(d) == "table" and d.portraitShape then
+        return normPortraitShape(d.portraitShape)
+    end
+    return "circle"
+end
+
+-- Options / preview: force portrait chrome+fill+face after shape/scale/offset Set.
+-- GLOBAL (upvalue budget). Safe if frame missing.
+function IchaUIUF_RefreshPortrait(key)
+    if not key then return end
+    if key == "party" then
+        local i
+        for i = 1, 4 do
+            IchaUIUF_RefreshPortrait("party" .. i)
+        end
+        return
+    end
+    local fr = frames and frames[key]
+    if not fr and IchaUIUF_Get then fr = IchaUIUF_Get(key) end
+    if not fr or not fr.hasPortrait then return end
+    if fr.applySize then
+        fr:applySize()
+    elseif layoutPortraitChrome then
+        layoutPortraitChrome(fr)
+    end
+    if fr.update then fr:update() end
+end
+
+function IchaUIUF_SetPortraitShape(key, shape)
+    if not key then return end
+    shape = normPortraitShape(shape)
+    if key == "party" then
+        if IchaUIUF_PartySet then IchaUIUF_PartySet("portraitShape", shape) end
+        IchaUIUF_RefreshPortrait(key)
+        return
+    end
+    if IchaUIUF_Set then
+        IchaUIUF_Set(key, "portraitShape", shape)
+        IchaUIUF_RefreshPortrait(key)
+        return
+    end
+    local fr = frames and frames[key]
+    if fr and fr.hasPortrait then
+        fr.portraitShape = shape
+        if fr.applySize then fr:applySize() end
+        saveFrame(key, fr)
+    end
+    IchaUIUF_RefreshPortrait(key)
+end
+
 function IchaUIUF_Get(key)
     if key == "combat" and IchaUI_CombatFrame then return IchaUI_CombatFrame end
     return frames[key]
@@ -10900,11 +11341,13 @@ function IchaUIUF_PartyGet()
     end
     local portOn = false
     local psc, pring, pox, poy, bsc = 1, PORTRAIT_DEFAULT_RING, 0, 0, 1
+    local pshape = "circle"
     local box, boy, bang, bhost = 0, 0, 0, nil
     if fr then
         portOn = fr.portraitEnabled and true or false
         psc = fr.portraitScale or 1
         pring = fr.portraitRing or PORTRAIT_DEFAULT_RING
+        pshape = normPortraitShape(fr.portraitShape or "circle")
         pox = fr.portraitOffsetX or 0
         poy = fr.portraitOffsetY or 0
         bsc = fr.badgeScale or 1
@@ -10918,6 +11361,7 @@ function IchaUIUF_PartyGet()
         if slot.portrait ~= nil then portOn = slot.portrait and true or false end
         if slot.portraitScale ~= nil then psc = slot.portraitScale end
         if slot.portraitRing ~= nil then pring = slot.portraitRing end
+        if slot.portraitShape ~= nil then pshape = normPortraitShape(slot.portraitShape) end
         if slot.portraitOffsetX ~= nil then pox = slot.portraitOffsetX end
         if slot.portraitOffsetY ~= nil then poy = slot.portraitOffsetY end
         if slot.badgeScale ~= nil then bsc = slot.badgeScale end
@@ -10929,6 +11373,7 @@ function IchaUIUF_PartyGet()
     if p.portrait ~= nil then portOn = p.portrait and true or false end
     if p.portraitScale ~= nil then psc = p.portraitScale end
     if p.portraitRing ~= nil then pring = p.portraitRing end
+    if p.portraitShape ~= nil then pshape = normPortraitShape(p.portraitShape) end
     if p.portraitOffsetX ~= nil then pox = p.portraitOffsetX end
     if p.portraitOffsetY ~= nil then poy = p.portraitOffsetY end
     if p.badgeScale ~= nil then bsc = p.badgeScale end
@@ -10951,6 +11396,7 @@ function IchaUIUF_PartyGet()
         portraitEnabled = portOn,
         portraitScale = psc,
         portraitRing = pring,
+        portraitShape = pshape,
         portraitOffsetX = pox,
         portraitOffsetY = poy,
         badgeScale = bsc,
@@ -10982,6 +11428,7 @@ function IchaUIUF_PartySet(field, value)
     elseif field == "hidden" then
         p.hidden = value and true or false
     elseif field == "portrait" or field == "portraitScale" or field == "portraitRing"
+        or field == "portraitShape"
         or field == "portraitOffsetX" or field == "portraitOffsetY" or field == "badgeScale"
         or field == "badgeOffsetX" or field == "badgeOffsetY" or field == "badgeAngle"
         or field == "badgeHost" then
@@ -10998,6 +11445,9 @@ function IchaUIUF_PartySet(field, value)
                 elseif field == "portraitRing" then
                     fr.portraitRing = clamp(tonumber(value) or fr.portraitRing, 0.90, 1.40)
                     p.portraitRing = fr.portraitRing
+                elseif field == "portraitShape" then
+                    fr.portraitShape = normPortraitShape(value)
+                    p.portraitShape = fr.portraitShape
                 elseif field == "portraitOffsetX" then
                     fr.portraitOffsetX = clamp(tonumber(value) or 0, -40, 40)
                     p.portraitOffsetX = fr.portraitOffsetX
@@ -11020,6 +11470,9 @@ function IchaUIUF_PartySet(field, value)
                     if value == "frame" then fr.badgeHost = "frame" else fr.badgeHost = "portrait" end
                     p.badgeHost = fr.badgeHost
                 end
+                -- Live-refresh chrome (portraitShape etc.) — do not wait only on layoutParty.
+                if fr.applySize then fr:applySize() end
+                if fr.update then fr:update() end
                 saveFrame("party" .. i, fr)
             end
         end
@@ -11451,6 +11904,9 @@ function IchaUIUF_Set(key, field, value)
     elseif field == "portraitRing" then
         if not fr.hasPortrait then return end
         fr.portraitRing = clamp(value, 0.90, 1.40)
+    elseif field == "portraitShape" then
+        if not fr.hasPortrait then return end
+        fr.portraitShape = normPortraitShape(value)
     elseif field == "portraitOffsetX" then
         if not fr.hasPortrait then return end
         fr.portraitOffsetX = clamp(value, -40, 40)
@@ -11501,7 +11957,7 @@ function IchaUIUF_Set(key, field, value)
     fr:applySize()
     fr:update()
     if (key == "target" or key == "tot") and (field == "portrait" or field == "portraitScale"
-        or field == "portraitRing" or field == "portraitOffsetX"
+        or field == "portraitRing" or field == "portraitShape" or field == "portraitOffsetX"
         or field == "portraitOffsetY" or field == "badgeAngle"
         or field == "badgeScale" or field == "badgeOffsetX"
         or field == "badgeOffsetY" or field == "width" or field == "height"

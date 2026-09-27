@@ -190,173 +190,326 @@ local function tip(parent, text, x, y, width)
 end
 
 
--- Totem sets editor (Drawers tab). Edits the set on the bar page; the < >
--- here page the bar too. Helpers are passed in (they are file locals below).
+-- Totem sets / binds editors live in FULLSCREEN_DIALOG modals
+-- (ensureTotemSetsModal / ensureTotemBindsModal). Kept as a no-op so any
+-- leftover caller still compiles.
 function IchaUI_BuildTotemSetsBlock(page, x, y, sectionHeader, makeButton, makeEdit, makeKeyBindRow, bindRows)
-    local S = IchaUITotemSets
-    if not S then return y end
-    sectionHeader(page, "Totem sets", x, y); y = y - 18
-    local ui = {}
-    local prev = makeButton(page, "<", 20, 20, function() S.Step(-1) end)
-    prev:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
-    local nameFS = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    nameFS:SetPoint("LEFT", prev, "RIGHT", 4, 0)
-    nameFS:SetWidth(130)
-    nameFS:SetJustifyH("CENTER")
-    IchaUI_DyeFs(nameFS, 1, 1, 1)
-    local nxt = makeButton(page, ">", 20, 20, function() S.Step(1) end)
-    nxt:SetPoint("LEFT", nameFS, "RIGHT", 4, 0)
-    local add = makeButton(page, "Add", 44, 20, function()
-        S.SetPage(S.Add())
-    end)
-    add:SetPoint("LEFT", nxt, "RIGHT", 8, 0)
-    local del = makeButton(page, "Remove", 58, 20, function()
-        if S.Count() > 1 then S.Remove(S.Page()) end
-    end)
-    del:SetPoint("LEFT", add, "RIGHT", 4, 0)
-    y = y - 24
-
-    local nameEdit = makeEdit(page, 140, 20)
-    nameEdit:SetPoint("TOPLEFT", page, "TOPLEFT", x + 6, y)
-    nameEdit:SetMaxLetters(24)
-    nameEdit:SetScript("OnEditFocusGained", function() this._focus = true end)
-    nameEdit:SetScript("OnEditFocusLost", function()
-        this._focus = nil
-        S.Rename(S.Page(), this:GetText() or "")
-    end)
-    nameEdit:SetScript("OnEnterPressed", function() this:ClearFocus() end)
-    nameEdit:SetScript("OnEscapePressed", function()
-        this._focus = nil
-        this:SetText(S.Name(nil) or "")
-        this:ClearFocus()
-    end)
-    local renTip = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    renTip:SetPoint("LEFT", nameEdit, "RIGHT", 6, 0)
-    renTip:SetText("Name (Enter)")
-    IchaUI_DyeFs(renTip, 1, 1, 1)
-    y = y - 24
-
-    local els = { "earth", "fire", "water", "air" }
-    local labels = { "Earth", "Fire", "Water", "Air" }
-    ui.pick = {}
-    local i
-    for i = 1, 4 do
-        local el = els[i]
-        local lbl = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-        lbl:SetPoint("TOPLEFT", page, "TOPLEFT", x + (i - 1) * 72, y - 6)
-        lbl:SetText(labels[i])
-        IchaUI_DyeFs(lbl, 1, 1, 1)
-        local b = CreateFrame("Button", nil, page)
-        b:SetWidth(24)
-        b:SetHeight(24)
-        b:SetPoint("TOPLEFT", page, "TOPLEFT", x + (i - 1) * 72 + 36, y)
-        b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        b:SetBackdrop({
-            bgFile = "Interface/ChatFrame/ChatFrameBackground",
-            edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-            tile = true, tileSize = 8, edgeSize = 8,
-            insets = { left = 2, right = 2, top = 2, bottom = 2 },
-        })
-        b:SetBackdropColor(0.06, 0.06, 0.07, 0.9)
-        IchaUI_PaintGoldBorder(b, 0.85)
-        local ic = b:CreateTexture(nil, "ARTWORK")
-        ic:SetPoint("TOPLEFT", b, "TOPLEFT", 3, -3)
-        ic:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 3)
-        ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-        b.icon = ic
-        b.el = el
-        b:SetScript("OnClick", function()
-            local btn = this
-            if arg1 ~= "RightButton" and S.PickOpts and IchaUI_ChoiceMenu then
-                if GameTooltip then GameTooltip:Hide() end
-                local opts = S.PickOpts(btn.el)
-                local cur = S.Pick(S.Table(nil), btn.el) or "__none__"
-                local sel = 0
-                local k
-                for k = 1, table.getn(opts) do
-                    if opts[k][1] == cur then sel = k end
-                end
-                IchaUI_ChoiceMenu(btn, opts, sel, function(k)
-                    S.SetPick(S.Page(), btn.el, opts[k][1])
-                end)
-                return
-            end
-            S.CyclePick(S.Page(), btn.el, (arg1 == "RightButton") and -1 or 1)
-            local onEnter = btn:GetScript("OnEnter")
-            if onEnter then onEnter() end
-        end)
-        b:SetScript("OnEnter", function()
-            this:SetBackdropBorderColor(1, 0.9, 0.5, 1)
-            if not GameTooltip then return end
-            GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
-            local t = S.Table(nil)
-            GameTooltip:SetText(S.Pick(t, this.el) or "(none)", 1, 1, 1)
-            GameTooltip:AddLine("Click: choose  Right: previous", 1, 1, 1)
-            GameTooltip:Show()
-        end)
-        b:SetScript("OnLeave", function()
-            IchaUI_PaintGoldBorder(this, 0.85)
-            if GameTooltip then GameTooltip:Hide() end
-        end)
-        ui.pick[i] = b
-    end
-    y = y - 30
-
-    -- One bind row per existing set (pool of MAX_BINDS), two columns.
-    ui.binds = {}
-    local BCOLS, BCW, BROW = 2, 240, 22
-    local bi
-    for bi = 1, S.MAX_BINDS do
-        local setIdx = bi
-        local col = math.mod(bi - 1, BCOLS)
-        local r = math.floor((bi - 1) / BCOLS)
-        local row = makeKeyBindRow(page, "Throw " .. bi, x + col * BCW, y - r * BROW,
-            function() return IchaUITotems_GetSetBindKey(setIdx) end,
-            function(key) IchaUITotems_ApplySetBindKey(setIdx, key) end)
-        table.insert(bindRows, row)
-        ui.binds[bi] = row
-    end
-    y = y - math.floor((S.MAX_BINDS + BCOLS - 1) / BCOLS) * BROW - 2
-    local tipFS = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    tipFS:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
-    tipFS:SetWidth(480)
-    tipFS:SetJustifyH("LEFT")
-    tipFS:SetText("Arrows on the bar with 2+ sets. Keys for sets 1-" .. S.MAX_BINDS
-        .. ". Each throw skips live in-range totems, recasts the rest.")
-    IchaUI_DyeFs(tipFS, 1, 1, 1)
-    y = y - 18
-
-    IchaUI_TotemSetsRefresh = function()
-        local p, n = S.Page(), S.Count()
-        nameFS:SetText((S.Name(p) or "") .. "  (" .. p .. "/" .. n .. ")")
-        IchaUI_DyeFs(nameFS, 1, 1, 1)
-        if not nameEdit._focus then nameEdit:SetText(S.Name(p) or "") end
-        local t = S.Table(p)
-        local k
-        for k = 1, 4 do
-            local b = ui.pick[k]
-            b.icon:SetTexture(S.Icon(S.Pick(t, b.el), b.el))
-        end
-        if n > 1 then del:SetAlpha(1) else del:SetAlpha(0.4) end
-        for k = 1, S.MAX_BINDS do
-            local row = ui.binds[k]
-            if k <= n then
-                local nm = S.Name(k) or ("Set " .. k)
-                if string.len(nm) > 13 then nm = string.sub(nm, 1, 12) .. "." end
-                row.label:SetText("Throw " .. nm)
-                IchaUI_DyeFs(row.label, 1, 1, 1)
-                row.label:Show()
-                row.button:Show()
-                row.refresh()
-            else
-                row.label:Hide()
-                row.button:Hide()
-            end
-        end
-    end
-    IchaUI_TotemSetsRefresh()
     return y
 end
+
+-- Per-drawer dock controls for Drawers tab. Fixed drawerId (no global picker).
+-- Nil-safe if DrawerDock.lua missing. Returns newY after visible rows (reflows
+-- frame/portrait fields like radial Spread/Arc).
+function IchaUI_BuildDrawerDockControls(page, drawerId, x, y, makeButton, makeSliderRow, tip, colTip, slw)
+    if not page or not drawerId then return y or 0 end
+    x = x or 10
+    y = y or 0
+    if not IchaUI_DrawerDockGet or not IchaUI_DrawerDockSet then
+        return y
+    end
+
+    local POINT_OPTS = {
+        { "TOPLEFT", "Top left" }, { "TOP", "Top" }, { "TOPRIGHT", "Top right" },
+        { "LEFT", "Left" }, { "CENTER", "Center" }, { "RIGHT", "Right" },
+        { "BOTTOMLEFT", "Bottom left" }, { "BOTTOM", "Bottom" }, { "BOTTOMRIGHT", "Bottom right" },
+    }
+    local function pointLabel(p)
+        local i
+        for i = 1, table.getn(POINT_OPTS) do
+            if POINT_OPTS[i][1] == p then return POINT_OPTS[i][2] end
+        end
+        return tostring(p or "Top left")
+    end
+    local function idxOf(opts, val)
+        local i
+        for i = 1, table.getn(opts) do
+            if opts[i] and opts[i][1] == val then return i end
+        end
+        return 0
+    end
+    local function toPairs(list)
+        local out = {}
+        if type(list) ~= "table" then return out end
+        local i
+        for i = 1, table.getn(list) do
+            local e = list[i]
+            if type(e) == "table" then
+                if e.id ~= nil then
+                    table.insert(out, { e.id, e.label or tostring(e.id) })
+                elseif e[1] ~= nil then
+                    table.insert(out, { e[1], e[2] or tostring(e[1]) })
+                end
+            end
+        end
+        return out
+    end
+    local function modeOpts()
+        if IchaUI_DrawerDockModeOpts then return toPairs(IchaUI_DrawerDockModeOpts()) end
+        return { { "free", "Free" }, { "frame", "Frame" }, { "portrait", "Portrait" } }
+    end
+    local function parentOpts()
+        if IchaUI_DrawerDockParentOpts then return toPairs(IchaUI_DrawerDockParentOpts()) end
+        return {}
+    end
+    local function portraitOpts()
+        if IchaUI_DrawerDockPortraitOpts then return toPairs(IchaUI_DrawerDockPortraitOpts()) end
+        return {
+            { "player", "Player" }, { "target", "Target" },
+            { "tot", "Target of target" }, { "focus", "Focus" },
+        }
+    end
+    local function modeLabel(m)
+        local opts = modeOpts()
+        local i
+        for i = 1, table.getn(opts) do
+            if opts[i][1] == m then return opts[i][2] end
+        end
+        return "Free"
+    end
+    local function optLabel(opts, id, fallback)
+        local i
+        for i = 1, table.getn(opts) do
+            if opts[i][1] == id then return opts[i][2] end
+        end
+        return fallback or tostring(id or "?")
+    end
+
+    local sid = drawerId
+    -- Prefer raw bag so saved portrait/frame still paints after /reload
+    -- (Get returns nil for free/missing and would look like Free).
+    local function row()
+        local out = {}
+        if IchaUI_DrawerDockBag then
+            local bag = IchaUI_DrawerDockBag()
+            local raw = bag and bag[sid]
+            if type(raw) == "table" then
+                if IchaUI_DrawerDockCopyRow then
+                    out = IchaUI_DrawerDockCopyRow(raw) or {}
+                else
+                    local k, v
+                    for k, v in pairs(raw) do
+                        out[k] = v
+                    end
+                end
+                return out
+            end
+        end
+        if IchaUI_DrawerDockGet then
+            local r = IchaUI_DrawerDockGet(sid)
+            if type(r) == "table" then return r end
+        end
+        return out
+    end
+    local function setFields(fields)
+        if IchaUI_DrawerDockSet then IchaUI_DrawerDockSet(sid, fields) end
+        if IchaUI_DrawerDockApply then
+            IchaUI_DrawerDockApply(sid)
+        end
+    end
+    local function curMode()
+        return row().mode or "free"
+    end
+
+    local modeBtn = makeButton(page, "Dock: Free", 140, 20, function() end)
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(modeBtn) end
+    modeBtn:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
+    local afterModeY = y - 24
+
+    local parentBtn = makeButton(page, "Parent: —", 160, 20, function() end)
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(parentBtn) end
+    local pointBtn = makeButton(page, "Point: Top left", 140, 20, function() end)
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(pointBtn) end
+    local relBtn = makeButton(page, "Rel: Top left", 140, 20, function() end)
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(relBtn) end
+    local xRow = makeSliderRow(page, "Dock X", x, afterModeY, slw or 110, -400, 400, 1,
+        function() return tonumber(row().x) or 0 end,
+        function(v)
+            if curMode() ~= "frame" then return end
+            setFields({ x = v, mode = "frame" })
+        end)
+    local yRow = makeSliderRow(page, "Dock Y", x, afterModeY, slw or 110, -400, 400, 1,
+        function() return tonumber(row().y) or 0 end,
+        function(v)
+            if curMode() ~= "frame" then return end
+            setFields({ y = v, mode = "frame" })
+        end)
+
+    local unitBtn = makeButton(page, "Unit: Player", 140, 20, function() end)
+    if IchaUI_ChoiceArrow then IchaUI_ChoiceArrow(unitBtn) end
+    local angRow = makeSliderRow(page, "Angle", x, afterModeY, slw or 110, 0, 360, 1,
+        function() return tonumber(row().angle) or 0 end,
+        function(v)
+            if curMode() ~= "portrait" then return end
+            setFields({ angle = v, mode = "portrait" })
+        end)
+    local oxRow = makeSliderRow(page, "Ox", x, afterModeY, slw or 110, -40, 40, 1,
+        function() return tonumber(row().ox) or 0 end,
+        function(v)
+            if curMode() ~= "portrait" then return end
+            setFields({ ox = v, mode = "portrait" })
+        end)
+    local oyRow = makeSliderRow(page, "Oy", x, afterModeY, slw or 110, -40, 40, 1,
+        function() return tonumber(row().oy) or 0 end,
+        function(v)
+            if curMode() ~= "portrait" then return end
+            setFields({ oy = v, mode = "portrait" })
+        end)
+
+    local clearBtn = makeButton(page, "Clear dock", 100, 20, function()
+        if IchaUI_DrawerDockClear then
+            IchaUI_DrawerDockClear(sid)
+        else
+            setFields({ mode = "free" })
+        end
+        if page._dockRefreshers then
+            local ri
+            for ri = 1, table.getn(page._dockRefreshers) do
+                page._dockRefreshers[ri]()
+            end
+        end
+    end)
+
+    local function placeBtn(btn, xx, yy, show)
+        if not btn then return end
+        if show then
+            btn:ClearAllPoints()
+            btn:SetPoint("TOPLEFT", page, "TOPLEFT", xx, yy)
+            btn:Show()
+        else
+            btn:Hide()
+        end
+    end
+
+    local function reflow()
+        local m = curMode()
+        local yy = afterModeY
+        local frameOn = (m == "frame")
+        local portOn = (m == "portrait")
+        placeBtn(parentBtn, x, yy, frameOn)
+        if frameOn then yy = yy - 24 end
+        placeBtn(pointBtn, x, yy, frameOn)
+        if frameOn then yy = yy - 24 end
+        placeBtn(relBtn, x, yy, frameOn)
+        if frameOn then yy = yy - 24 end
+        if xRow and xRow.setPoint and xRow.setShown then
+            xRow.setPoint(x, yy); xRow.setShown(frameOn)
+            if frameOn then yy = yy - 26 end
+        end
+        if yRow and yRow.setPoint and yRow.setShown then
+            yRow.setPoint(x, yy); yRow.setShown(frameOn)
+            if frameOn then yy = yy - 26 end
+        end
+        placeBtn(unitBtn, x, yy, portOn)
+        if portOn then yy = yy - 24 end
+        if angRow and angRow.setPoint and angRow.setShown then
+            angRow.setPoint(x, yy); angRow.setShown(portOn)
+            if portOn then yy = yy - 26 end
+        end
+        if oxRow and oxRow.setPoint and oxRow.setShown then
+            oxRow.setPoint(x, yy); oxRow.setShown(portOn)
+            if portOn then yy = yy - 26 end
+        end
+        if oyRow and oyRow.setPoint and oyRow.setShown then
+            oyRow.setPoint(x, yy); oyRow.setShown(portOn)
+            if portOn then yy = yy - 26 end
+        end
+        placeBtn(clearBtn, x, yy, true)
+        yy = yy - 26
+        return yy
+    end
+
+    local function refresh()
+        local r = row()
+        local m = r.mode or "free"
+        modeBtn:SetText("Dock: " .. modeLabel(m))
+        parentBtn:SetText("Parent: " .. optLabel(parentOpts(), r.parent, "—"))
+        pointBtn:SetText("Point: " .. pointLabel(r.point or "TOPLEFT"))
+        relBtn:SetText("Rel: " .. pointLabel(r.relPoint or "TOPLEFT"))
+        unitBtn:SetText("Unit: " .. optLabel(portraitOpts(), r.unit or "player", "Player"))
+        if xRow and xRow.refresh then xRow.refresh() end
+        if yRow and yRow.refresh then yRow.refresh() end
+        if angRow and angRow.refresh then angRow.refresh() end
+        if oxRow and oxRow.refresh then oxRow.refresh() end
+        if oyRow and oyRow.refresh then oyRow.refresh() end
+        return reflow()
+    end
+
+    if not page._dockRefreshers then page._dockRefreshers = {} end
+    table.insert(page._dockRefreshers, function() refresh() end)
+
+    modeBtn:SetScript("OnClick", function()
+        local btn = this
+        local opts = modeOpts()
+        local sel = idxOf(opts, curMode())
+        if IchaUI_ChoiceMenu then
+            IchaUI_ChoiceMenu(btn, opts, sel, function(i)
+                local m = opts[i] and opts[i][1] or "free"
+                if m == "free" then
+                    if IchaUI_DrawerDockClear then
+                        IchaUI_DrawerDockClear(sid)
+                    else
+                        setFields({ mode = "free" })
+                    end
+                else
+                    setFields({ mode = m })
+                end
+                refresh()
+            end)
+        end
+    end)
+    parentBtn:SetScript("OnClick", function()
+        local btn = this
+        local opts = parentOpts()
+        if table.getn(opts) < 1 then return end
+        local sel = idxOf(opts, row().parent)
+        if IchaUI_ChoiceMenu then
+            IchaUI_ChoiceMenu(btn, opts, sel, function(i)
+                if opts[i] then setFields({ parent = opts[i][1], mode = "frame" }) end
+                refresh()
+            end)
+        end
+    end)
+    pointBtn:SetScript("OnClick", function()
+        local btn = this
+        local sel = idxOf(POINT_OPTS, row().point or "TOPLEFT")
+        if IchaUI_ChoiceMenu then
+            IchaUI_ChoiceMenu(btn, POINT_OPTS, sel, function(i)
+                if POINT_OPTS[i] then setFields({ point = POINT_OPTS[i][1], mode = "frame" }) end
+                refresh()
+            end)
+        end
+    end)
+    relBtn:SetScript("OnClick", function()
+        local btn = this
+        local sel = idxOf(POINT_OPTS, row().relPoint or "TOPLEFT")
+        if IchaUI_ChoiceMenu then
+            IchaUI_ChoiceMenu(btn, POINT_OPTS, sel, function(i)
+                if POINT_OPTS[i] then setFields({ relPoint = POINT_OPTS[i][1], mode = "frame" }) end
+                refresh()
+            end)
+        end
+    end)
+    unitBtn:SetScript("OnClick", function()
+        local btn = this
+        local opts = portraitOpts()
+        local sel = idxOf(opts, row().unit or "player")
+        if IchaUI_ChoiceMenu then
+            IchaUI_ChoiceMenu(btn, opts, sel, function(i)
+                if opts[i] then setFields({ unit = opts[i][1], mode = "portrait" }) end
+                refresh()
+            end)
+        end
+    end)
+
+    return refresh()
+end
+
+-- Compat alias (no global Dock section — prefer BuildDrawerDockControls).
+function IchaUI_BuildDrawerDockBlock(page, x, y, makeButton, makeSliderRow, tip, sectionHeader, colTip, slw)
+    return y or 0
+end
+
+
 
 -- Click-to-bind capture (keyboard + mouse buttons + mouse wheel, with mods)
 local keyCapture = { on = false, slot = nil, label = nil, apply = nil }
@@ -978,6 +1131,542 @@ local function makeEdit(parent, w, h)
     return e
 end
 
+-- ------------------------------------------------------------------
+-- Totem sets / binds modals (Drawers → Totems)
+-- ------------------------------------------------------------------
+local totemSetsModal
+local totemBindsModal
+
+local function ensureTotemSetsModal()
+    if totemSetsModal then return totemSetsModal end
+    local Smax = 10
+    local f = CreateFrame("Frame", "IchaUITotemSetsModal", UIParent)
+    f:SetWidth(520)
+    f:SetHeight(560)
+    f:SetPoint("CENTER", UIParent, "CENTER", 0, 20)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetFrameLevel(260)
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() this:StartMoving() end)
+    f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+    goldBorder(f, 14)
+    f:Hide()
+    if UISpecialFrames then
+        local already = false
+        local i
+        for i = 1, table.getn(UISpecialFrames) do
+            if UISpecialFrames[i] == "IchaUITotemSetsModal" then already = true end
+        end
+        if not already then table.insert(UISpecialFrames, "IchaUITotemSetsModal") end
+    end
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", f, "TOP", 0, -14)
+    title:SetText("Totem sets")
+    IchaUI_DyeFs(title, 1, 1, 1)
+
+    local close = makeButton(f, "Close", 70, 22, function() f:Hide() end)
+    close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -12)
+
+    local tipFS = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tipFS:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -42)
+    tipFS:SetWidth(480)
+    tipFS:SetJustifyH("LEFT")
+    tipFS:SetText("Name each set, pick Earth/Fire/Water/Air. Left-click chooses; right-click cycles. Add copies the current bar set.")
+    IchaUI_DyeFs(tipFS, 1, 1, 1)
+
+    local scroll = CreateFrame("ScrollFrame", "IchaUITotemSetsModalScroll", f)
+    scroll:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -70)
+    scroll:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -12, 48)
+    scroll:EnableMouseWheel(true)
+    local child = CreateFrame("Frame", nil, scroll)
+    child:SetWidth(480)
+    child:SetHeight(40)
+    scroll:SetScrollChild(child)
+    scroll:SetScript("OnMouseWheel", function()
+        local cur = this:GetVerticalScroll() or 0
+        local maxS = this:GetVerticalScrollRange() or 0
+        if maxS < 0 then maxS = 0 end
+        local nextY = cur - (arg1 or 0) * 28
+        if nextY < 0 then nextY = 0 end
+        if nextY > maxS then nextY = maxS end
+        this:SetVerticalScroll(nextY)
+    end)
+
+    local addBtn = makeButton(f, "Add set", 80, 22, function()
+        local S = IchaUITotemSets
+        if not S or not S.Add then return end
+        S.Add()
+        if f.refresh then f.refresh() end
+    end)
+    addBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 14)
+
+    local rows = {}
+    local els = { "earth", "fire", "water", "air" }
+    local labels = { "Earth", "Fire", "Water", "Air" }
+    local si
+    for si = 1, Smax do
+        local setIdx = si
+        local block = CreateFrame("Frame", nil, child)
+        block:SetWidth(470)
+        block:SetHeight(64)
+        goldBorder(block, 10)
+
+        local hdr = block:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        hdr:SetPoint("TOPLEFT", block, "TOPLEFT", 8, -8)
+        hdr:SetWidth(48)
+        hdr:SetJustifyH("LEFT")
+        IchaUI_DyeFs(hdr, 0.93, 0.78, 0.35)
+
+        local nameEdit = makeEdit(block, 160, 20)
+        nameEdit:SetPoint("LEFT", hdr, "RIGHT", 4, 0)
+        nameEdit:SetMaxLetters(24)
+        nameEdit:SetScript("OnEditFocusGained", function() this._focus = true end)
+        nameEdit:SetScript("OnEditFocusLost", function()
+            this._focus = nil
+            local S = IchaUITotemSets
+            if S and S.Rename then S.Rename(setIdx, this:GetText() or "") end
+            if f.refresh then f.refresh() end
+        end)
+        nameEdit:SetScript("OnEnterPressed", function() this:ClearFocus() end)
+        nameEdit:SetScript("OnEscapePressed", function()
+            this._focus = nil
+            local S = IchaUITotemSets
+            if S and S.Name then this:SetText(S.Name(setIdx) or "") end
+            this:ClearFocus()
+        end)
+
+        local del = makeButton(block, "Remove", 64, 20, function()
+            local S = IchaUITotemSets
+            if not S or not S.Remove then return end
+            if S.Count() > 1 then S.Remove(setIdx) end
+            if f.refresh then f.refresh() end
+        end)
+        del:SetPoint("TOPRIGHT", block, "TOPRIGHT", -8, -6)
+
+        local picks = {}
+        local pi
+        for pi = 1, 4 do
+            local el = els[pi]
+            local lbl = block:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            lbl:SetPoint("TOPLEFT", block, "TOPLEFT", 8 + (pi - 1) * 100, -34)
+            lbl:SetText(labels[pi])
+            IchaUI_DyeFs(lbl, 1, 1, 1)
+            local b = CreateFrame("Button", nil, block)
+            b:SetWidth(24)
+            b:SetHeight(24)
+            b:SetPoint("TOPLEFT", block, "TOPLEFT", 8 + (pi - 1) * 100 + 42, -30)
+            b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+            b:SetBackdrop({
+                bgFile = "Interface/ChatFrame/ChatFrameBackground",
+                edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
+                tile = true, tileSize = 8, edgeSize = 8,
+                insets = { left = 2, right = 2, top = 2, bottom = 2 },
+            })
+            b:SetBackdropColor(0.06, 0.06, 0.07, 0.9)
+            IchaUI_PaintGoldBorder(b, 0.85)
+            local ic = b:CreateTexture(nil, "ARTWORK")
+            ic:SetPoint("TOPLEFT", b, "TOPLEFT", 3, -3)
+            ic:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -3, 3)
+            ic:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+            b.icon = ic
+            b.el = el
+            b:SetScript("OnClick", function()
+                local S = IchaUITotemSets
+                if not S then return end
+                local btn = this
+                if arg1 ~= "RightButton" and S.PickOpts and IchaUI_ChoiceMenu then
+                    if GameTooltip then GameTooltip:Hide() end
+                    local opts = S.PickOpts(btn.el)
+                    local cur = S.Pick(S.Table(setIdx), btn.el) or "__none__"
+                    local sel = 0
+                    local k
+                    for k = 1, table.getn(opts) do
+                        if opts[k][1] == cur then sel = k end
+                    end
+                    IchaUI_ChoiceMenu(btn, opts, sel, function(k)
+                        S.SetPick(setIdx, btn.el, opts[k][1])
+                        if f.refresh then f.refresh() end
+                    end)
+                    return
+                end
+                S.CyclePick(setIdx, btn.el, (arg1 == "RightButton") and -1 or 1)
+                if f.refresh then f.refresh() end
+                local onEnter = btn:GetScript("OnEnter")
+                if onEnter then onEnter() end
+            end)
+            b:SetScript("OnEnter", function()
+                this:SetBackdropBorderColor(1, 0.9, 0.5, 1)
+                local S = IchaUITotemSets
+                if not GameTooltip or not S then return end
+                GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+                local t = S.Table(setIdx)
+                GameTooltip:SetText(S.Pick(t, this.el) or "(none)", 1, 1, 1)
+                GameTooltip:AddLine("Click: choose  Right: previous", 1, 1, 1)
+                GameTooltip:Show()
+            end)
+            b:SetScript("OnLeave", function()
+                IchaUI_PaintGoldBorder(this, 0.85)
+                if GameTooltip then GameTooltip:Hide() end
+            end)
+            picks[pi] = b
+        end
+
+        rows[si] = { block = block, hdr = hdr, nameEdit = nameEdit, del = del, picks = picks, setIdx = setIdx }
+    end
+
+    f.refresh = function()
+        local S = IchaUITotemSets
+        if not S then return end
+        local n = S.Count() or 1
+        local maxB = S.MAX_BINDS or Smax
+        if maxB > Smax then maxB = Smax end
+        local k
+        local y = -4
+        for k = 1, maxB do
+            local row = rows[k]
+            if k <= n then
+                row.block:ClearAllPoints()
+                row.block:SetPoint("TOPLEFT", child, "TOPLEFT", 4, y)
+                row.block:Show()
+                row.hdr:SetText("Set " .. k)
+                IchaUI_DyeFs(row.hdr, 0.93, 0.78, 0.35)
+                if not row.nameEdit._focus then
+                    row.nameEdit:SetText(S.Name(k) or ("Set " .. k))
+                end
+                if n > 1 then row.del:SetAlpha(1) else row.del:SetAlpha(0.4) end
+                local t = S.Table(k)
+                local p
+                for p = 1, 4 do
+                    local b = row.picks[p]
+                    b.icon:SetTexture(S.Icon(S.Pick(t, b.el), b.el))
+                end
+                y = y - 72
+            else
+                row.block:Hide()
+            end
+        end
+        local h = -y + 8
+        if h < 40 then h = 40 end
+        child:SetHeight(h)
+        if scroll.SetVerticalScroll then
+            local maxS = scroll:GetVerticalScrollRange() or 0
+            local cur = scroll:GetVerticalScroll() or 0
+            if cur > maxS then scroll:SetVerticalScroll(maxS) end
+        end
+    end
+
+    f:SetScript("OnShow", function()
+        if this.refresh then this.refresh() end
+    end)
+
+    IchaUI_TotemSetsRefresh = function()
+        if totemSetsModal and totemSetsModal:IsShown() and totemSetsModal.refresh then
+            totemSetsModal.refresh()
+        end
+        if totemBindsModal and totemBindsModal:IsShown() and totemBindsModal.refresh then
+            totemBindsModal.refresh()
+        end
+    end
+
+    totemSetsModal = f
+    return f
+end
+
+local function ensureTotemBindsModal()
+    if totemBindsModal then return totemBindsModal end
+    local Smax = 10
+    local f = CreateFrame("Frame", "IchaUITotemBindsModal", UIParent)
+    f:SetWidth(560)
+    f:SetHeight(620)
+    f:SetPoint("CENTER", UIParent, "CENTER", 40, 10)
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    f:SetFrameLevel(260)
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() this:StartMoving() end)
+    f:SetScript("OnDragStop", function() this:StopMovingOrSizing() end)
+    goldBorder(f, 14)
+    f:Hide()
+    if UISpecialFrames then
+        local already = false
+        local i
+        for i = 1, table.getn(UISpecialFrames) do
+            if UISpecialFrames[i] == "IchaUITotemBindsModal" then already = true end
+        end
+        if not already then table.insert(UISpecialFrames, "IchaUITotemBindsModal") end
+    end
+
+    local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    title:SetPoint("TOP", f, "TOP", 0, -14)
+    title:SetText("Totem binds")
+    IchaUI_DyeFs(title, 1, 1, 1)
+
+    local close = makeButton(f, "Close", 70, 22, function() f:Hide() end)
+    close:SetPoint("TOPRIGHT", f, "TOPRIGHT", -12, -12)
+
+    -- No scroll: two-column throw|slots on top, spell binds in 2 cols below.
+    local COL_L = 16
+    local COL_R = 290
+    local COL_SPELL = 268
+    local ROW_H = 22
+    local bindRows = {}
+    local y = -42
+
+    local function addHeader(parent, text, x, yy)
+        local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, yy)
+        fs:SetText(text)
+        IchaUI_PaintGoldFont(fs, 0.93, 0.78, 0.35)
+        return yy - 16
+    end
+
+    -- LEFT: Throw / sets   RIGHT: Slot binds (adjacent)
+    local leftY = addHeader(f, "Throw / sets", COL_L, y)
+    local rightY = addHeader(f, "Slot binds", COL_R, y)
+
+    local throwBind = makeKeyBindRow(f, "Throw current", COL_L, leftY,
+        function()
+            if IchaUITotems_GetThrowKey then return IchaUITotems_GetThrowKey() end
+            return "T"
+        end,
+        function(key)
+            if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
+        end)
+    table.insert(bindRows, throwBind)
+    leftY = leftY - ROW_H
+
+    local nextSetBind = makeKeyBindRow(f, "Next set", COL_L, leftY,
+        function()
+            if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
+            return ""
+        end,
+        function(key)
+            if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
+        end)
+    table.insert(bindRows, nextSetBind)
+    leftY = leftY - ROW_H
+
+    local setBindRows = {}
+    local bi
+    for bi = 1, Smax do
+        local setIdx = bi
+        local row = makeKeyBindRow(f, "Throw " .. bi, COL_L, leftY,
+            function()
+                if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey(setIdx) end
+                return ""
+            end,
+            function(key)
+                if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey(setIdx, key) end
+            end)
+        table.insert(bindRows, row)
+        setBindRows[bi] = row
+        leftY = leftY - ROW_H
+    end
+
+    local slotBindLabels = { "Earth", "Fire", "Water", "Air" }
+    local slotBindEls = { "earth", "fire", "water", "air" }
+    local slotRows = {}
+    local sbi
+    for sbi = 1, 4 do
+        local el = slotBindEls[sbi]
+        local label = slotBindLabels[sbi]
+        local row = makeKeyBindRow(f, label, COL_R, rightY,
+            function()
+                if IchaUITotems_GetSlotKey then return IchaUITotems_GetSlotKey(el) end
+                return ""
+            end,
+            function(key)
+                if IchaUITotems_ApplySlotKey then IchaUITotems_ApplySlotKey(el, key) end
+            end)
+        table.insert(bindRows, row)
+        slotRows[sbi] = row
+        rightY = rightY - ROW_H
+    end
+    local slotTip = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    slotTip:SetPoint("TOPLEFT", f, "TOPLEFT", COL_R, rightY - 2)
+    slotTip:SetWidth(240)
+    slotTip:SetJustifyH("LEFT")
+    slotTip:SetText("Casts the active totem on that slot.")
+    IchaUI_DyeFs(slotTip, 1, 1, 1)
+    rightY = rightY - 18
+
+    -- Spell binds start below the taller of the two columns
+    local spellY = leftY
+    if rightY < spellY then spellY = rightY end
+    spellY = spellY - 10
+    local spellHdr = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    spellHdr:SetPoint("TOPLEFT", f, "TOPLEFT", COL_L, spellY)
+    spellHdr:SetText("Spell binds")
+    IchaUI_PaintGoldFont(spellHdr, 0.93, 0.78, 0.35)
+    spellY = spellY - 16
+    local spellTip = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    spellTip:SetPoint("TOPLEFT", f, "TOPLEFT", COL_L, spellY)
+    spellTip:SetWidth(520)
+    spellTip:SetJustifyH("LEFT")
+    spellTip:SetText("Cast that totem directly (2 columns).")
+    IchaUI_DyeFs(spellTip, 1, 1, 1)
+    spellY = spellY - 16
+
+    local spellRows = {}
+    local spellBindList = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
+    local spellPool = table.getn(spellBindList)
+    if spellPool < 1 then spellPool = 24 end
+    local pi
+    for pi = 1, spellPool do
+        local item = spellBindList[pi]
+        local idx = (item and item.index) or pi
+        local rowLabel = (item and item.label) or ("Spell " .. pi)
+        if item and (not item.label) and item.base then
+            rowLabel = string.gsub(item.base, "%s+Totem%s*$", "")
+        end
+        local col = math.mod(pi - 1, 2)
+        local r = math.floor((pi - 1) / 2)
+        local x = COL_L + col * COL_SPELL
+        local yy = spellY - r * ROW_H
+        local row = makeKeyBindRow(f, rowLabel, x, yy,
+            function()
+                if IchaUITotems_GetSpellKey then return IchaUITotems_GetSpellKey(idx) end
+                return ""
+            end,
+            function(key)
+                if IchaUITotems_ApplySpellKey then IchaUITotems_ApplySpellKey(idx, key) end
+            end)
+        -- Narrow label so two columns fit
+        if row.label then
+            row.label:SetWidth(96)
+        end
+        table.insert(bindRows, row)
+        spellRows[pi] = { row = row, index = idx, item = item }
+        if not item then
+            row.label:Hide()
+            row.button:Hide()
+        end
+    end
+    local spellRowsUsed = math.floor((spellPool + 1) / 2)
+    local contentBottom = spellY - spellRowsUsed * ROW_H - 16
+    if -contentBottom + 48 > 620 then
+        f:SetHeight(-contentBottom + 48)
+    end
+
+    f.refresh = function()
+        local S = IchaUITotemSets
+        local n = 1
+        if S and S.Count then n = S.Count() or 1 end
+        local maxB = (S and S.MAX_BINDS) or Smax
+        if maxB > Smax then maxB = Smax end
+
+        -- Left column: throw + next fixed; set throws collapse under them.
+        local setY = -42 - 16 - ROW_H - ROW_H
+        local k
+        for k = 1, maxB do
+            local row = setBindRows[k]
+            if row then
+                if k <= n then
+                    local nm = (S and S.Name and S.Name(k)) or ("Set " .. k)
+                    if string.len(nm) > 12 then nm = string.sub(nm, 1, 11) .. "." end
+                    row.label:SetText("Throw " .. nm)
+                    IchaUI_DyeFs(row.label, 0.9, 0.88, 0.8)
+                    row.label:ClearAllPoints()
+                    row.label:SetPoint("TOPLEFT", f, "TOPLEFT", COL_L, setY)
+                    row.label:Show()
+                    row.button:Show()
+                    setY = setY - ROW_H
+                else
+                    row.label:Hide()
+                    row.button:Hide()
+                end
+            end
+        end
+
+        local leftBottom = setY
+        local rightBottom = -42 - 16 - 4 * ROW_H - 18
+        local sy = leftBottom
+        if rightBottom < sy then sy = rightBottom end
+        sy = sy - 10
+
+        if spellHdr then
+            spellHdr:ClearAllPoints()
+            spellHdr:SetPoint("TOPLEFT", f, "TOPLEFT", COL_L, sy)
+        end
+        sy = sy - 16
+        if spellTip then
+            spellTip:ClearAllPoints()
+            spellTip:SetPoint("TOPLEFT", f, "TOPLEFT", COL_L, sy)
+        end
+        sy = sy - 16
+
+        local list = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
+        local spi
+        for spi = 1, table.getn(spellRows) do
+            local sr = spellRows[spi]
+            local row = sr.row
+            local item = list[spi]
+            if item and row then
+                local rowLabel = item.label
+                if (not rowLabel) and item.base then
+                    rowLabel = string.gsub(item.base, "%s+Totem%s*$", "")
+                end
+                if not rowLabel then rowLabel = tostring(item.index or spi) end
+                row.label:SetText(rowLabel)
+                IchaUI_DyeFs(row.label, 0.9, 0.88, 0.8)
+                local col = math.mod(spi - 1, 2)
+                local r = math.floor((spi - 1) / 2)
+                local x = COL_L + col * COL_SPELL
+                local yy = sy - r * ROW_H
+                row.label:ClearAllPoints()
+                row.label:SetPoint("TOPLEFT", f, "TOPLEFT", x, yy)
+                row.label:SetWidth(96)
+                row.label:Show()
+                row.button:Show()
+            elseif row then
+                row.label:Hide()
+                row.button:Hide()
+            end
+        end
+
+        local i
+        for i = 1, table.getn(bindRows) do
+            if bindRows[i] and bindRows[i].refresh then bindRows[i].refresh() end
+        end
+    end
+
+    f:SetScript("OnShow", function()
+        if this.refresh then this.refresh() end
+    end)
+
+    if not IchaUI_TotemSetsRefresh then
+        IchaUI_TotemSetsRefresh = function()
+            if totemSetsModal and totemSetsModal:IsShown() and totemSetsModal.refresh then
+                totemSetsModal.refresh()
+            end
+            if totemBindsModal and totemBindsModal:IsShown() and totemBindsModal.refresh then
+                totemBindsModal.refresh()
+            end
+        end
+    end
+
+    totemBindsModal = f
+    return f
+end
+
+function IchaUI_ShowTotemSetsModal()
+    local f = ensureTotemSetsModal()
+    if f.refresh then f.refresh() end
+    f:Show()
+    f:Raise()
+end
+
+function IchaUI_ShowTotemBindsModal()
+    local f = ensureTotemBindsModal()
+    if f.refresh then f.refresh() end
+    f:Show()
+    f:Raise()
+end
+
 -- Slider row: returns { refresh=, height= }  height used for layout cursor
 local function makeSliderRow(parent, title, x, y, width, lo, hi, step, get, onChange, labelR, labelG, labelB)
     sliderSeq = sliderSeq + 1
@@ -1007,15 +1696,26 @@ local function makeSliderRow(parent, title, x, y, width, lo, hi, step, get, onCh
     local ed = makeEdit(parent, 42, 18)
     ed:SetPoint("LEFT", sl, "RIGHT", 6, 0)
 
+    -- skip notifies: SetValue fires OnValueChanged on 1.12; refresh must not
+    -- write dock/other state (that was stacking every drawer on one portrait spot).
+    local skipNotify = nil
     local function setBoth(v, fromSlider)
         if v < lo then v = lo end
         if v > hi then v = hi end
-        if not fromSlider then sl:SetValue(v) end
+        if not fromSlider then
+            skipNotify = true
+            sl:SetValue(v)
+            skipNotify = nil
+        end
         ed:SetText(string.format(step < 1 and "%.2f" or "%.0f", v))
-        if onChange then onChange(v) end
+        if onChange and not skipNotify then onChange(v) end
     end
 
     sl:SetScript("OnValueChanged", function()
+        if skipNotify then
+            ed:SetText(string.format(step < 1 and "%.2f" or "%.0f", this:GetValue() or lo))
+            return
+        end
         setBoth(this:GetValue(), true)
     end)
     ed:SetScript("OnEnterPressed", function()
@@ -1030,11 +1730,38 @@ local function makeSliderRow(parent, title, x, y, width, lo, hi, step, get, onCh
 
     local function refresh()
         local v = get and get() or lo
+        skipNotify = true
         sl:SetValue(v)
+        skipNotify = nil
         ed:SetText(string.format(step < 1 and "%.2f" or "%.0f", v))
     end
 
-    return { refresh = refresh, height = 26, slider = sl }
+    local function setPoint(nx, ny)
+        fs:ClearAllPoints()
+        fs:SetPoint("TOPLEFT", parent, "TOPLEFT", nx, ny)
+        sl:ClearAllPoints()
+        sl:SetPoint("TOPLEFT", parent, "TOPLEFT", nx + 50, ny - 2)
+    end
+    local function setShown(show)
+        if show then
+            fs:Show()
+            sl:Show()
+            ed:Show()
+        else
+            fs:Hide()
+            sl:Hide()
+            ed:Hide()
+        end
+    end
+    return {
+        refresh = refresh,
+        height = 26,
+        slider = sl,
+        label = fs,
+        edit = ed,
+        setPoint = setPoint,
+        setShown = setShown,
+    }
 end
 
 local STRATA_LABELS = { "BACKGROUND", "LOW", "MEDIUM", "HIGH", "DIALOG" }
@@ -1866,8 +2593,8 @@ local function build()
         this:SetText(cdNumLabel())
     end)
     cdNumBtn:SetPoint("LEFT", layBtn, "RIGHT", 4, 0)
-    y1 = y1 - ROW
-    makeSliderRow(pageBars, "Spread", PAD, y1, SLW, 10, 360, 1,
+    local afterLayY = y1 - ROW
+    local barSpread = makeSliderRow(pageBars, "Spread", PAD, afterLayY, SLW, 10, 360, 1,
         function()
             local id = IchaUI_BarFormPick or 1
             local _, _, spread = "rect", "grid", 90
@@ -1880,8 +2607,7 @@ local function build()
             if IchaUI_ActionBarForm then shape, layout, spread, arc, rot = IchaUI_ActionBarForm(id) end
             if IchaUI_ActionBarSetForm then IchaUI_ActionBarSetForm(id, shape, layout, v, arc, rot) end
         end)
-    y1 = y1 - ROW
-    makeSliderRow(pageBars, "Arc", PAD, y1, SLW, 10, 360, 1,
+    local barArc = makeSliderRow(pageBars, "Arc", PAD, afterLayY - ROW, SLW, 10, 360, 1,
         function()
             local id = IchaUI_BarFormPick or 1
             local arc = 360
@@ -1894,8 +2620,7 @@ local function build()
             if IchaUI_ActionBarForm then shape, layout, spread, arc, rot = IchaUI_ActionBarForm(id) end
             if IchaUI_ActionBarSetForm then IchaUI_ActionBarSetForm(id, shape, layout, spread, v, rot) end
         end)
-    y1 = y1 - ROW
-    makeSliderRow(pageBars, "Sh Rot", PAD, y1, SLW, -360, 360, 1,
+    local barRot = makeSliderRow(pageBars, "Sh Rot", PAD, afterLayY - ROW * 2, SLW, -360, 360, 1,
         function()
             local id = IchaUI_BarFormPick or 1
             local rot = 90
@@ -1908,6 +2633,61 @@ local function build()
             if IchaUI_ActionBarForm then shape, layout, spread, arc, rot = IchaUI_ActionBarForm(id) end
             if IchaUI_ActionBarSetForm then IchaUI_ActionBarSetForm(id, shape, layout, spread, arc, v) end
         end)
+
+    -- COL1 XP bar: repositioned under last visible Action-bar control
+    local xpHdr = sectionHeader(pageBars, "XP bar", PAD, afterLayY)
+    local xpW = makeSliderRow(pageBars, "Width", PAD, afterLayY, SLW, 80, 1200, 10,
+        function() local x = db().xp or {}; return x.width or 400 end,
+        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("width " .. v) end end)
+    local xpH = makeSliderRow(pageBars, "Height", PAD, afterLayY, SLW, 6, 80, 1,
+        function() local x = db().xp or {}; return x.height or 14 end,
+        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("height " .. v) end end)
+    local xpS = makeSliderRow(pageBars, "Scale", PAD, afterLayY, SLW, 0.4, 3.0, 0.05,
+        function() local x = db().xp or {}; return x.scale or 1 end,
+        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("scale " .. v) end end)
+    local xpMove = makeButton(pageBars, "Move XP", 70, 20, function()
+        if IchaUIXP_Slash then IchaUIXP_Slash("move") end
+    end)
+    local xpShow = makeButton(pageBars, "Show", 48, 20, function()
+        if IchaUIXP_Slash then IchaUIXP_Slash("show") end
+    end)
+    local xpHide = makeButton(pageBars, "Hide", 48, 20, function()
+        if IchaUIXP_Slash then IchaUIXP_Slash("hide") end
+    end)
+
+    local function reflowActionForm()
+        local id = IchaUI_BarFormPick or 1
+        local shape, layout = "rect", "grid"
+        if IchaUI_ActionBarForm then shape, layout = IchaUI_ActionBarForm(id) end
+        local radial = (layout == "radial")
+        local y = afterLayY
+        if radial then
+            barSpread.setPoint(PAD, y); barSpread.setShown(true); y = y - ROW
+            barArc.setPoint(PAD, y); barArc.setShown(true); y = y - ROW
+            barRot.setPoint(PAD, y); barRot.setShown(true); y = y - ROW
+            if barSpread.refresh then barSpread.refresh() end
+            if barArc.refresh then barArc.refresh() end
+            if barRot.refresh then barRot.refresh() end
+        else
+            barSpread.setShown(false)
+            barArc.setShown(false)
+            barRot.setShown(false)
+        end
+        xpHdr:ClearAllPoints()
+        xpHdr:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y)
+        y = y - 18
+        xpW.setPoint(PAD, y); y = y - ROW
+        xpH.setPoint(PAD, y); y = y - ROW
+        xpS.setPoint(PAD, y); y = y - ROW
+        xpMove:ClearAllPoints()
+        xpMove:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y)
+        xpShow:ClearAllPoints()
+        xpShow:SetPoint("LEFT", xpMove, "RIGHT", 4, 0)
+        xpHide:ClearAllPoints()
+        xpHide:SetPoint("LEFT", xpShow, "RIGHT", 4, 0)
+        y1 = y - 30
+    end
+
     pageBars._formRefresh = function()
         local id = IchaUI_BarFormPick or 1
         barFormBtn:SetText("Bar " .. id)
@@ -1918,36 +2698,9 @@ local function build()
         shapeBtn:SetText("Shape: " .. lab)
         if layout == "radial" then layBtn:SetText("Layout: Radial") else layBtn:SetText("Layout: Grid") end
         cdNumBtn:SetText(cdNumLabel())
+        reflowActionForm()
     end
     pageBars._formRefresh()
-
-    -- COL1 (PAD): XP bar under Action bars
-    sectionHeader(pageBars, "XP bar", PAD, y1); y1 = y1 - 18
-    local xpW = makeSliderRow(pageBars, "Width", PAD, y1, SLW, 80, 1200, 10,
-        function() local x = db().xp or {}; return x.width or 400 end,
-        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("width " .. v) end end)
-    y1 = y1 - ROW
-    local xpH = makeSliderRow(pageBars, "Height", PAD, y1, SLW, 6, 80, 1,
-        function() local x = db().xp or {}; return x.height or 14 end,
-        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("height " .. v) end end)
-    y1 = y1 - ROW
-    local xpS = makeSliderRow(pageBars, "Scale", PAD, y1, SLW, 0.4, 3.0, 0.05,
-        function() local x = db().xp or {}; return x.scale or 1 end,
-        function(v) if IchaUIXP_Slash then IchaUIXP_Slash("scale " .. v) end end)
-    y1 = y1 - ROW
-    local xpMove = makeButton(pageBars, "Move XP", 70, 20, function()
-        if IchaUIXP_Slash then IchaUIXP_Slash("move") end
-    end)
-    xpMove:SetPoint("TOPLEFT", pageBars, "TOPLEFT", PAD, y1)
-    local xpShow = makeButton(pageBars, "Show", 48, 20, function()
-        if IchaUIXP_Slash then IchaUIXP_Slash("show") end
-    end)
-    xpShow:SetPoint("LEFT", xpMove, "RIGHT", 4, 0)
-    local xpHide = makeButton(pageBars, "Hide", 48, 20, function()
-        if IchaUIXP_Slash then IchaUIXP_Slash("hide") end
-    end)
-    xpHide:SetPoint("LEFT", xpShow, "RIGHT", 4, 0)
-    y1 = y1 - 30
 
 
     local function placeHeroPicks(page, y)
@@ -2111,8 +2864,8 @@ local function build()
             if layout == "radial" then this:SetText("Layout: Radial") else this:SetText("Layout: Grid") end
         end)
         heroLay:SetPoint("LEFT", heroShape, "RIGHT", 4, 0)
-        yHero = yHero - ROW
-        makeSliderRow(pageBars, "Spread", COL2, yHero, SLW, 10, 360, 1,
+        local heroAfterLayY = yHero - ROW
+        local heroSpread = makeSliderRow(pageBars, "Spread", COL2, heroAfterLayY, SLW, 10, 360, 1,
             function()
                 local id = IchaUI_HeroPick or 1
                 local spread = 90
@@ -2125,8 +2878,7 @@ local function build()
                 if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
                 if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, v, arc, rot) end
             end)
-        yHero = yHero - ROW
-        makeSliderRow(pageBars, "Arc", COL2, yHero, SLW, 10, 360, 1,
+        local heroArc = makeSliderRow(pageBars, "Arc", COL2, heroAfterLayY - ROW, SLW, 10, 360, 1,
             function()
                 local id = IchaUI_HeroPick or 1
                 local arc = 360
@@ -2139,8 +2891,7 @@ local function build()
                 if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
                 if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, v, rot) end
             end)
-        yHero = yHero - ROW
-        makeSliderRow(pageBars, "Sh Rot", COL2, yHero, SLW, -360, 360, 1,
+        local heroRot = makeSliderRow(pageBars, "Sh Rot", COL2, heroAfterLayY - ROW * 2, SLW, -360, 360, 1,
             function()
                 local id = IchaUI_HeroPick or 1
                 local rot = 90
@@ -2153,6 +2904,42 @@ local function build()
                 if IchaUI_HeroBarForm then shape, layout, spread, arc, rot = IchaUI_HeroBarForm(id) end
                 if IchaUI_HeroBarSetForm then IchaUI_HeroBarSetForm(id, shape, layout, spread, arc, v) end
             end)
+        local function reflowHeroForm()
+            local id = IchaUI_HeroPick or 1
+            local shape, layout = "square", "grid"
+            if IchaUI_HeroBarForm then shape, layout = IchaUI_HeroBarForm(id) end
+            local radial = (layout == "radial")
+            local y = heroAfterLayY
+            if radial then
+                heroSpread.setPoint(COL2, y); heroSpread.setShown(true); y = y - ROW
+                heroArc.setPoint(COL2, y); heroArc.setShown(true); y = y - ROW
+                heroRot.setPoint(COL2, y); heroRot.setShown(true); y = y - ROW
+                if heroSpread.refresh then heroSpread.refresh() end
+                if heroArc.refresh then heroArc.refresh() end
+                if heroRot.refresh then heroRot.refresh() end
+            else
+                heroSpread.setShown(false)
+                heroArc.setShown(false)
+                heroRot.setShown(false)
+            end
+            yHero = y
+            local lab = shape
+            if IchaUI_FormShapeLabel then lab = IchaUI_FormShapeLabel(shape) end
+            heroShape:SetText("Shape: " .. lab)
+            if radial then heroLay:SetText("Layout: Radial") else heroLay:SetText("Layout: Grid") end
+        end
+        local _heroLayClick = heroLay:GetScript("OnClick")
+        heroLay:SetScript("OnClick", function()
+            if _heroLayClick then _heroLayClick() end
+            reflowHeroForm()
+        end)
+        -- Refresh hero layout when hero pick / options refresh
+        local _prevHeroRefresh = IchaUI_HeroPickRefresh
+        IchaUI_HeroPickRefresh = function()
+            if _prevHeroRefresh then _prevHeroRefresh() end
+            reflowHeroForm()
+        end
+        reflowHeroForm()
     end
 
     -- Stance on COL3 (narrow tip width for ~360 col)
@@ -2204,28 +2991,29 @@ local function build()
         end,
         function(v) if IchaUIBuffBars_Set then IchaUIBuffBars_Set("rowGap", v) end end)
     yBf = yBf - ROW
-    yBf = -4
-    local bfCols = makeSliderRow(pageBuffs, "Cols", COL2, yBf, SLW, 4, 16, 1,
+    local yBfR = -4
+    local bfCols = makeSliderRow(pageBuffs, "Cols", COL2, yBfR, SLW, 4, 16, 1,
         function()
             local t = IchaUIBuffBars_Get and IchaUIBuffBars_Get()
             return (t and t.cols) or 16
         end,
         function(v) if IchaUIBuffBars_Set then IchaUIBuffBars_Set("cols", v) end end)
-    yBf = yBf - ROW
-    local bfText = makeSliderRow(pageBuffs, "Text", COL2, yBf, SLW, 8, 18, 1,
+    yBfR = yBfR - ROW
+    local bfText = makeSliderRow(pageBuffs, "Text", COL2, yBfR, SLW, 8, 18, 1,
         function()
             local t = IchaUIBuffBars_Get and IchaUIBuffBars_Get()
             return (t and t.text) or 10
         end,
         function(v) if IchaUIBuffBars_Set then IchaUIBuffBars_Set("text", v) end end)
-    yBf = yBf - ROW
+    yBfR = yBfR - ROW
     local bfMove = makeButton(pageBuffs, "Move", 55, 20, function()
         if IchaUIBuffBars_Slash then IchaUIBuffBars_Slash("move") end
     end)
-    bfMove:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", COL2, yBf)
-    tip(pageBuffs, "Right-click a buff to cancel it", COL2 + 64, yBf - 2, 280)
-    yBf = yBf - 30
+    bfMove:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", COL2, yBfR)
+    tip(pageBuffs, "Right-click a buff to cancel it", COL2 + 64, yBfR - 2, 280)
+    yBfR = yBfR - 30
     do
+        -- Consolidate stays on COL1 under Row (do not share y with COL2)
         local bfCons = makeGoldToggle(pageBuffs, "Consolidate long buffs: On", 200, 20)
         bfCons:SetPoint("TOPLEFT", pageBuffs, "TOPLEFT", PAD, yBf)
         local function consOn()
@@ -2375,11 +3163,15 @@ local function build()
             if d == "left" then return "radial" end
             return "up"
         end
-        local function makeDirBtn(parent, x, y, getDir, setDir)
+        local spreadRefresh = {}
+        local textRefresh = {}
+        local radialGroups = {}
+        local function makeDirBtn(parent, x, y, getDir, setDir, onDirChanged)
             local btn = makeButton(parent, "Open: " .. prettyDir(getDir()), 120, 20, function()
                 local n = cycleDir(getDir())
                 setDir(n)
                 this:SetText("Open: " .. prettyDir(n))
+                if onDirChanged then onDirChanged() end
             end)
             IchaUI_ChoiceArrow(btn)
             btn:SetScript("OnClick", function()
@@ -2392,6 +3184,7 @@ local function build()
                 IchaUI_ChoiceMenu(btn, opts, sel, function(k)
                     setDir(opts[k][1])
                     btn:SetText("Open: " .. prettyDir(opts[k][1]))
+                    if onDirChanged then onDirChanged() end
                 end)
             end)
             btn:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
@@ -2400,26 +3193,44 @@ local function build()
             end)
             return btn
         end
-        local spreadRefresh = {}
-        local textRefresh = {}
-        local function makeDeg(parent, title, x, y, lo, hi, getS, setS)
-            local row = makeSliderRow(parent, title, x, y, SLW, lo, hi, 1, getS, setS, 1, 1, 1)
-            if row and row.refresh then table.insert(spreadRefresh, row.refresh) end
+        -- Spread/Arc/Sh Rot only while Open is Radial. Returns y after visible rows.
+        local function makeRadialSliders(parent, colX, y, getDir, getS, setS, getA, setA, getR, setR)
+            local baseY = y
+            local spread = makeSliderRow(parent, "Spread", colX, y, SLW, 10, 360, 1, getS, setS, 1, 1, 1)
+            local arc = makeSliderRow(parent, "Arc", colX, y - 26, SLW, 10, 360, 1, getA, setA, 1, 1, 1)
+            local rot = makeSliderRow(parent, "Sh Rot", colX, y - 52, SLW, -360, 360, 1, getR, setR, 1, 1, 1)
+            if spread and spread.refresh then table.insert(spreadRefresh, spread.refresh) end
+            if arc and arc.refresh then table.insert(spreadRefresh, arc.refresh) end
+            if rot and rot.refresh then table.insert(spreadRefresh, rot.refresh) end
+            local function apply()
+                local radial = (getDir() == "radial")
+                local yy = baseY
+                if radial then
+                    spread.setPoint(colX, yy); spread.setShown(true); yy = yy - 26
+                    arc.setPoint(colX, yy); arc.setShown(true); yy = yy - 26
+                    rot.setPoint(colX, yy); rot.setShown(true); yy = yy - 26
+                else
+                    spread.setShown(false)
+                    arc.setShown(false)
+                    rot.setShown(false)
+                end
+                return yy
+            end
+            table.insert(radialGroups, apply)
+            return apply()
         end
-        local function makeSpread(parent, x, y, getS, setS)
-            makeDeg(parent, "Spread", x, y, 10, 360, getS, setS)
-        end
-        local function makeArc(parent, x, y, getS, setS)
-            makeDeg(parent, "Arc", x, y, 10, 360, getS, setS)
-        end
-        local function makeRot(parent, x, y, getS, setS)
-            makeDeg(parent, "Sh Rot", x, y, -360, 360, getS, setS)
+        pages._radialVisRefresh = function()
+            local i
+            for i = 1, table.getn(radialGroups) do
+                radialGroups[i]()
+            end
         end
 
         local sham = IchaUI_IsShaman()
-        local throwBind, shiftDr, recallMove, refreshRecallOn
+        local shiftDr, recallMove, refreshRecallOn
         local yC = -4
-        local yR = 0
+        local yR = -4
+        yL = -4
         if sham then
             sectionHeader(page, "Totems", PAD, yL); yL = yL - 18
             makeSliderRow(page, "Scale", PAD, yL, SLW, 0.4, 3.0, 0.05,
@@ -2500,69 +3311,47 @@ local function build()
             tip(page, "T.strata: totem duration / tick numbers (default HIGH, below tooltips). Icon layer is Bars → Strata.", PAD, yL, COL_TIP)
             yL = yL - 26
 
-            throwBind = makeKeyBindRow(page, "Throw current", PAD, yL,
-                function()
-                    if IchaUITotems_GetThrowKey then return IchaUITotems_GetThrowKey() end
-                    return "T"
-                end,
-                function(key)
-                    if IchaUITotems_SetThrowKey then IchaUITotems_SetThrowKey(key) end
-                end)
-            local totThrow = makeButton(page, "Throw now", 72, 20, function()
-                if IchaUITotems_ThrowSet then IchaUITotems_ThrowSet() end
+            local setsBtn = makeButton(page, "Totem sets…", 110, 22, function()
+                if IchaUI_ShowTotemSetsModal then IchaUI_ShowTotemSetsModal() end
             end)
-            totThrow:SetPoint("TOPLEFT", page, "TOPLEFT", PAD + 220, yL + 3)
+            setsBtn:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yL)
+            local bindsBtn = makeButton(page, "Totem binds…", 110, 22, function()
+                if IchaUI_ShowTotemBindsModal then IchaUI_ShowTotemBindsModal() end
+            end)
+            bindsBtn:SetPoint("LEFT", setsBtn, "RIGHT", 8, 0)
+            yL = yL - 28
+            tip(page, "Totem sets: name + Earth/Fire/Water/Air picks. Totem binds: throw, next set, per-set, slot, and spell keys.", PAD, yL, COL_TIP)
             yL = yL - 26
-            local nextSetBind = makeKeyBindRow(page, "Next set", PAD, yL,
-                function()
-                    if IchaUITotems_GetSetBindKey then return IchaUITotems_GetSetBindKey("next") end
-                    return ""
-                end,
-                function(key)
-                    if IchaUITotems_ApplySetBindKey then IchaUITotems_ApplySetBindKey("next", key) end
-                end)
-            table.insert(slotRows, nextSetBind)
-            yL = yL - 26
-            if IchaUI_BuildTotemSetsBlock then
-                yL = IchaUI_BuildTotemSetsBlock(page, PAD, yL, sectionHeader, makeButton, makeEdit, makeKeyBindRow, slotRows)
-            end
-            makeDirBtn(page, PAD, yL,
-                function()
+            do
+                local getDir = function()
                     local t = IchaUITotems_Get and IchaUITotems_Get()
                     return (t and t.drawerDir) or "up"
-                end,
-                function(d)
+                end
+                local setDir = function(d)
                     if IchaUITotems_Set then IchaUITotems_Set("drawerDir", d) end
+                end
+                makeDirBtn(page, PAD, yL, getDir, setDir, function()
+                    if pages._radialVisRefresh then pages._radialVisRefresh() end
                 end)
-            yL = yL - 24
-            makeSpread(page, PAD, yL,
-                function()
-                    local t = IchaUITotems_Get and IchaUITotems_Get()
-                    return (t and t.drawerSpread) or 90
-                end,
-                function(v)
-                    if IchaUITotems_Set then IchaUITotems_Set("drawerSpread", v) end
-                end)
-            yL = yL - 26
-            makeArc(page, PAD, yL,
-                function()
-                    local t = IchaUITotems_Get and IchaUITotems_Get()
-                    return (t and t.drawerArc) or 360
-                end,
-                function(v)
-                    if IchaUITotems_Set then IchaUITotems_Set("drawerArc", v) end
-                end)
-            yL = yL - 26
-            makeRot(page, PAD, yL,
-                function()
-                    local t = IchaUITotems_Get and IchaUITotems_Get()
-                    if t and t.drawerRot ~= nil then return t.drawerRot end
-                    return 90
-                end,
-                function(v)
-                    if IchaUITotems_Set then IchaUITotems_Set("drawerRot", v) end
-                end)
-            yL = yL - 26
+                yL = yL - 24
+                yL = makeRadialSliders(page, PAD, yL, getDir,
+                    function()
+                        local t = IchaUITotems_Get and IchaUITotems_Get()
+                        return (t and t.drawerSpread) or 90
+                    end,
+                    function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerSpread", v) end end,
+                    function()
+                        local t = IchaUITotems_Get and IchaUITotems_Get()
+                        return (t and t.drawerArc) or 360
+                    end,
+                    function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerArc", v) end end,
+                    function()
+                        local t = IchaUITotems_Get and IchaUITotems_Get()
+                        if t and t.drawerRot ~= nil then return t.drawerRot end
+                        return 90
+                    end,
+                    function(v) if IchaUITotems_Set then IchaUITotems_Set("drawerRot", v) end end)
+            end
             shiftDr = makeButton(page, "Shift drawers: Off", 140, 20, function()
                 local t = IchaUITotems_Get and IchaUITotems_Get()
                 local on = not (t and t.shiftDrawer)
@@ -2577,6 +3366,9 @@ local function build()
             yL = yL - 28
             if IchaUI_DrawerStyleControls then
                 yL = IchaUI_DrawerStyleControls(page, "totems", PAD, yL, true)
+            end
+            if IchaUI_BuildDrawerDockControls then
+                yL = IchaUI_BuildDrawerDockControls(page, "totems", PAD, yL, makeButton, makeSliderRow, tip, COL_TIP, SLW)
             end
             yL = yL - 8
 
@@ -2626,6 +3418,9 @@ local function build()
             yC = yC - ROW
             if IchaUI_DrawerStyleControls then
                 yC = IchaUI_DrawerStyleControls(page, "recall", COL2, yC)
+            end
+            if IchaUI_BuildDrawerDockControls then
+                yC = IchaUI_BuildDrawerDockControls(page, "recall", COL2, yC, makeButton, makeSliderRow, tip, COL_TIP, SLW)
             end
             yC = yC - 8
 
@@ -2703,42 +3498,41 @@ local function build()
                     end
                     y = y - math.floor((table.getn(keys) + UCOLS - 1) / UCOLS) * UROW - 4
                 end
-                makeDirBtn(page, colX, y,
-                    function()
+                do
+                    local getDir = function()
                         if IchaUIShamanExtras_GetDrawerDir then return IchaUIShamanExtras_GetDrawerDir(which) end
                         return "up"
-                    end,
-                    function(d)
+                    end
+                    local setDir = function(d)
                         if IchaUIShamanExtras_SetDrawerDir then IchaUIShamanExtras_SetDrawerDir(which, d) end
+                    end
+                    makeDirBtn(page, colX, y, getDir, setDir, function()
+                        if pages._radialVisRefresh then pages._radialVisRefresh() end
                     end)
-                y = y - 26
-                makeSpread(page, colX, y,
-                    function()
-                        if IchaUIShamanExtras_GetDrawerSpread then return IchaUIShamanExtras_GetDrawerSpread(which) end
-                        return 90
-                    end,
-                    function(v)
-                        if IchaUIShamanExtras_SetDrawerSpread then IchaUIShamanExtras_SetDrawerSpread(which, v) end
-                    end)
-                y = y - 26
-                makeArc(page, colX, y,
-                    function()
-                        if IchaUIShamanExtras_GetDrawerArc then return IchaUIShamanExtras_GetDrawerArc(which) end
-                        return 360
-                    end,
-                    function(v)
-                        if IchaUIShamanExtras_SetDrawerArc then IchaUIShamanExtras_SetDrawerArc(which, v) end
-                    end)
-                y = y - 26
-                makeRot(page, colX, y,
-                    function()
-                        if IchaUIShamanExtras_GetDrawerRot then return IchaUIShamanExtras_GetDrawerRot(which) end
-                        return 90
-                    end,
-                    function(v)
-                        if IchaUIShamanExtras_SetDrawerRot then IchaUIShamanExtras_SetDrawerRot(which, v) end
-                    end)
-                y = y - 26
+                    y = y - 26
+                    y = makeRadialSliders(page, colX, y, getDir,
+                        function()
+                            if IchaUIShamanExtras_GetDrawerSpread then return IchaUIShamanExtras_GetDrawerSpread(which) end
+                            return 90
+                        end,
+                        function(v)
+                            if IchaUIShamanExtras_SetDrawerSpread then IchaUIShamanExtras_SetDrawerSpread(which, v) end
+                        end,
+                        function()
+                            if IchaUIShamanExtras_GetDrawerArc then return IchaUIShamanExtras_GetDrawerArc(which) end
+                            return 360
+                        end,
+                        function(v)
+                            if IchaUIShamanExtras_SetDrawerArc then IchaUIShamanExtras_SetDrawerArc(which, v) end
+                        end,
+                        function()
+                            if IchaUIShamanExtras_GetDrawerRot then return IchaUIShamanExtras_GetDrawerRot(which) end
+                            return 90
+                        end,
+                        function(v)
+                            if IchaUIShamanExtras_SetDrawerRot then IchaUIShamanExtras_SetDrawerRot(which, v) end
+                        end)
+                end
                 if which == "imbue" or which == "shield" then
                     local textBtn = makeButton(page, "Text: On", 80, 20, function()
                         local on = false
@@ -2759,6 +3553,9 @@ local function build()
                 end
                 if IchaUI_DrawerStyleControls then
                     y = IchaUI_DrawerStyleControls(page, which, colX, y)
+                end
+                if IchaUI_BuildDrawerDockControls then
+                    y = IchaUI_BuildDrawerDockControls(page, which, colX, y, makeButton, makeSliderRow, tip, COL_TIP, SLW)
                 end
                 y = y - 6
                 return y
@@ -2789,104 +3586,44 @@ local function build()
         end)
         minResBtn:SetPoint("TOPLEFT", page, "TOPLEFT", RX, yC)
         yC = yC - 24
-        makeDirBtn(page, RX, yC,
-            function()
+        do
+            local getDir = function()
                 if IchaUIUF_GetTankDrawerSide then return IchaUIUF_GetTankDrawerSide() end
                 return "left"
-            end,
-            function(d)
+            end
+            local setDir = function(d)
                 if IchaUIUF_SetTankDrawerSide then IchaUIUF_SetTankDrawerSide(d) end
+            end
+            makeDirBtn(page, RX, yC, getDir, setDir, function()
+                if pages._radialVisRefresh then pages._radialVisRefresh() end
             end)
-        yC = yC - 22
-        makeSpread(page, RX, yC,
-            function()
-                if IchaUIUF_GetTankDrawerSpread then return IchaUIUF_GetTankDrawerSpread() end
-                return 90
-            end,
-            function(v)
-                if IchaUIUF_SetTankDrawerSpread then IchaUIUF_SetTankDrawerSpread(v) end
-            end)
-        yC = yC - 26
-        makeArc(page, RX, yC,
-            function()
-                if IchaUIUF_GetTankDrawerArc then return IchaUIUF_GetTankDrawerArc() end
-                return 360
-            end,
-            function(v)
-                if IchaUIUF_SetTankDrawerArc then IchaUIUF_SetTankDrawerArc(v) end
-            end)
-        yC = yC - 26
-        makeRot(page, RX, yC,
-            function()
-                if IchaUIUF_GetTankDrawerRot then return IchaUIUF_GetTankDrawerRot() end
-                return 90
-            end,
-            function(v)
-                if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end
-            end)
-        yC = yC - 26
+            yC = yC - 22
+            yC = makeRadialSliders(page, RX, yC, getDir,
+                function()
+                    if IchaUIUF_GetTankDrawerSpread then return IchaUIUF_GetTankDrawerSpread() end
+                    return 90
+                end,
+                function(v) if IchaUIUF_SetTankDrawerSpread then IchaUIUF_SetTankDrawerSpread(v) end end,
+                function()
+                    if IchaUIUF_GetTankDrawerArc then return IchaUIUF_GetTankDrawerArc() end
+                    return 360
+                end,
+                function(v) if IchaUIUF_SetTankDrawerArc then IchaUIUF_SetTankDrawerArc(v) end end,
+                function()
+                    if IchaUIUF_GetTankDrawerRot then return IchaUIUF_GetTankDrawerRot() end
+                    return 90
+                end,
+                function(v) if IchaUIUF_SetTankDrawerRot then IchaUIUF_SetTankDrawerRot(v) end end)
+        end
         tip(page, "Default Open: Left (inside). Minimal On = resists nestled by caret when closed.", RX, yC, COL_TIP)
         yC = yC - 20
         if IchaUI_DrawerStyleControls then
             yC = IchaUI_DrawerStyleControls(page, "resists", RX, yC)
         end
-        yC = yC - 8
-
-        if sham then
-            sectionHeader(page, "Slot binds", PAD, yL); yL = yL - 18
-            local slotBindLabels = { "Earth", "Fire", "Water", "Air" }
-            local slotBindEls = { "earth", "fire", "water", "air" }
-            local sbi
-            for sbi = 1, 4 do
-                local el = slotBindEls[sbi]
-                local label = slotBindLabels[sbi]
-                local row = makeKeyBindRow(page, label, PAD, yL,
-                    function()
-                        if IchaUITotems_GetSlotKey then return IchaUITotems_GetSlotKey(el) end
-                        return ""
-                    end,
-                    function(key)
-                        if IchaUITotems_ApplySlotKey then IchaUITotems_ApplySlotKey(el, key) end
-                    end)
-                table.insert(slotRows, row)
-                yL = yL - 24
-            end
-            tip(page, "Casts the active totem on that slot. Left-click drawer = use; right-click = set active.", PAD, yL, COL_TIP)
-            yL = yL - 22
-
-            sectionHeader(page, "Spell binds", PAD, yL); yL = yL - 18
-            tip(page, "Binds cast that totem directly so you can drop action-bar buttons.", PAD, yL, COL_TIP)
-            yL = yL - 20
-            local spellBindList = (IchaUITotems_ListSpellBinds and IchaUITotems_ListSpellBinds()) or {}
-            local spellElHeaders = { earth = "Earth", fire = "Fire", water = "Water", air = "Air" }
-            local lastSpellEl = nil
-            local spi
-            for spi = 1, table.getn(spellBindList) do
-                local item = spellBindList[spi]
-                if item.element ~= lastSpellEl then
-                    lastSpellEl = item.element
-                    local hdr = spellElHeaders[item.element] or item.element
-                    sectionHeader(page, hdr, PAD, yL); yL = yL - 18
-                end
-                local idx = item.index
-                local rowLabel = item.label
-                if (not rowLabel) and item.base then
-                    rowLabel = string.gsub(item.base, "%s+Totem%s*$", "")
-                end
-                if not rowLabel then rowLabel = tostring(idx) end
-                local row = makeKeyBindRow(page, rowLabel, PAD, yL,
-                    function()
-                        if IchaUITotems_GetSpellKey then return IchaUITotems_GetSpellKey(idx) end
-                        return ""
-                    end,
-                    function(key)
-                        if IchaUITotems_ApplySpellKey then IchaUITotems_ApplySpellKey(idx, key) end
-                    end)
-                table.insert(slotRows, row)
-                yL = yL - 24
-            end
-            yL = yL - 10
+        if IchaUI_BuildDrawerDockControls then
+            yC = IchaUI_BuildDrawerDockControls(page, "resists", RX, yC, makeButton, makeSliderRow, tip, COL_TIP, SLW)
         end
+        yC = yC - 8
 
         if IchaUI_BuildDrawerExtras then
             yC = IchaUI_BuildDrawerExtras(page, yC, RX)
@@ -2899,8 +3636,6 @@ local function build()
             page:SetHeight(needH)
         end
         if not sham and page.SetHeight then page:SetHeight(math.max(needH, contentH + 40)) end
-
-
 
         pages._drawersRefresh = function()
             local i
@@ -2917,7 +3652,6 @@ local function build()
                 local tg = IchaUITotems_Get()
                 shiftDr:SetText((tg and tg.shiftDrawer) and "Shift drawers: On" or "Shift drawers: Off")
             end
-            if throwBind and throwBind.refresh then throwBind.refresh() end
             if IchaUI_TotemSetsRefresh then IchaUI_TotemSetsRefresh() end
             for i = 1, table.getn(slotRows) do
                 if slotRows[i] and slotRows[i].refresh then slotRows[i].refresh() end
@@ -2937,6 +3671,13 @@ local function build()
                 minResBtn:SetText(IchaUIUF_GetTankDrawerMinimal() and "Minimal resists: On" or "Minimal resists: Off")
             end
             if IchaUI_DrawerExtrasRefresh then IchaUI_DrawerExtrasRefresh() end
+            if page._dockRefreshers then
+                local di
+                for di = 1, table.getn(page._dockRefreshers) do
+                    page._dockRefreshers[di]()
+                end
+            end
+            if pages._radialVisRefresh then pages._radialVisRefresh() end
         end
         pages._drawersRefresh()
     end
@@ -2995,6 +3736,7 @@ local function build()
             local d = nextDir((g and g.drawerDir) or "down")
             if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerDir", d) end
             this:SetText("Open: " .. pretty(d))
+            if pageMap._reflowMmRadial then pageMap._reflowMmRadial() end
         end)
         IchaUI_ChoiceArrow(dirBtn)
         dirBtn:SetScript("OnClick", function()
@@ -3009,12 +3751,54 @@ local function build()
             IchaUI_ChoiceMenu(btn, opts, sel, function(k)
                 if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerDir", opts[k][1]) end
                 btn:SetText("Open: " .. pretty(opts[k][1]))
+                if pageMap._reflowMmRadial then
+                    -- Style/buttons sections stay below tip; only collapse radial rows here.
+                    pageMap._reflowMmRadial()
+                end
                 if pages._mapRefresh then pages._mapRefresh() end
             end)
         end)
         dirBtn:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, y)
         y = y - 24
-        local mmSpread = makeSliderRow(pageMap, "Spread", COL2, y, SLW, 10, 360, 1,
+
+        local ANCHOR_OPTS = {
+            { "TOP", "Top" }, { "BOTTOM", "Bottom" }, { "LEFT", "Left" }, { "RIGHT", "Right" },
+            { "TOPLEFT", "Top left" }, { "TOPRIGHT", "Top right" },
+            { "BOTTOMLEFT", "Bottom left" }, { "BOTTOMRIGHT", "Bottom right" },
+        }
+        local function prettyAnchor(a)
+            local i
+            for i = 1, table.getn(ANCHOR_OPTS) do
+                if ANCHOR_OPTS[i][1] == a then return ANCHOR_OPTS[i][2] end
+            end
+            return "Bottom"
+        end
+        local anchorBtn = makeButton(pageMap, "Anchor: Bottom", 140, 20, function() end)
+        IchaUI_ChoiceArrow(anchorBtn)
+        anchorBtn:SetScript("OnClick", function()
+            local btn = this
+            local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
+            local cur = (g and g.drawerAnchor) or "BOTTOM"
+            local sel, k = 0, nil
+            for k = 1, table.getn(ANCHOR_OPTS) do
+                if ANCHOR_OPTS[k][1] == cur then sel = k end
+            end
+            IchaUI_ChoiceMenu(btn, ANCHOR_OPTS, sel, function(k)
+                if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerAnchor", ANCHOR_OPTS[k][1]) end
+                btn:SetText("Anchor: " .. prettyAnchor(ANCHOR_OPTS[k][1]))
+                if pages._mapRefresh then pages._mapRefresh() end
+            end)
+        end)
+        anchorBtn:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, y)
+        local drawerMoveBtn = makeButton(pageMap, "Move", 55, 20, function()
+            if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerMove", true) end
+            if pages._mapRefresh then pages._mapRefresh() end
+        end)
+        drawerMoveBtn:SetPoint("LEFT", anchorBtn, "RIGHT", 4, 0)
+        y = y - 24
+
+        local afterDirY = y
+        local mmSpread = makeSliderRow(pageMap, "Spread", COL2, afterDirY, SLW, 10, 360, 1,
             function()
                 local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
                 return (g and g.drawerSpread) or 90
@@ -3022,8 +3806,7 @@ local function build()
             function(v)
                 if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerSpread", v) end
             end, 1, 1, 1)
-        y = y - 26
-        local mmArc = makeSliderRow(pageMap, "Arc", COL2, y, SLW, 10, 360, 1,
+        local mmArc = makeSliderRow(pageMap, "Arc", COL2, afterDirY - 26, SLW, 10, 360, 1,
             function()
                 local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
                 return (g and g.drawerArc) or 360
@@ -3031,8 +3814,7 @@ local function build()
             function(v)
                 if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerArc", v) end
             end, 1, 1, 1)
-        y = y - 26
-        local mmRot = makeSliderRow(pageMap, "Sh Rot", COL2, y, SLW, -360, 360, 1,
+        local mmRot = makeSliderRow(pageMap, "Sh Rot", COL2, afterDirY - 52, SLW, -360, 360, 1,
             function()
                 local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
                 if g and g.drawerRot ~= nil then return g.drawerRot end
@@ -3041,29 +3823,65 @@ local function build()
             function(v)
                 if IchaUIMinimap_SetDrawer then IchaUIMinimap_SetDrawer("drawerRot", v) end
             end, 1, 1, 1)
-        y = y - 26
-        tip(pageMap, "Buttons in Drawer sit in the arrow tray. Default Open: Down (under the map).", COL2, y, 500)
-        y = y - 24
+
+        -- Everything under the radial sliders lives in this frame so Show/Hide
+        -- of Spread/Arc/Rot pushes or pulls the rest of the Minimap drawer column.
+        local mmBelow = CreateFrame("Frame", nil, pageMap)
+        mmBelow:SetWidth(520)
+        mmBelow:SetHeight(1400)
+        local by = 0
+        local mmDrawerTip = tip(mmBelow, "Buttons in Drawer sit in the arrow tray. Anchor places the handle on the minimap; Move drags it.", 0, by, 360)
+        by = by - 24
         if IchaUI_DrawerStyleControls then
-            y = IchaUI_DrawerStyleControls(pageMap, "minimap", COL2, y)
+            by = IchaUI_DrawerStyleControls(mmBelow, "minimap", 0, by)
         end
-        y = y - 8
-        sectionHeader(pageMap, "Minimap buttons", COL2, y); y = y - 20
-        tip(pageMap, "Move unlocks every icon to drag. Lock restores clicks. Reset puts a button back on the minimap.", COL2, y, 500)
-        y = y - 16
-        local resetAllMm = makeButton(pageMap, "Reset all positions", 140, 20, function()
+        by = by - 8
+        sectionHeader(mmBelow, "Minimap buttons", 0, by); by = by - 20
+        tip(mmBelow, "Move unlocks every icon to drag. Lock restores clicks. Reset puts a button back on the minimap.", 0, by, 500)
+        by = by - 16
+        local resetAllMm = makeButton(mmBelow, "Reset all positions", 140, 20, function()
             if IchaUIMinimap_ResetButtonPos then IchaUIMinimap_ResetButtonPos(nil) end
             if pages._mapRefresh then pages._mapRefresh() end
         end)
-        resetAllMm:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, y)
-        local iconsMove = makeButton(pageMap, "Move", 55, 20, function()
+        resetAllMm:SetPoint("TOPLEFT", mmBelow, "TOPLEFT", 0, by)
+        local iconsMove = makeButton(mmBelow, "Move", 55, 20, function()
             if IchaUIMinimap_SetDrawer then
                 IchaUIMinimap_SetDrawer("iconMove", true)
             end
             if pages._mapRefresh then pages._mapRefresh() end
         end)
         iconsMove:SetPoint("LEFT", resetAllMm, "RIGHT", 4, 0)
-        y = y - ROW
+        by = by - ROW
+        local mmBtnContainer = CreateFrame("Frame", nil, mmBelow)
+        mmBtnContainer:SetPoint("TOPLEFT", mmBelow, "TOPLEFT", 0, by)
+        mmBtnContainer:SetWidth(480)
+        mmBtnContainer:SetHeight(40)
+
+        local function reflowMmRadial()
+            local g = IchaUIMinimap_GetDrawer and IchaUIMinimap_GetDrawer()
+            local radial = g and g.drawerDir == "radial"
+            local yy = afterDirY
+            if radial then
+                mmSpread.setPoint(COL2, yy); mmSpread.setShown(true); yy = yy - 26
+                mmArc.setPoint(COL2, yy); mmArc.setShown(true); yy = yy - 26
+                mmRot.setPoint(COL2, yy); mmRot.setShown(true); yy = yy - 26
+                if mmSpread.refresh then mmSpread.refresh() end
+                if mmArc.refresh then mmArc.refresh() end
+                if mmRot.refresh then mmRot.refresh() end
+            else
+                mmSpread.setShown(false)
+                mmArc.setShown(false)
+                mmRot.setShown(false)
+            end
+            mmBelow:ClearAllPoints()
+            mmBelow:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, yy)
+            pageMap._mmBelowTopY = yy
+            return yy
+        end
+        y = reflowMmRadial()
+        pageMap._reflowMmRadial = reflowMmRadial
+        local listTop = by
+        local mmBtnKids = {}
         local function truncLabel(s, maxLen)
             s = tostring(s or "")
             maxLen = maxLen or 22
@@ -3072,12 +3890,7 @@ local function build()
             end
             return s
         end
-        local mmBtnContainer = CreateFrame("Frame", nil, pageMap)
-        mmBtnContainer:SetPoint("TOPLEFT", pageMap, "TOPLEFT", COL2, y)
-        mmBtnContainer:SetWidth(480)
-        mmBtnContainer:SetHeight(40)
-        local listTop = y
-        local mmBtnKids = {}
+
         local function wipeMmBtnKids()
             local i
             for i = 1, table.getn(mmBtnKids) do
@@ -3100,9 +3913,13 @@ local function build()
                 if dirBtn then
                     dirBtn:SetText("Open: " .. pretty((g and g.drawerDir) or "down"))
                 end
-                if mmSpread and mmSpread.refresh then mmSpread.refresh() end
-                if mmArc and mmArc.refresh then mmArc.refresh() end
-                if mmRot and mmRot.refresh then mmRot.refresh() end
+                if anchorBtn then
+                    anchorBtn:SetText("Anchor: " .. prettyAnchor((g and g.drawerAnchor) or "BOTTOM"))
+                end
+                if drawerMoveBtn then
+                    drawerMoveBtn:SetText((g and g.drawerMoving) and "Lock" or "Move")
+                end
+                if pageMap._reflowMmRadial then pageMap._reflowMmRadial() end
                 if iconsMove then
                     iconsMove:SetText((g and g.iconMoving) and "Lock" or "Move")
                 end
@@ -3173,10 +3990,14 @@ local function build()
                 if needH < 40 then needH = 40 end
                 mmBtnContainer:SetHeight(needH)
             end
-            local need = -(listTop) + 24 + (n * 22) + 40
+            -- listTop is relative to mmBelow; mmBelow sits at _mmBelowTopY on pageMap.
+            local belowY = pageMap._mmBelowTopY or 0
+            local need = -(belowY + (listTop or 0)) + 24 + (n * 22) + 80
             if need < 400 then need = 400 end
-            if pageMap.GetHeight and (pageMap:GetHeight() or 0) < need then
-                pageMap:SetHeight(need)
+            if pageMap.SetHeight then
+                if (pageMap:GetHeight() or 0) < need then
+                    pageMap:SetHeight(need)
+                end
             end
         end
         pages._mapRefresh = refresh
@@ -3213,12 +4034,13 @@ local function build()
         if mmMove then mmMove:SetText("Move") end
     end)
     mmReset:SetPoint("LEFT", mmMove, "RIGHT", 4, 0)
+    yMp = yMp - 24
     local mmShapeBtn = makeButton(pageMap, "Shape: Square", 196, 20, function()
         if IchaUIMinimap_OpenShapePicker then
             IchaUIMinimap_OpenShapePicker()
         end
     end)
-    mmShapeBtn:SetPoint("LEFT", mmReset, "RIGHT", 4, 0)
+    mmShapeBtn:SetPoint("TOPLEFT", pageMap, "TOPLEFT", PAD, yMp)
     if IchaUIMinimap_ShapeName then
         mmShapeBtn:SetText("Shape: " .. IchaUIMinimap_ShapeName())
     end
@@ -3269,9 +4091,9 @@ local function build()
             return (g and g.size) or 140
         end,
         function(v) if IchaUIMinimap_Set then IchaUIMinimap_Set("size", v) end end)
-    yMp = yMp - 8
-    tip(pageMap, "Shape opens a preview of every minimap frame. Click one to use it. Tint colors that frame art. Move to drag, Lock to freeze. Reset = default position.", PAD, yMp, 520)
-    yMp = yMp - 22
+    yMp = yMp - ROW
+    tip(pageMap, "Shape opens a preview of every minimap frame. Click one to use it. Tint colors that frame art. Move to drag, Lock to freeze. Reset = default position.", PAD, yMp, 360)
+    yMp = yMp - 28
     pageMap._mmWheel = makeButton(pageMap, "Mouse wheel zoom: On", 170, 20, function()
         if IchaUIMinimap_Set then
             local g = IchaUIMinimap_Get and IchaUIMinimap_Get()
@@ -3281,9 +4103,9 @@ local function build()
         end
     end)
     pageMap._mmWheel:SetPoint("TOPLEFT", pageMap, "TOPLEFT", PAD, yMp)
-    yMp = yMp - 8
-    tip(pageMap, "Scroll to zoom the minimap.", PAD, yMp, 520)
     yMp = yMp - 24
+    tip(pageMap, "Scroll to zoom the minimap.", PAD, yMp, 360)
+    yMp = yMp - 28
 
     sectionHeader(pageMap, "Zone title", PAD, yMp); yMp = yMp - 20
     local zoneOn = makeButton(pageMap, "Zone: On", 90, 20, function()
@@ -3320,7 +4142,7 @@ local function build()
         end,
         function(v) if IchaUIMinimap_Set then IchaUIMinimap_Set("zoneScale", v) end end)
     yMp = yMp - ROW
-    tip(pageMap, "Zone defaults above the map. Locked = click-through. Move to drag, Lock when done.", PAD, yMp, 520)
+    tip(pageMap, "Zone defaults above the map. Locked = click-through. Move to drag, Lock when done.", PAD, yMp, 360)
     yMp = yMp - 24
 
     sectionHeader(pageMap, "Clock", PAD, yMp); yMp = yMp - 20
@@ -3358,7 +4180,7 @@ local function build()
         end,
         function(v) if IchaUIMinimap_Set then IchaUIMinimap_Set("clockScale", v) end end)
     yMp = yMp - ROW
-    tip(pageMap, "Clock defaults under the map. Locked = click-through. Move to drag, Lock when done.", PAD, yMp, 520)
+    tip(pageMap, "Clock defaults under the map. Locked = click-through. Move to drag, Lock when done.", PAD, yMp, 360)
     yMp = yMp - 28
 
     if IchaUI_WorldMapOptionsBlock then

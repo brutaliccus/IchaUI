@@ -1141,6 +1141,7 @@ function IchaUI_BuildStanceOptions(page, x, y, h)
 
     local PAD = x or 10
     local yy = y or -4
+    local COLW = 340
     local stateFS, mapFS
 
     h.sectionHeader(page, "Stance", PAD, yy)
@@ -1158,9 +1159,11 @@ function IchaUI_BuildStanceOptions(page, x, y, h)
         enBtn._label:SetText(on and "Stance: On" or "Stance: Off")
         h.paintGoldToggle(enBtn, on)
     end)
+    yy = yy - 24
 
-    local heroBtn = h.makeGoldToggle(page, "Hero 1 follows: On", 150, 20)
-    heroBtn:SetPoint("LEFT", enBtn, "RIGHT", 8, 0)
+    -- Stack under Stance toggle so COL3 (~340 wide) does not clip.
+    local heroBtn = h.makeGoldToggle(page, "Hero 1 follows: On", 160, 20)
+    heroBtn:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yy)
     heroBtn:SetScript("OnClick", function()
         local s = db()
         s.heroPrimaryFollows = not s.heroPrimaryFollows
@@ -1177,54 +1180,28 @@ function IchaUI_BuildStanceOptions(page, x, y, h)
     stateFS = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     stateFS:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yy)
     stateFS:SetJustifyH("LEFT")
-    stateFS:SetWidth(340)
+    stateFS:SetWidth(COLW)
     add(function()
         local s = db()
         local st = IchaUI_StanceState()
-        local sim = (s.sim ~= nil) and (" sim=" .. tostring(s.sim)) or ""
-        stateFS:SetText(string.format("Current: %s (%s)  detected=%s%s",
-            tostring(st), IchaUI_StanceName(st), tostring(s.state or 0), sim))
+        stateFS:SetText(string.format("Current: %s (%s)  detected=%s",
+            tostring(st), IchaUI_StanceName(st), tostring(s.state or 0)))
         if IchaUI_DyeFs then IchaUI_DyeFs(stateFS, 1, 1, 1) end
     end)
     yy = yy - 22
 
-    h.tip(page, "Sim forces a stance for testing without shapeshifting. /icha stance sim <id> | clear. Drawers never follow stances.", PAD, yy, 340)
-    yy = yy - 20
-
-    local clearSim = h.makeButton(page, "Clear sim", 80, 20, function()
-        IchaUI_StanceSetSim(nil)
-        refreshAll()
-    end)
-    clearSim:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yy)
-
-    -- Sim buttons for each class / virtual stance id
-    local ids = IchaUI_StanceClassIds()
-    local i
-    local bx = PAD + 90
-    for i = 1, table.getn(ids) do
-        local sid = ids[i]
-        local b = h.makeButton(page, tostring(sid), 28, 20, function()
-            IchaUI_StanceSetSim(sid)
-            refreshAll()
-        end)
-        b:SetPoint("TOPLEFT", page, "TOPLEFT", bx, yy)
-        bx = bx + 32
-        if bx > PAD + 300 then
-            bx = PAD + 90
-            yy = yy - 22
-        end
-    end
+    h.tip(page, "Drawers never follow stances. Action bars and Hero 1 load the page for your current form.", PAD, yy, COLW)
     yy = yy - 28
 
     h.sectionHeader(page, "Action bar kits", PAD, yy)
     yy = yy - 18
-    h.tip(page, "Each stance keeps its own copy of your action bars. Drag spells, items, or macros on while that page is selected. Page 0 starts from your current bars. Other pages start empty.", PAD, yy, 340)
+    h.tip(page, "Each stance keeps its own copy of your action bars. Drag spells, items, or macros on while that page is selected. Page 0 starts from your current bars. Other pages start empty.", PAD, yy, COLW)
     yy = yy - 32
 
     mapFS = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     mapFS:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yy)
     mapFS:SetJustifyH("LEFT")
-    mapFS:SetWidth(340)
+    mapFS:SetWidth(COLW)
     add(function()
         local s = db()
         local loaded = s.applied
@@ -1263,32 +1240,43 @@ function IchaUI_BuildStanceOptions(page, x, y, h)
     clearBtn:SetPoint("LEFT", copyBtn, "RIGHT", 6, 0)
     yy = yy - 26
 
-    h.tip(page, "Select a page with the stance buttons. Copy page duplicates the loaded action-bar kits. Clear page empties every action bar on this stance.", PAD, yy, 340)
+    h.tip(page, "Select a page below. Copy page duplicates the loaded action-bar kits. Clear page empties every action bar on this stance.", PAD, yy, COLW)
     yy = yy - 32
 
-    h.sectionHeader(page, "Hero 1 virtual pages", PAD, yy)
+    h.sectionHeader(page, "Hero 1 / kit pages", PAD, yy)
     yy = yy - 18
-    h.tip(page, "Each stance keeps its own Hero 1 kit (same cols/rows as your hero bar). Editing Hero 1 while a stance is active/simmed edits that page.", PAD, yy, 340)
+    h.tip(page, "Each stance keeps its own Hero 1 kit. Click a page to load it (editing applies to that page). Live form returns to your real form.", PAD, yy, COLW)
     yy = yy - 28
 
+    local liveBtn = h.makeButton(page, "Live form", 90, 20, function()
+        if IchaUI_StanceSetSim then IchaUI_StanceSetSim(nil) end
+        refreshAll()
+    end)
+    liveBtn:SetPoint("TOPLEFT", page, "TOPLEFT", PAD, yy)
+    yy = yy - 24
+
     local ids4 = IchaUI_StanceClassIds()
-    bx = PAD
+    local i
+    local bx = PAD
+    local btnW = 155
+    local step = 165
     for i = 1, table.getn(ids4) do
         local sid = ids4[i]
-        local b = h.makeButton(page, IchaUI_StanceName(sid), 90, 20, function()
-            IchaUI_StanceSetSim(sid)
+        local b = h.makeButton(page, IchaUI_StanceName(sid), btnW, 20, function()
+            -- Quiet page select via existing sim API (no sim labels in Options).
+            if IchaUI_StanceSetSim then IchaUI_StanceSetSim(sid) end
             refreshAll()
         end)
         b:SetPoint("TOPLEFT", page, "TOPLEFT", bx, yy)
-        bx = bx + 96
-        if bx > PAD + 300 then
+        bx = bx + step
+        if bx + btnW > PAD + COLW then
             bx = PAD
             yy = yy - 24
         end
     end
     yy = yy - 28
 
-    h.tip(page, "Click a page name to select that stance. Hero 1 and your action bars load that page. Clear sim returns to your live form.", PAD, yy, 340)
+    h.tip(page, "Click a page name to select that stance page. Hero 1 and your action bars load it. Live form returns to your current form.", PAD, yy, COLW)
     yy = yy - 20
 
     refreshAll()

@@ -1482,6 +1482,37 @@ function IchaUI_BuildFrameEditor(page, startKind, xyList, btnList)
         local on = (not m) or (m.portraitEnabled ~= false)
         b.label:SetText(on and "Portrait: On" or "Portrait: Off")
     end)
+    -- Portrait shape: full action-bar FORM set via UF Get/Set/Opts APIs.
+    addChoice("Portrait shape", 160, function()
+        if IchaUIUF_PortraitShapeOpts then return IchaUIUF_PortraitShapeOpts() end
+        return { { "circle", "Circle" } }
+    end, function(kind)
+        local opts = IchaUIUF_PortraitShapeOpts and IchaUIUF_PortraitShapeOpts() or {}
+        local cur = "circle"
+        if IchaUIUF_GetPortraitShape then cur = IchaUIUF_GetPortraitShape(kind) or "circle" end
+        return idxOf(opts, cur, 1)
+    end, function(kind, i)
+        local opts = IchaUIUF_PortraitShapeOpts and IchaUIUF_PortraitShapeOpts() or {}
+        local row = opts[i]
+        if row and row[1] and IchaUIUF_SetPortraitShape then
+            IchaUIUF_SetPortraitShape(kind, row[1])
+            paintPreview()
+            if IchaUIUF_RefreshPortrait then IchaUIUF_RefreshPortrait(kind) end
+        end
+    end, portOnly, function(kind, b)
+        local opts = IchaUIUF_PortraitShapeOpts and IchaUIUF_PortraitShapeOpts() or {}
+        local cur = "circle"
+        if IchaUIUF_GetPortraitShape then cur = IchaUIUF_GetPortraitShape(kind) or "circle" end
+        local label = cur
+        local i
+        for i = 1, table.getn(opts) do
+            if opts[i] and opts[i][1] == cur then
+                label = opts[i][2] or cur
+                break
+            end
+        end
+        b.label:SetText("Shape: " .. tostring(label))
+    end)
     addSlider("Portrait scale", 0.8, 2.5, 0.05, 2, function(kind)
         local m = metric(kind)
         return (m and m.portraitScale) or 1.22
@@ -2096,11 +2127,12 @@ end
 function IchaUI_BuildConfigSearch(panel)
     if not panel then return end
     local box = CreateFrame("EditBox", "IchaUIOptSearch", panel, "InputBoxTemplate")
-    box:SetWidth(104)
+    -- Fit left tab column (tabCol 112, tab bar tabCol-4); stay inside gold border.
+    box:SetWidth(96)
     box:SetHeight(20)
     box:SetAutoFocus(false)
     IchaUI_StyleInputBox(box)
-    box:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -44)
+    box:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -44)
     local label = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     label:SetPoint("BOTTOMLEFT", box, "TOPLEFT", 2, 1)
     label:SetText("Search")

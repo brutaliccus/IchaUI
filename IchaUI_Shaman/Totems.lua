@@ -3583,8 +3583,13 @@ local function sizeOneCdBadge(b, sz)
             b.cdText:SetShadowColor(0, 0, 0, 1)
             b.cdText:SetShadowOffset(1, -1)
         end
+        -- Match insetIcon rest offset (icon at 0,+2); text follows the icon hole.
         b.cdText:ClearAllPoints()
-        b.cdText:SetPoint("CENTER", b, "CENTER", 0, 0)
+        if b.icon then
+            b.cdText:SetPoint("CENTER", b.icon, "CENTER", 0, 0)
+        else
+            b.cdText:SetPoint("CENTER", b, "CENTER", 0, 2)
+        end
     end
 end
 
@@ -3848,7 +3853,8 @@ local function makeSlot(element)
             IchaUI_PaintGoldRing(cdRing)
             cdBadge.ring = cdRing
             local cdText = cdBadge:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            cdText:SetPoint("CENTER", cdBadge, "CENTER", 0, 0)
+            -- Anchor to icon so CD seconds sit in the gold-ring hole (insetIcon 0,+2).
+            cdText:SetPoint("CENTER", cdIcon, "CENTER", 0, 0)
             cdText:SetTextColor(1.0, 0.82, 0.28)
             cdBadge.cdText = cdText
             table.insert(slot.cdBadges, cdBadge)

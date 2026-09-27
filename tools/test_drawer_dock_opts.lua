@@ -275,24 +275,46 @@ if cdOk then
     check(btn and btn.scripts and btn.scripts.OnMouseUp, "custom drawer handle has a mouse-up script")
     if btn and btn.scripts and btn.scripts.OnMouseUp then
         local altOn, editOn = false, false
+        local configured = {}
+        local editClicks = {}
         function IsAltKeyDown() return altOn end
         function IchaUI_EditModeActive() return editOn end
+        function IchaUI_DrawerConfigClick(id)
+            table.insert(configured, id)
+            return true
+        end
+        function IchaUI_DrawerEditClick(id)
+            table.insert(editClicks, id)
+            return true
+        end
         local function click(button)
             arg1 = button
             this = btn
             btn.scripts.OnMouseUp()
         end
         click("RightButton")
-        check(table.getn(opened) == 0, "plain right-click outside edit mode does not open config")
+        check(table.getn(configured) == 0 and table.getn(opened) == 0 and table.getn(editClicks) == 0,
+            "plain right-click outside edit mode does not open config")
         altOn = true
         click("RightButton")
-        check(table.getn(opened) == 1 and opened[1] == "cd:pots", "Alt+right-click opens the cd: popup outside edit mode")
+        check(table.getn(configured) == 1 and configured[1] == "cd:pots" and table.getn(opened) == 0,
+            "Alt+right-click uses DrawerConfigClick outside edit mode")
         altOn = false
         editOn = true
         click("RightButton")
-        check(table.getn(opened) == 2 and opened[2] == "cd:pots", "plain right-click in edit mode opens the cd: popup")
+        check(table.getn(configured) == 2 and configured[2] == "cd:pots" and table.getn(opened) == 0,
+            "plain right-click in edit mode uses DrawerConfigClick")
         click("LeftButton")
-        check(table.getn(opened) == 2, "left-click does not open the config popup")
+        check(table.getn(configured) == 2 and table.getn(opened) == 0, "left-click does not open config")
+        check(table.getn(editClicks) == 0, "DrawerEditClick is not used")
+        IchaUI_DrawerConfigClick = nil
+        altOn = true
+        editOn = false
+        click("RightButton")
+        check(table.getn(opened) == 1 and opened[1] == "cd:pots", "Alt+right-click falls back to ShowDrawerPop")
+        altOn = false
+        click("RightButton")
+        check(table.getn(opened) == 1, "plain right-click still does not open config without DrawerConfigClick")
     end
 end
 

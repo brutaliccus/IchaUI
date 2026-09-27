@@ -795,10 +795,15 @@ local function makeDrawer(rec)
         ui.closeAt = (GetTime and GetTime() or 0) + CLOSE_DELAY
     end)
     btn:SetScript("OnMouseUp", function()
-        if arg1 == "RightButton" then
-            -- Config: Alt+right-click always, or plain right-click in /icha move.
-            if (IsAltKeyDown and IsAltKeyDown()) or (IchaUI_EditModeActive and IchaUI_EditModeActive()) then
-                if IchaUI_ShowDrawerPop then IchaUI_ShowDrawerPop("cd:" .. ui.id) end
+        -- Config: Alt+right-click always, or plain right-click in /icha move.
+        -- Any other right-click stays a gameplay click.
+        if arg1 == "RightButton"
+            and ((IsAltKeyDown and IsAltKeyDown()) or (IchaUI_EditModeActive and IchaUI_EditModeActive())) then
+            local cid = "cd:" .. ui.id
+            if IchaUI_DrawerConfigClick then
+                IchaUI_DrawerConfigClick(cid)
+            elseif IchaUI_ShowDrawerPop then
+                IchaUI_ShowDrawerPop(cid)
             end
             return
         end

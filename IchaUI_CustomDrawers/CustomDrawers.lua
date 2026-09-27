@@ -1232,8 +1232,8 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     rowById[rid] = row
                 end
                 if not row._dockId then row._dockId = "cd:" .. rid end
-                if not row._ichaDockLayout and IchaUI_BuildDrawerDockControls then
-                    IchaUI_BuildDrawerDockControls(row, row._dockId, 0, (row._styleBottom or -110) - 4)
+                if not row._ichaDockLayout and IchaUI_BuildDrawerDockBlock then
+                    IchaUI_BuildDrawerDockBlock(row, row._dockId, 0, (row._styleBottom or -110) - 4)
                 end
                 local dockBottom = row._styleBottom or -110
                 if row._ichaDockLayout then dockBottom = row._ichaDockLayout() end

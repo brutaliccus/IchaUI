@@ -215,7 +215,7 @@ local function addDock(list, id)
     end
     local function put(key, value)
         if value == nil then return end
-        IchaUI_DrawerDockSet(id, key, value)
+        IchaUI_DrawerDockSet(id, { [key] = value })
     end
     local function modeOpts()
         if IchaUI_DrawerDockModeOpts then
@@ -318,12 +318,14 @@ local function addDock(list, id)
     end))
 end
 
--- Options-row dock controls for one drawer id (including cd:<id>). Same fields
--- as addDock. Returns the y under the block. Omits every row when DrawerDock
--- is not loaded. Parent gets _ichaDockLayout(), which repositions for the
--- current mode and returns the new bottom y. Clicks call parent._ichaDockOnChange
--- when that hook is set, so a custom-drawer row can grow without a Dock picker.
-function IchaUI_BuildDrawerDockControls(parent, id, x, y)
+-- Per-drawer dock controls for a Frame parent (custom drawer options rows).
+-- Not IchaUI_BuildDrawerDockControls: Options.lua owns that name and loads
+-- later, with its own button and slider arguments. Same fields as addDock.
+-- Returns the y under the block. Omits every row when DrawerDock is not
+-- loaded. Parent gets _ichaDockLayout(), which repositions for the current
+-- mode and returns the new bottom y. Clicks call parent._ichaDockOnChange
+-- when that hook is set.
+function IchaUI_BuildDrawerDockBlock(parent, id, x, y)
     if not parent or not id or id == "" then return y or 0 end
     x = x or 0
     y = y or 0
@@ -350,7 +352,7 @@ function IchaUI_BuildDrawerDockControls(parent, id, x, y)
     end
     local function put(key, value)
         if value == nil then return end
-        IchaUI_DrawerDockSet(id, key, value)
+        IchaUI_DrawerDockSet(id, { [key] = value })
     end
     local function modeOpts()
         if IchaUI_DrawerDockModeOpts then

@@ -146,10 +146,18 @@ local dock = {}
 local sets = {}
 local clears = {}
 function IchaUI_DrawerDockGet(id) return dock[id] end
-function IchaUI_DrawerDockSet(id, key, value)
-    table.insert(sets, { id, key, value })
+function IchaUI_DrawerDockSet(id, fields)
+    if type(fields) ~= "table" then
+        table.insert(sets, { id, fields, nil, "wipe" })
+        dock[id] = nil
+        return
+    end
     if type(dock[id]) ~= "table" then dock[id] = {} end
-    dock[id][key] = value
+    local k, v
+    for k, v in pairs(fields) do
+        table.insert(sets, { id, k, v })
+        dock[id][k] = v
+    end
 end
 function IchaUI_DrawerDockClear(id)
     table.insert(clears, id)
@@ -498,6 +506,7 @@ if cdOk then
         local bareKey = (wrote == "custom" or wrote == "cd" or wrote == "pots" or wrote == "bare" or wrote == nid)
         local missingColon = type(wrote) == "string" and string.sub(wrote, 1, 2) == "cd" and string.sub(wrote, 1, 3) ~= "cd:"
         check(not bareKey and not missingColon, "dock Set id is a full cd: key, got " .. tostring(wrote))
+        check(sets[si][4] ~= "wipe", "DrawerDockSet must take a fields table, not a string key")
     end
     for si = 1, table.getn(clears) do
         local wrote = clears[si]
@@ -508,7 +517,7 @@ if cdOk then
     IchaUI_DrawerDockGet = nil
     IchaUI_DrawerDockSet = nil
     local bareHost = CreateFrame("Frame", nil, UIParent)
-    local yBare = IchaUI_BuildDrawerDockControls(bareHost, "cd:bare", 0, -10)
+    local yBare = IchaUI_BuildDrawerDockBlock(bareHost, "cd:bare", 0, -10)
     check(yBare == -10, "helper omits dock rows when DrawerDock is missing")
     check(bareHost._ichaDockLayout == nil, "helper does not install a layout when DrawerDock is missing")
 end

@@ -2,6 +2,6 @@
 ## Title: IchaUI - Buff Bars
 ## Notes: Player buff and debuff bars.
 ## Dependencies: IchaUI
-## Version: 3.4.5
+## Version: 3.5.0
 
 BuffBars.lua

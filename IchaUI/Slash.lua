@@ -66,9 +66,9 @@ SlashCmdList["ICHA"] = function(msg)
     end
     if msg == "" then
         if IchaUI_IsShaman() then
-            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|totems|imbue|shield|utility|buffs|chat|shock|shieldbind")
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|totems|imbue|shield|utility|buffs|chat|shock|shieldbind|stance")
         else
-            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|buffs|chat")
+            DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui for options. /icha <cmd> — hotkeys|bind|gap|scale|heroscale|move|xp|uf|buffs|chat|stance")
         end
         return
     end
@@ -147,6 +147,15 @@ SlashCmdList["ICHA"] = function(msg)
         end
         return
     end
+    if string.find(msg, "^stance") then
+        local rest = string.gsub(msg, "^stance%s*", "")
+        if IchaUI_StanceSlash then
+            IchaUI_StanceSlash(rest)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage("Stance not loaded.")
+        end
+        return
+    end
     if msg == "move" or msg == "edit" then
         if IchaUI_EditModeActive and IchaUI_EditModeActive() then
             if IchaUI_EditPositionsCancel then IchaUI_EditPositionsCancel() end
@@ -165,5 +174,5 @@ SlashCmdList["ICHA"] = function(msg)
         DEFAULT_CHAT_FRAME:AddMessage("Edit positions not loaded.")
         return
     end
-    DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui opens options. Also: hotkeys | bind | gap | scale | heroscale | move | show | hide | wipe | xp | uf | totems | buffs | chat")
+    DEFAULT_CHAT_FRAME:AddMessage("IchaUI: /iui opens options. Also: hotkeys | bind | gap | scale | heroscale | move | show | hide | wipe | xp | uf | totems | buffs | chat | stance")
 end

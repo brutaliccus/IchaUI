@@ -1525,6 +1525,15 @@ IchaUI_BakedDefaults = {
         y = -911.6226217055216,
     },
     xpBarMode = "xp",
+    stance = {
+        enabled = true,
+        state = 0,
+        heroPrimaryFollows = true,
+        drawerFollowHero = false,
+        actionMaps = {},
+        actionKits = {},
+        heroPages = {},
+    },
 }
 
 -- Keys that place a frame. Only filled as a group, so a saved partial anchor is not

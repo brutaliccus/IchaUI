@@ -251,8 +251,10 @@ local _ActionButtonDown = ActionButtonDown
 local _ActionButtonUp = ActionButtonUp
 
 local function actionIdForBind(buttonId)
-    if BActionButton and BActionButton.GetPagedID then
-        return BActionButton.GetPagedID(buttonId)
+    -- Stance kits already sit on this button's slot (Stance.lua). Do not call
+    -- BActionButton.GetPagedID — that would page a second time.
+    if IchaUI_GetPagedID then
+        return IchaUI_GetPagedID(buttonId)
     end
     return buttonId
 end
@@ -736,8 +738,8 @@ local function barGridIds(barId, showEmpty)
         local id = base + i
         if id >= 1 and id <= 120 then
             local actionId = id
-            if BActionButton and BActionButton.GetPagedID then
-                actionId = BActionButton.GetPagedID(id)
+            if IchaUI_GetPagedID then
+                actionId = IchaUI_GetPagedID(id)
             end
             local show = showEmpty
             if rec and rec.layout == "radial" then show = true end
@@ -963,8 +965,10 @@ function IchaUI_ActionBarRemove(index)
 end
 
 local function pagedId(buttonId)
-    if BActionButton and BActionButton.GetPagedID then
-        return BActionButton.GetPagedID(buttonId)
+    -- Button's own action slot. Stance swaps kit contents onto that slot.
+    -- Intentionally ignores BActionButton.GetPagedID so Bongos cannot page again.
+    if IchaUI_GetPagedID then
+        return IchaUI_GetPagedID(buttonId)
     end
     return buttonId
 end

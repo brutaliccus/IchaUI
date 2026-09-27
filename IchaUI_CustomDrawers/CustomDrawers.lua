@@ -1219,9 +1219,11 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     row.rows:SetPoint("LEFT", row.cols, "RIGHT", 4, 0)
                     row.arc, row.arcCap = degSlider(row, "arc", "Arc", 0, -86, 10, 360, 360)
                     row.rot, row.rotCap = degSlider(row, "rot", "Sh Rot", 220, -86, -360, 360, 90)
+                    -- Frozen per drawer. Later rows must not reuse this key.
+                    row._dockId = "cd:" .. rid
                     local bottom = -110
                     if IchaUI_DrawerStyleControls then
-                        bottom = IchaUI_DrawerStyleControls(row, "cd:" .. rid, 0, -110)
+                        bottom = IchaUI_DrawerStyleControls(row, row._dockId, 0, -110)
                     end
                     row._styleBottom = bottom
                     row._ichaDockOnChange = function()
@@ -1229,8 +1231,9 @@ function IchaUI_BuildCustomDrawerOptions(parent, y, x)
                     end
                     rowById[rid] = row
                 end
+                if not row._dockId then row._dockId = "cd:" .. rid end
                 if not row._ichaDockLayout and IchaUI_BuildDrawerDockControls then
-                    IchaUI_BuildDrawerDockControls(row, "cd:" .. rid, 0, (row._styleBottom or -110) - 4)
+                    IchaUI_BuildDrawerDockControls(row, row._dockId, 0, (row._styleBottom or -110) - 4)
                 end
                 local dockBottom = row._styleBottom or -110
                 if row._ichaDockLayout then dockBottom = row._ichaDockLayout() end

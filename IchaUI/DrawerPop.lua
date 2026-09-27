@@ -743,9 +743,11 @@ end
 local function customList(sid)
     if not IchaUI_CustomDrawers_ApplyStyle then return nil end
     local rid = string.sub(sid, 4)
-    if not customRec(rid) then return nil end
+    if rid == "" or not customRec(rid) then return nil end
+    -- Same drawer id DrawerStyle uses. One IchaUIDB.drawerDock row per drawer.
+    local styleId = "cd:" .. rid
     local function live() return customRec(rid) end
-    local function refresh() IchaUI_CustomDrawers_ApplyStyle(sid) end
+    local function refresh() IchaUI_CustomDrawers_ApplyStyle(styleId) end
     local function dir()
         local rec = live()
         local d = rec and rec.dir
@@ -835,8 +837,8 @@ local function customList(sid)
         if n >= 1 then rec.useCols = nil else rec.useCols = true end
         refresh()
     end))
-    addStyle(list, sid, false, true)
-    addDock(list, sid)
+    addStyle(list, styleId, false, true)
+    addDock(list, styleId)
     return list
 end
 

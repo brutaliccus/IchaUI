@@ -255,13 +255,35 @@ for i = 1, table.getn(ids) do
     check(dockButtons() == before + i, id .. " popup has dock controls")
 end
 
+IchaUIDB.customDrawers[2] = { id = "bare", name = "Bare", shape = "circle", dir = "up" }
+dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 1, ox = 0, oy = 0,
+    parent = "PlayerFrame", point = "TOP", relPoint = "TOP", x = 3, y = 4 }
+dock["cd:bare"] = { mode = "frame", parent = "UIParent", point = "LEFT", relPoint = "RIGHT", x = 8, y = 9 }
+check(IchaUI_ShowDrawerPop("cd:bare") == true, "second custom drawer popup opens on its own id")
+check(popCell("Dock: ") and popCell("Dock: ").lastText == "Dock: Frame", "bare popup shows its own Frame dock")
+local barePop = popCell("Dock: ")
+captured = nil
+this = barePop
+barePop.scripts.OnClick()
+local portraitIdx, pi
+for pi = 1, table.getn(captured.opts) do
+    if captured.opts[pi][1] == "portrait" then portraitIdx = pi end
+end
+captured.onPick(portraitIdx)
+check(dock["cd:bare"].mode == "portrait", "bare popup writes drawerDock[cd:bare]")
+check(dock["cd:pots"].mode == "portrait" and dock["cd:pots"].x == 3, "pots dock row is not overwritten")
+check(sets[table.getn(sets)][1] == "cd:bare", "bare popup Set uses cd:bare")
+check(dock["custom"] == nil and dock["cd"] == nil and dock.pots == nil and dock.bare == nil,
+    "popup does not write a shared or bare dock key")
+
 local savedDockGet, savedDockSet = IchaUI_DrawerDockGet, IchaUI_DrawerDockSet
 IchaUI_DrawerDockGet = nil
 IchaUI_DrawerDockSet = nil
-IchaUIDB.customDrawers[2] = { id = "bare", name = "Bare", shape = "circle", dir = "up" }
+IchaUIDB.customDrawers[3] = { id = "nodock", name = "No dock", shape = "circle", dir = "up" }
 local docksBeforeBare = dockButtons()
-check(IchaUI_ShowDrawerPop("cd:bare") == true, "popup still opens when DrawerDock is absent")
+check(IchaUI_ShowDrawerPop("cd:nodock") == true, "popup still opens when DrawerDock is absent")
 check(dockButtons() == docksBeforeBare, "missing DrawerDock omits dock rows")
+table.remove(IchaUIDB.customDrawers, 3)
 
 local cdOk, cdErr = pcall(dofile, "IchaUI_CustomDrawers/CustomDrawers.lua")
 check(cdOk, "load CustomDrawers.lua: " .. tostring(cdErr))
@@ -323,6 +345,7 @@ if cdOk then
     IchaUI_DrawerDockSet = savedDockSet
     dock["cd:pots"] = { mode = "portrait", unit = "player", angle = 90, ox = 4, oy = -2,
         parent = "PlayerFrame", point = "TOPLEFT", relPoint = "CENTER", x = 20, y = -6 }
+    dock["cd:bare"] = { mode = "frame", parent = "UIParent", point = "LEFT", relPoint = "RIGHT", x = 8, y = 9 }
     local page = CreateFrame("Frame", "IchaUIOptPage", UIParent)
     page:SetWidth(560)
     page:SetHeight(40)
@@ -380,14 +403,40 @@ if cdOk then
         return nil
     end
 
+    local function blockOf(btn)
+        if btn and btn.parent then return btn.parent.parent end
+    end
+    local function shownIn(block, text)
+        if not block then return nil end
+        local n, f
+        for n, f in ipairs(all) do
+            if under(f, block) and f.shown ~= false and f.lastText and string.find(f.lastText, text, 1, true) then
+                return f
+            end
+        end
+    end
+    local function clearOf(modeBtn)
+        if not modeBtn then return nil end
+        local n, f
+        for n, f in ipairs(all) do
+            if f.parent == modeBtn.parent and f.lastText == "Clear dock" and f.scripts and f.scripts.OnClick then
+                return f
+            end
+        end
+    end
+
     check(countDock(page) == 2, "each existing custom drawer row has dock controls")
     local potsDock = labeledUnder(page, "Dock: Portrait", true)
+    local bareDockBtn = labeledUnder(page, "Dock: Frame", true)
+    local potsBlock = blockOf(potsDock)
+    local bareBlock = blockOf(bareDockBtn)
     check(potsDock ~= nil, "portrait-docked drawer shows Dock: Portrait on its row")
-    check(labeledUnder(page, "Unit: Player", true) and labeledUnder(page, "Unit: Player", true).shown ~= false,
-        "portrait row shows the unit control")
-    check(anyShown("Angle"), "portrait row shows angle")
-    check(not anyShown("Parent: "), "portrait rows hide the frame parent")
-    check(not anyShown("Dock X"), "portrait rows hide frame offsets")
+    check(shownIn(potsBlock, "Unit: Player") ~= nil, "portrait row shows the unit control")
+    check(shownIn(potsBlock, "Angle") ~= nil, "portrait row shows angle")
+    check(shownIn(potsBlock, "Parent: ") == nil, "portrait row hides the frame parent")
+    check(shownIn(potsBlock, "Dock X") == nil, "portrait row hides frame offsets")
+    check(shownIn(bareBlock, "Parent: UIParent") ~= nil, "frame row shows its own parent")
+    check(shownIn(bareBlock, "Unit: ") == nil, "frame row hides portrait unit")
 
     captured = nil
     this = potsDock
@@ -396,31 +445,31 @@ if cdOk then
         "row dock mode menu offers frame")
     captured.onPick(2)
     check(dock["cd:pots"].mode == "frame", "row dock mode writes through DrawerDockSet")
-    check(labeledUnder(page, "Parent: Player", true) and labeledUnder(page, "Parent: Player", true).shown ~= false,
-        "frame row shows parent")
-    check(not anyShown("Unit: "), "frame row hides unit")
-    check(anyShown("Dock X"), "frame row shows Dock X")
-    local xCell
-    for n, f in ipairs(all) do
-        if under(f, page) and f.shown ~= false and f.lastText == "Dock X" then xCell = f end
-    end
+    check(dock["cd:bare"].mode == "frame" and dock["cd:bare"].x == 8, "switching pots does not write the bare dock row")
+    check(shownIn(potsBlock, "Parent: Player") ~= nil, "pots frame row shows parent")
+    check(shownIn(potsBlock, "Unit: ") == nil, "pots frame row hides unit")
+    local xCell = shownIn(potsBlock, "Dock X")
     local xSlider
     local n, f
     for n, f in ipairs(all) do
         if f.parent == xCell and f.kind == "Slider" then xSlider = f end
     end
-    check(xSlider ~= nil and xCell.shown ~= false, "frame row has a Dock X slider")
+    check(xSlider ~= nil, "pots frame row has its own Dock X slider")
     if xSlider then
         xSlider:SetValue(33)
-        check(dock["cd:pots"].x == 33, "Dock X writes through DrawerDockSet")
+        check(dock["cd:pots"].x == 33, "Dock X writes cd:pots")
+        check(dock["cd:bare"].x == 8, "Dock X on pots does not write cd:bare")
     end
-    local clearRow = siblingClick("Dock: Frame", "Clear dock")
+    local clearRow = clearOf(potsDock)
     check(clearRow ~= nil, "row has Clear dock")
     this = clearRow
     clearRow.scripts.OnClick()
     check(clears[table.getn(clears)] == "cd:pots", "row Clear dock uses the cd: id")
-    check(dock["cd:pots"].mode == "free", "row clear resets the dock record")
-    check(not anyShown("Parent: ") and not anyShown("Unit: "), "free row hides frame and portrait fields")
+    check(dock["cd:pots"].mode == "free", "row clear resets the pots dock record")
+    check(dock["cd:bare"].mode == "frame" and dock["cd:bare"].x == 8, "bare row keeps its own dock record")
+    check(shownIn(potsBlock, "Parent: ") == nil and shownIn(potsBlock, "Unit: ") == nil,
+        "free pots row hides frame and portrait fields")
+    check(shownIn(bareBlock, "Parent: ") ~= nil, "bare row still shows its frame dock")
 
     local beforeNew = countDock(page)
     local nid = IchaUI_CustomDrawers_Create("Food", {})
@@ -439,6 +488,22 @@ if cdOk then
     captured.onPick(3)
     check(dock["cd:" .. nid] and dock["cd:" .. nid].mode == "portrait",
         "new drawer dock controls bind cd:" .. tostring(nid))
+    check(dock["cd:pots"].mode == "free" and dock["cd:bare"].mode == "frame" and dock["cd:bare"].x == 8,
+        "a new drawer does not overwrite the other cd: dock rows")
+    check(dock["custom"] == nil and dock["cd"] == nil and dock.pots == nil and dock.bare == nil and dock[nid] == nil,
+        "options do not write a shared or bare dock key")
+    local si
+    for si = 1, table.getn(sets) do
+        local wrote = sets[si][1]
+        local bareKey = (wrote == "custom" or wrote == "cd" or wrote == "pots" or wrote == "bare" or wrote == nid)
+        local missingColon = type(wrote) == "string" and string.sub(wrote, 1, 2) == "cd" and string.sub(wrote, 1, 3) ~= "cd:"
+        check(not bareKey and not missingColon, "dock Set id is a full cd: key, got " .. tostring(wrote))
+    end
+    for si = 1, table.getn(clears) do
+        local wrote = clears[si]
+        check(type(wrote) == "string" and string.sub(wrote, 1, 3) == "cd:" and string.len(wrote) > 3,
+            "dock Clear id is a full cd: key, got " .. tostring(wrote))
+    end
 
     IchaUI_DrawerDockGet = nil
     IchaUI_DrawerDockSet = nil

@@ -24,9 +24,6 @@ local lastFireAt = 0
 local lastFireN = 0
 local normed = false
 local bulkApply = false
--- True only after a complete bind apply. Logout must not SaveBindings a
--- half-applied ICHA_HEROBIND pool (some keys stuck, the rest cleared).
-local bindsOk = false
 
 local ui = {
     selected = 1,
@@ -873,7 +870,6 @@ local function applyEntryKey(entry, key)
         entry.key = ""
         if not bulkApply then
             saveBindSet()
-            bindsOk = true
             rebuildChords()
         end
         return true
@@ -901,7 +897,6 @@ local function applyEntryKey(entry, key)
         clearCmdKeys(cmd)
         if not bulkApply then
             saveBindSet()
-            bindsOk = true
             rebuildChords()
         end
         return true
@@ -921,7 +916,6 @@ local function applyEntryKey(entry, key)
     end
     if not bulkApply then
         saveBindSet()
-        bindsOk = true
         rebuildChords()
     end
     return true
@@ -997,6 +991,16 @@ local function clearAllHeroBinds()
     end
 end
 
+local function restoreHeroBinds(snap)
+    if not snap or not SetBinding then return end
+    local n, rec
+    for n, rec in pairs(snap) do
+        local cmd = "ICHA_HEROBIND" .. tostring(n)
+        if rec.k1 and rec.k1 ~= "" then SetBinding(rec.k1, cmd) end
+        if rec.k2 and rec.k2 ~= "" and rec.k2 ~= rec.k1 then SetBinding(rec.k2, cmd) end
+    end
+end
+
 local function applyAll()
     bulkApply = true
     local anyOk = false
@@ -1028,28 +1032,16 @@ local function applyAll()
         end
     end)
     bulkApply = false
-    if anyFail or (want > 0 and not anyOk) then
-        -- Put back any command that is now unbound. A partial SetBinding
-        -- success used to SaveBindings and drop the keys that failed.
-        local n, rec
-        for n, rec in pairs(snap) do
-            local cmd = "ICHA_HEROBIND" .. tostring(n)
-            local k1, k2
-            if GetBindingKey then k1, k2 = GetBindingKey(cmd) end
-            local bound = (k1 and k1 ~= "") or (k2 and k2 ~= "")
-            if not bound then
-                if rec.k1 and rec.k1 ~= "" and SetBinding then SetBinding(rec.k1, cmd) end
-                if rec.k2 and rec.k2 ~= "" and rec.k2 ~= rec.k1 and SetBinding then SetBinding(rec.k2, cmd) end
-            end
-        end
+    if want > 0 and not anyOk then
+        -- Bindings system not ready: put prior keys back; do not SaveBindings.
+        restoreHeroBinds(snap)
         rebuildChords()
-        bindsOk = false
-        return anyOk, true
+        return false, true
     end
     -- New page stuck, or page has no keys (clear is the desired end state).
+    -- Never SaveBindings after a failed clear+reapply that restored the snap.
     if anyOk or want == 0 then
         saveBindSet()
-        bindsOk = true
     end
     rebuildChords()
     return anyOk or (want == 0), anyFail
@@ -2439,9 +2431,8 @@ evt:RegisterEvent("PLAYER_LOGOUT")
 evt:RegisterEvent("PLAYER_LEAVING_WORLD")
 evt:SetScript("OnEvent", function()
     if event == "PLAYER_LOGOUT" or event == "PLAYER_LEAVING_WORLD" then
-        -- Flush only a complete apply. Saving after a partial SetBinding
-        -- pass wrote some hero keys and dropped the rest.
-        if bindsOk then saveBindSet() end
+        -- Flush hero CLICK/ICHA_HEROBIND keys before the client writes bindings-cache.
+        saveBindSet()
         return
     end
     runRestore(false)

@@ -24,11 +24,6 @@ local classToken = nil
 local started = false
 local booted = true
 local seenActions = false
-local loggingOut = false
--- Trust live empties only after login has seen the spellbook. Logout and the
--- first boot capture must not blank saved abilities (actions often unload
--- one slot at a time, or the bar API reports a shorter range).
-local barsSettled = false
 local pendingState = nil
 local swapping = false
 local bootTries = 0
@@ -732,9 +727,7 @@ local function captureSlot(actionId)
     if name and name ~= "" then
         return { kind = "spell", spell = name, rank = rank, texture = tex }
     end
-    -- Occupied, but the spellbook / tooltip could not name it. Not an empty
-    -- slot — callers must not persist this or treat it as a user clear.
-    return { unknown = 1 }
+    return { empty = 1 }
 end
 
 local function captureBar(barId)
@@ -822,136 +815,58 @@ local function withQuiet(fn)
     if not ok then error(err, 0) end
 end
 
--- A snap we are willing to write into SavedVariables and place later.
-local function snapFilled(snap)
-    if type(snap) ~= "table" then return false end
-    if snap.unknown == 1 then return false end
-    if snap.empty == 1 then return false end
-    if not snap.kind or snap.kind == "" then return false end
-    return true
-end
-
+-- Never snapshot when every owned slot is empty. After seenActions is set,
+-- PLAYER_LOGOUT / teardown still runs HasAction=false and would otherwise
+-- overwrite saved kits with empties (bars look like they "did not save").
+-- Also refuse per-bar when a kit that had abilities would be replaced with an
+-- all-empty capture (partial teardown can leave one leftover so anyBarAction
+-- is still true while most slots are already gone).
 local function kitHasAction(kit)
     if type(kit) ~= "table" or type(kit.slots) ~= "table" then return false end
     local _, snap
     for _, snap in pairs(kit.slots) do
-        if snapFilled(snap) then return true end
+        if type(snap) == "table" and snap.empty ~= 1 and snap.kind and snap.kind ~= "" then
+            return true
+        end
     end
     return false
 end
 
-local function maxSlotIndex(slots)
+local function countFilled(kit)
+    if type(kit) ~= "table" or type(kit.slots) ~= "table" then return 0 end
     local n = 0
-    if type(slots) ~= "table" then return 0 end
-    local k
-    for k in pairs(slots) do
-        if type(k) == "number" and k > n then n = k end
+    local _, snap
+    for _, snap in pairs(kit.slots) do
+        if type(snap) == "table" and snap.empty ~= 1 and snap.kind and snap.kind ~= "" then
+            n = n + 1
+        end
     end
     return n
 end
 
--- keepFilled: logout / unsettled login. A fresh empty (or a short capture that
--- does not mention this index) must not replace a saved ability. One leftover
--- HasAction used to make kitHasAction(fresh) true and overwrite every other
--- slot with {empty=1}. Trust (keepFilled false) still records real clears.
-local function mergeKitSlots(old, fresh, keepFilled)
-    if type(fresh) ~= "table" or type(fresh.slots) ~= "table" then
-        if keepFilled and kitHasAction(old) then return old end
-        return fresh
-    end
-    if type(old) ~= "table" or type(old.slots) ~= "table" then
-        return fresh
-    end
-    local n = maxSlotIndex(fresh.slots)
-    local nOld = maxSlotIndex(old.slots)
-    if nOld > n then n = nOld end
-    local merged = { slots = {} }
-    local i
-    for i = 1, n do
-        local f = fresh.slots[i]
-        local o = old.slots[i]
-        if f == nil then
-            if type(o) == "table" then
-                merged.slots[i] = o
-            else
-                merged.slots[i] = { empty = 1 }
-            end
-        elseif f.unknown == 1 then
-            if snapFilled(o) then
-                merged.slots[i] = o
-            else
-                merged.slots[i] = { empty = 1 }
-            end
-        elseif snapFilled(f) then
-            merged.slots[i] = f
-        elseif keepFilled and snapFilled(o) then
-            merged.slots[i] = o
-        else
-            merged.slots[i] = { empty = 1 }
-        end
-    end
-    return merged
-end
-
-local function snapshotBarKits(stanceId, keepFilled)
+-- logoutGuard: PLAYER_LOGOUT / PLAYER_LEAVING_WORLD only. A partial teardown
+-- leaves a few slots HasAction, so the fresh kit "has actions" and would
+-- replace the saved kit with that sparse capture. Refuse when the fresh
+-- filled-count is lower than the saved kit. Fully-empty fresh is still
+-- refused above (and by the anyBarAction early return).
+local function snapshotBarKits(stanceId, logoutGuard)
+    if not anyBarAction() then return end
+    seenActions = true
     stanceId = tonumber(stanceId) or 0
-    if keepFilled == nil then
-        keepFilled = loggingOut or (not barsSettled)
-    end
-    -- All-empty teardown: do not replace saved kits. A trusted in-world
-    -- snapshot (stance change after settle) still writes the clear.
-    if not anyBarAction() then
-        if keepFilled then return end
-    else
-        seenActions = true
-    end
     local s = db()
     local b
     for b = 1, barCount() do
         if type(s.actionKits[b]) ~= "table" then s.actionKits[b] = {} end
         local fresh = captureBar(b)
         local old = s.actionKits[b][stanceId]
-        s.actionKits[b][stanceId] = mergeKitSlots(old, fresh, keepFilled)
-    end
-end
-
--- Live edit. Records a real clear or drop onto the applied page so a later
--- guarded logout does not put the old ability back.
-local function noteSlotChanged(actionId)
-    if loggingOut or swapping or not booted or not barsSettled then return end
-    actionId = tonumber(actionId)
-    if not actionId then return end
-    local s = db()
-    local stanceId = tonumber(s.applied)
-    if stanceId == nil then return end
-    local bFound, iFound
-    local b, i
-    for b = 1, barCount() do
-        local ids = barSlotIds(b)
-        for i = 1, table.getn(ids) do
-            if ids[i] == actionId then
-                bFound = b
-                iFound = i
-                break
-            end
+        if kitHasAction(old) and not kitHasAction(fresh) then
+            -- keep old
+        elseif logoutGuard and countFilled(fresh) < countFilled(old) then
+            -- keep denser prior kit
+        else
+            s.actionKits[b][stanceId] = fresh
         end
-        if bFound then break end
     end
-    if not bFound then return end
-    if type(s.actionKits[bFound]) ~= "table" then s.actionKits[bFound] = {} end
-    local kit = s.actionKits[bFound][stanceId]
-    if type(kit) ~= "table" or type(kit.slots) ~= "table" then
-        kit = { slots = {} }
-        s.actionKits[bFound][stanceId] = kit
-    end
-    local snap = captureSlot(actionId)
-    if snap.unknown == 1 then return end
-    if snapFilled(snap) then
-        kit.slots[iFound] = snap
-    else
-        kit.slots[iFound] = { empty = 1 }
-    end
-    seenActions = true
 end
 
 local function applyBar(barId, stanceId)
@@ -974,10 +889,8 @@ local function applyBar(barId, stanceId)
     local i
     for i = 1, table.getn(ids) do
         local snap = kit.slots[i]
-        -- A missing index was never captured (short bar read). Do not clear it.
-        if snap ~= nil then
-            placeSnap(ids[i], snap)
-        end
+        if snap == nil then snap = { empty = 1 } end
+        placeSnap(ids[i], snap)
     end
 end
 
@@ -1477,13 +1390,6 @@ end
 ------------------------------------------------------------------------
 -- Startup
 ------------------------------------------------------------------------
-local function spellbookReady()
-    if type(GetSpellName) ~= "function" then return false end
-    local name = GetSpellName(1, BOOKTYPE_SPELL or "spell")
-    if name and name ~= "" then return true end
-    return false
-end
-
 local function bootStep()
     bootTries = bootTries + 1
     local ready = false
@@ -1496,17 +1402,12 @@ local function bootStep()
     if not s._kitsSeeded then
         seedActionKits()
     elseif anyBarAction() and s.applied ~= nil then
-        -- Login capture is often partial (first slot loaded, or names not
-        -- ready). Fill what we can read; never blank a saved ability here.
-        snapshotBarKits(s.applied, true)
+        snapshotBarKits(s.applied)
     end
     local st = pendingState
     pendingState = nil
     if st == nil then st = IchaUI_StanceState() end
     IchaUI_StanceFire(st)
-    if (spellbookReady() and anyBarAction()) or bootTries > 90 then
-        barsSettled = true
-    end
 end
 
 local function startup()
@@ -1533,11 +1434,11 @@ local function startup()
     end
 end
 
-local function snapshotApplied()
+local function snapshotApplied(logoutGuard)
     if swapping or not booted then return end
     local s = db()
     if s._kitsSeeded and s.applied ~= nil then
-        snapshotBarKits(s.applied)
+        snapshotBarKits(s.applied, logoutGuard)
     end
 end
 
@@ -1549,7 +1450,6 @@ evt:RegisterEvent("PLAYER_LEAVING_WORLD")
 evt:RegisterEvent("ADDON_LOADED")
 evt:RegisterEvent("UPDATE_BONUS_ACTIONBAR")
 evt:RegisterEvent("PLAYER_AURAS_CHANGED")
-evt:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 evt:SetScript("OnEvent", function()
     if event == "ADDON_LOADED" then
         if arg1 == "IchaUI" then
@@ -1558,18 +1458,11 @@ evt:SetScript("OnEvent", function()
         return
     end
     if event == "PLAYER_LOGOUT" or event == "PLAYER_LEAVING_WORLD" then
-        -- Set before the snapshot so empties cannot replace saved abilities.
-        loggingOut = true
-        snapshotApplied()
+        snapshotApplied(true)
         return
     end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
-        loggingOut = false
         startup()
-        return
-    end
-    if event == "ACTIONBAR_SLOT_CHANGED" then
-        noteSlotChanged(arg1)
         return
     end
     local class = playerClass()

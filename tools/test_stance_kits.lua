@@ -330,7 +330,8 @@ else
     check(kit.slots[4].spell == "Lightning Bolt", "partial seed slot 4")
     check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "partial seed bar 2")
 
-    -- Survivor slot changed; the rest already look empty.
+    -- One leftover HasAction, and that leftover even changed. Fresh count is
+    -- lower, so the whole denser kit stays (including the previous slot 1).
     putSpell(1, 4)
     slots[2] = nil
     slots[3] = nil
@@ -339,51 +340,47 @@ else
     event = "PLAYER_LEAVING_WORLD"
     fr.scripts.OnEvent()
     kit = IchaUIDB.stance.actionKits[1][0].slots
-    check(kit[1].spell == "Attack", "partial logout kept the live edit")
-    check(kit[2].kind == "macro", "partial logout kept slot 2")
-    check(kit[3].kind == "item", "partial logout kept slot 3")
-    check(kit[4].spell == "Lightning Bolt", "partial logout kept slot 4")
-    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "partial logout kept bar 2")
+    check(kit[1].spell == "Healing Wave", "sparse logout kept the prior slot 1")
+    check(kit[2].kind == "macro", "sparse logout kept slot 2")
+    check(kit[3].kind == "item", "sparse logout kept slot 3")
+    check(kit[4].spell == "Lightning Bolt", "sparse logout kept slot 4")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "fully empty bar 2 kept its kit")
 
-    -- Occupied but unnamed must not blank a saved snap.
-    event = "PLAYER_ENTERING_WORLD"
-    fr.scripts.OnEvent()
-    slots[2] = { texture = "Interface\\Icons\\NO" }
+    -- Same filled-count still writes. Bar 2 empty is the fully-empty refuse.
+    putSpell(1, 4)
+    putMacro(2)
+    putItem(3)
+    putSpell(4, 3)
+    slots[13] = nil
     event = "PLAYER_LOGOUT"
     fr.scripts.OnEvent()
-    check(IchaUIDB.stance.actionKits[1][0].slots[2].kind == "macro", "unnamed HasAction did not blank slot 2")
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "equal count logout saved the live edit")
+    check(kit[2].kind == "macro" and kit[4].spell == "Lightning Bolt", "equal count kept the other slots")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "empty bar still refused")
 
-    -- Real clear, recorded while the spellbook is up, survives the next logout.
-    event = "PLAYER_ENTERING_WORLD"
-    fr.scripts.OnEvent()
-    slots[4] = nil
-    event = "ACTIONBAR_SLOT_CHANGED"
-    arg1 = 4
-    fr.scripts.OnEvent()
-    check(IchaUIDB.stance.actionKits[1][0].slots[4].empty == 1, "slot change stored the clear")
+    -- Every owned slot empty: early return, kits unchanged.
     slots[1] = nil
     slots[2] = nil
     slots[3] = nil
+    slots[4] = nil
     event = "PLAYER_LOGOUT"
     fr.scripts.OnEvent()
     kit = IchaUIDB.stance.actionKits[1][0].slots
-    check(kit[1].spell == "Attack", "guarded logout kept slot 1")
-    check(kit[2].kind == "macro", "guarded logout kept slot 2")
-    check(kit[3].kind == "item", "guarded logout kept slot 3")
-    check(kit[4].empty == 1, "intentional clear stayed empty across logout")
+    check(kit[1].spell == "Attack", "all-empty logout did not wipe bar 1")
+    check(kit[4].spell == "Lightning Bolt", "all-empty logout did not wipe slot 4")
 
-    -- Bar API collapsed to 1 button. Tail slots stay in the kit.
-    event = "PLAYER_ENTERING_WORLD"
-    fr.scripts.OnEvent()
+    -- Not a logout: a sparser in-world snapshot (stance swap) still saves the clear.
     putSpell(1, 4)
-    BActionBar = { GetSize = function() return 1 end }
-    event = "PLAYER_LOGOUT"
-    fr.scripts.OnEvent()
+    putMacro(2)
+    putItem(3)
+    slots[4] = nil
+    IchaUI_StanceSetSim(1)
     kit = IchaUIDB.stance.actionKits[1][0].slots
-    check(kit[1].spell == "Attack", "short capture still read slot 1")
-    check(kit[2].kind == "macro", "short capture did not drop slot 2")
-    check(kit[3].kind == "item", "short capture did not drop slot 3")
-    check(kit[12] and kit[12].empty == 1, "kit length stayed past the collapsed size")
+    check(kit[4].empty == 1, "stance swap wrote the real clear")
+    check(kit[1].spell == "Attack" and kit[2].kind == "macro", "stance swap kept the filled slots")
+    check(IchaUIDB.stance.applied == 1, "swap moved to the other page")
+    check(IchaUIDB.stance.actionKits[1][1].slots[1].empty == 1, "other page was not the applied kit")
 end
 
 if fails > 0 then

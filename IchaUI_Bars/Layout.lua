@@ -2554,16 +2554,17 @@ end
 
 local function migrateBarBindsFromClient()
     local db = ensureBarBinds()
-    local id, key
-    for id, key in pairs(db) do
-        if key and tostring(key) ~= "" then return end
-    end
     if not GetBindingKey then return end
+    -- Fill gaps every time. Stopping at the first saved key froze a partial
+    -- login read (bindings not loaded yet) and later logout kept only those.
     local i
     for i = 1, 120 do
-        local k1 = GetBindingKey(bindingCommand(i))
-        if k1 and k1 ~= "" then
-            db[i] = string.upper(k1)
+        local cur = db[i]
+        if not cur or tostring(cur) == "" then
+            local k1 = GetBindingKey(bindingCommand(i))
+            if k1 and k1 ~= "" then
+                db[i] = string.upper(k1)
+            end
         end
     end
 end
@@ -2573,19 +2574,34 @@ applySavedBarBinds = function()
     migrateBarBindsFromClient()
     local db = ensureBarBinds()
     local id, key
+    local tried, okN = 0, 0
     for id, key in pairs(db) do
         local buttonId = tonumber(id)
         key = key and string.upper(tostring(key)) or ""
         if buttonId and key ~= "" then
+            tried = tried + 1
             local cmd = bindingCommand(buttonId)
-            local k1, k2 = GetBindingKey(cmd)
-            if k1 then clearKeyBinding(k1) end
-            if k2 then clearKeyBinding(k2) end
-            clearKeyBinding(key)
-            SetBinding(key, cmd)
+            local prev1, prev2 = GetBindingKey(cmd)
+            local success = SetBinding(key, cmd)
+            if success then
+                okN = okN + 1
+                if prev1 and prev1 ~= "" and string.upper(prev1) ~= key then
+                    clearKeyBinding(prev1)
+                end
+                if prev2 and prev2 ~= "" and string.upper(prev2) ~= key and prev2 ~= prev1 then
+                    clearKeyBinding(prev2)
+                end
+            else
+                if prev1 and prev1 ~= "" then SetBinding(prev1, cmd) end
+                if prev2 and prev2 ~= "" and prev2 ~= prev1 then SetBinding(prev2, cmd) end
+            end
         end
     end
-    saveBindSet()
+    -- All-or-nothing. A partial SetBinding + SaveBindings was persisting the
+    -- keys that stuck and dropping the ones the client rejected.
+    if tried > 0 and okN == tried then
+        saveBindSet()
+    end
     local _, b
     for _, b in pairs(buttons) do updateHotkey(b) end
 end

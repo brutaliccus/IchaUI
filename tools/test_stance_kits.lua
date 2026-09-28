@@ -1,6 +1,7 @@
 -- Lua 5.1 stand-in for the 1.12 kit swap. Run:
 --   lua5.1 tools/test_stance_kits.lua shaman
 --   lua5.1 tools/test_stance_kits.lua warrior
+--   lua5.1 tools/test_stance_kits.lua partial
 local mode = (arg and arg[1]) or "shaman"
 local fails = 0
 local function check(cond, msg)
@@ -237,7 +238,7 @@ if mode == "warrior" then
     kind, name, rank = slotSpell(1)
     check(kind == "spell" and name == "Healing Wave" and rank == "Rank 3", "clear sim restores defensive kit")
     check(IchaUI_StanceState() == 2, "live state is 2")
-else
+elseif mode ~= "partial" then
     check(IchaUI_GetPagedID(1) == 1, "identity before sim")
     check(IchaUI_GetPagedID(12, 1) == 12, "identity with bar id")
     IchaUI_StanceSetMap(1, 1, 9)
@@ -314,6 +315,75 @@ else
     check(frames.IchaUIStanceEvent.scripts.OnUpdate == nil, "OnUpdate cleared after the swap")
     check(slots[1] and slots[1].spell == "Attack", "deferred sim landed")
     check(drawers == 0, "drawers still ignored")
+else
+    -- Login with a full bar, then logout while only one slot still HasAction.
+    putSpell(4, 3)
+    local fr = frames.IchaUIStanceEvent
+    event = "PLAYER_ENTERING_WORLD"
+    fr.scripts.OnEvent()
+    fr.scripts.OnUpdate()
+    check(fr.scripts.OnUpdate == nil, "partial boot OnUpdate cleared")
+    local kit = IchaUIDB.stance.actionKits[1][0]
+    check(kit and kit.slots[1].spell == "Healing Wave", "partial seed slot 1")
+    check(kit.slots[2].kind == "macro", "partial seed slot 2")
+    check(kit.slots[3].kind == "item", "partial seed slot 3")
+    check(kit.slots[4].spell == "Lightning Bolt", "partial seed slot 4")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "partial seed bar 2")
+
+    -- Survivor slot changed; the rest already look empty.
+    putSpell(1, 4)
+    slots[2] = nil
+    slots[3] = nil
+    slots[4] = nil
+    slots[13] = nil
+    event = "PLAYER_LEAVING_WORLD"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "partial logout kept the live edit")
+    check(kit[2].kind == "macro", "partial logout kept slot 2")
+    check(kit[3].kind == "item", "partial logout kept slot 3")
+    check(kit[4].spell == "Lightning Bolt", "partial logout kept slot 4")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "partial logout kept bar 2")
+
+    -- Occupied but unnamed must not blank a saved snap.
+    event = "PLAYER_ENTERING_WORLD"
+    fr.scripts.OnEvent()
+    slots[2] = { texture = "Interface\\Icons\\NO" }
+    event = "PLAYER_LOGOUT"
+    fr.scripts.OnEvent()
+    check(IchaUIDB.stance.actionKits[1][0].slots[2].kind == "macro", "unnamed HasAction did not blank slot 2")
+
+    -- Real clear, recorded while the spellbook is up, survives the next logout.
+    event = "PLAYER_ENTERING_WORLD"
+    fr.scripts.OnEvent()
+    slots[4] = nil
+    event = "ACTIONBAR_SLOT_CHANGED"
+    arg1 = 4
+    fr.scripts.OnEvent()
+    check(IchaUIDB.stance.actionKits[1][0].slots[4].empty == 1, "slot change stored the clear")
+    slots[1] = nil
+    slots[2] = nil
+    slots[3] = nil
+    event = "PLAYER_LOGOUT"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "guarded logout kept slot 1")
+    check(kit[2].kind == "macro", "guarded logout kept slot 2")
+    check(kit[3].kind == "item", "guarded logout kept slot 3")
+    check(kit[4].empty == 1, "intentional clear stayed empty across logout")
+
+    -- Bar API collapsed to 1 button. Tail slots stay in the kit.
+    event = "PLAYER_ENTERING_WORLD"
+    fr.scripts.OnEvent()
+    putSpell(1, 4)
+    BActionBar = { GetSize = function() return 1 end }
+    event = "PLAYER_LOGOUT"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "short capture still read slot 1")
+    check(kit[2].kind == "macro", "short capture did not drop slot 2")
+    check(kit[3].kind == "item", "short capture did not drop slot 3")
+    check(kit[12] and kit[12].empty == 1, "kit length stayed past the collapsed size")
 end
 
 if fails > 0 then

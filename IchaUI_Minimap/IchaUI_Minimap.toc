@@ -2,7 +2,7 @@
 ## Title: IchaUI - Minimap
 ## Notes: Minimap skin, zone, clock, and button drawer.
 ## Dependencies: IchaUI
-## Version: 3.6.0
+## Version: 3.6.1
 
 MinimapSkin.lua
 MinimapButtons.lua

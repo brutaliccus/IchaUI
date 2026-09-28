@@ -2,7 +2,7 @@
 ## Title: IchaUI - Shaman
 ## Notes: Totems, recall, imbue, shield, utility, shock binds, and shield binds.
 ## Dependencies: IchaUI
-## Version: 3.6.0
+## Version: 3.6.1
 
 ShockBinds.lua
 ShieldBinds.lua

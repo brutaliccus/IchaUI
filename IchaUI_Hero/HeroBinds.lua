@@ -858,39 +858,67 @@ local function rebuildChords()
     end)
 end
 
+-- Returns true when the binding was applied (or cleared) without needing a
+-- later SaveBindings rollback. Never SaveBindings after a failed SetBinding
+-- that followed clearCmdKeys — that was wiping hero keys from bindings-cache
+-- on early login.
 local function applyEntryKey(entry, key)
-    if not entry or not entry.bindId then return end
+    if not entry or not entry.bindId then return false end
     local cmd = "ICHA_HEROBIND" .. tostring(entry.bindId)
-    clearCmdKeys(cmd)
     if not key or key == "" then
+        clearCmdKeys(cmd)
         entry.key = ""
-    else
-        key = string.upper(key)
-        visitSetups(function(hs)
-            local s
-            for s = 1, MAX_COLS * MAX_ROWS do
-                local slot = hs.slots[s]
-                if slot and slot.abs then
-                    local i
-                    for i = 1, table.getn(slot.abs) do
-                        local other = slot.abs[i]
-                        if other ~= entry and other.key and other.key ~= "" and string.upper(other.key) == key then
-                            clearCmdKeys("ICHA_HEROBIND" .. tostring(other.bindId))
-                            other.key = ""
-                        end
+        if not bulkApply then
+            saveBindSet()
+            rebuildChords()
+        end
+        return true
+    end
+    key = string.upper(key)
+    visitSetups(function(hs)
+        local s
+        for s = 1, MAX_COLS * MAX_ROWS do
+            local slot = hs.slots[s]
+            if slot and slot.abs then
+                local i
+                for i = 1, table.getn(slot.abs) do
+                    local other = slot.abs[i]
+                    if other ~= entry and other.key and other.key ~= "" and string.upper(other.key) == key then
+                        clearCmdKeys("ICHA_HEROBIND" .. tostring(other.bindId))
+                        other.key = ""
                     end
                 end
             end
-        end)
-        entry.key = key
-        if (not isButtonMouseKey(key)) and SetBinding then
-            SetBinding(key, cmd)
         end
+    end)
+    entry.key = key
+    if isButtonMouseKey(key) then
+        -- Mouse buttons use chord routing; no SetBinding.
+        clearCmdKeys(cmd)
+        if not bulkApply then
+            saveBindSet()
+            rebuildChords()
+        end
+        return true
+    end
+    if not SetBinding then return false end
+    -- Snapshot prior keys so a failed SetBinding can restore.
+    local prev1, prev2
+    if GetBindingKey then
+        prev1, prev2 = GetBindingKey(cmd)
+    end
+    clearCmdKeys(cmd)
+    local ok = SetBinding(key, cmd)
+    if not ok then
+        if prev1 and prev1 ~= "" then SetBinding(prev1, cmd) end
+        if prev2 and prev2 ~= "" and prev2 ~= prev1 then SetBinding(prev2, cmd) end
+        return false
     end
     if not bulkApply then
         saveBindSet()
         rebuildChords()
     end
+    return true
 end
 
 local function allocBindId()
@@ -941,8 +969,48 @@ local function findByBind(n)
     return foundS, foundE, foundSlot, foundBar
 end
 
+-- Snapshot / clear / restore the full ICHA_HEROBIND1..BIND_POOL pool so a
+-- stance page swap cannot leave prior-page binds fighting bar CLICK keys.
+local function snapshotHeroBinds()
+    local snap = {}
+    if not GetBindingKey then return snap end
+    local n
+    for n = 1, BIND_POOL do
+        local k1, k2 = GetBindingKey("ICHA_HEROBIND" .. tostring(n))
+        if (k1 and k1 ~= "") or (k2 and k2 ~= "") then
+            snap[n] = { k1 = k1, k2 = k2 }
+        end
+    end
+    return snap
+end
+
+local function clearAllHeroBinds()
+    local n
+    for n = 1, BIND_POOL do
+        clearCmdKeys("ICHA_HEROBIND" .. tostring(n))
+    end
+end
+
+local function restoreHeroBinds(snap)
+    if not snap or not SetBinding then return end
+    local n, rec
+    for n, rec in pairs(snap) do
+        local cmd = "ICHA_HEROBIND" .. tostring(n)
+        if rec.k1 and rec.k1 ~= "" then SetBinding(rec.k1, cmd) end
+        if rec.k2 and rec.k2 ~= "" and rec.k2 ~= rec.k1 then SetBinding(rec.k2, cmd) end
+    end
+end
+
 local function applyAll()
     bulkApply = true
+    local anyOk = false
+    local anyFail = false
+    local want = 0
+    -- Clear the full pool first so stale prior-page binds leave the client
+    -- before this page's keys are re-applied. Snapshot so a full SetBinding
+    -- failure can restore without SaveBindings wiping bindings-cache.
+    local snap = snapshotHeroBinds()
+    clearAllHeroBinds()
     visitSetups(function(hs)
         local s
         for s = 1, MAX_COLS * MAX_ROWS do
@@ -952,15 +1020,31 @@ local function applyAll()
                 for i = 1, table.getn(slot.abs) do
                     local entry = slot.abs[i]
                     if entry and entry.key and entry.key ~= "" then
-                        applyEntryKey(entry, entry.key)
+                        want = want + 1
+                        if applyEntryKey(entry, entry.key) then
+                            anyOk = true
+                        else
+                            anyFail = true
+                        end
                     end
                 end
             end
         end
     end)
     bulkApply = false
-    saveBindSet()
+    if want > 0 and not anyOk then
+        -- Bindings system not ready: put prior keys back; do not SaveBindings.
+        restoreHeroBinds(snap)
+        rebuildChords()
+        return false, true
+    end
+    -- New page stuck, or page has no keys (clear is the desired end state).
+    -- Never SaveBindings after a failed clear+reapply that restored the snap.
+    if anyOk or want == 0 then
+        saveBindSet()
+    end
     rebuildChords()
+    return anyOk or (want == 0), anyFail
 end
 
 local syncing = false
@@ -2319,28 +2403,65 @@ end
 
 local evt = CreateFrame("Frame", "IchaUIHeroBindsEvent")
 local didPlace = false
-evt:RegisterEvent("PLAYER_LOGIN")
-evt:RegisterEvent("PLAYER_ENTERING_WORLD")
-evt:SetScript("OnEvent", function()
+local retryLeft = 0
+local retryAccum = 0
+local RETRY_N = 8
+local RETRY_EVERY = 0.35
+
+local function runRestore(forcePlace)
     ensure()
-    applyAll()
-    if not didPlace then
+    local ok = applyAll()
+    if forcePlace or not didPlace then
         placeLastIcons()
         didPlace = true
+    else
+        syncBarIcons()
     end
+    return ok
+end
+
+local function armBindRetry()
+    retryLeft = RETRY_N
+    retryAccum = 0
+end
+
+evt:RegisterEvent("PLAYER_LOGIN")
+evt:RegisterEvent("PLAYER_ENTERING_WORLD")
+evt:RegisterEvent("PLAYER_LOGOUT")
+evt:RegisterEvent("PLAYER_LEAVING_WORLD")
+evt:SetScript("OnEvent", function()
+    if event == "PLAYER_LOGOUT" or event == "PLAYER_LEAVING_WORLD" then
+        -- Flush hero CLICK/ICHA_HEROBIND keys before the client writes bindings-cache.
+        saveBindSet()
+        return
+    end
+    runRestore(false)
+    armBindRetry()
 end)
 evt:SetScript("OnUpdate", function()
-    if not pushBtnId then return end
-    local now = GetTime and GetTime() or 0
-    if now >= pushUntil then
-        if releaseButton then releaseButton(pushBtnId) end
-        pushBtnId = nil
+    if pushBtnId then
+        local now = GetTime and GetTime() or 0
+        if now >= pushUntil then
+            if releaseButton then releaseButton(pushBtnId) end
+            pushBtnId = nil
+        end
     end
+    if retryLeft <= 0 then return end
+    local dt = arg1 or 0
+    retryAccum = retryAccum + dt
+    if retryAccum < RETRY_EVERY then return end
+    retryAccum = 0
+    retryLeft = retryLeft - 1
+    -- Re-apply from heroSetup (stance may have rebound the live page; spellbook
+    -- and binding set are more likely ready a few ticks after login).
+    runRestore(true)
 end)
 
 function IchaUI_HeroReloadFromDB()
     normed = false
     ensure()
     applyAll()
+    syncBarIcons()
+    armBindRetry()
     if IchaUI_RequestLayout then IchaUI_RequestLayout() end
 end

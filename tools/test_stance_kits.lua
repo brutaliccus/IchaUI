@@ -1,6 +1,7 @@
 -- Lua 5.1 stand-in for the 1.12 kit swap. Run:
 --   lua5.1 tools/test_stance_kits.lua shaman
 --   lua5.1 tools/test_stance_kits.lua warrior
+--   lua5.1 tools/test_stance_kits.lua partial
 local mode = (arg and arg[1]) or "shaman"
 local fails = 0
 local function check(cond, msg)
@@ -237,7 +238,7 @@ if mode == "warrior" then
     kind, name, rank = slotSpell(1)
     check(kind == "spell" and name == "Healing Wave" and rank == "Rank 3", "clear sim restores defensive kit")
     check(IchaUI_StanceState() == 2, "live state is 2")
-else
+elseif mode ~= "partial" then
     check(IchaUI_GetPagedID(1) == 1, "identity before sim")
     check(IchaUI_GetPagedID(12, 1) == 12, "identity with bar id")
     IchaUI_StanceSetMap(1, 1, 9)
@@ -314,6 +315,72 @@ else
     check(frames.IchaUIStanceEvent.scripts.OnUpdate == nil, "OnUpdate cleared after the swap")
     check(slots[1] and slots[1].spell == "Attack", "deferred sim landed")
     check(drawers == 0, "drawers still ignored")
+else
+    -- Login with a full bar, then logout while only one slot still HasAction.
+    putSpell(4, 3)
+    local fr = frames.IchaUIStanceEvent
+    event = "PLAYER_ENTERING_WORLD"
+    fr.scripts.OnEvent()
+    fr.scripts.OnUpdate()
+    check(fr.scripts.OnUpdate == nil, "partial boot OnUpdate cleared")
+    local kit = IchaUIDB.stance.actionKits[1][0]
+    check(kit and kit.slots[1].spell == "Healing Wave", "partial seed slot 1")
+    check(kit.slots[2].kind == "macro", "partial seed slot 2")
+    check(kit.slots[3].kind == "item", "partial seed slot 3")
+    check(kit.slots[4].spell == "Lightning Bolt", "partial seed slot 4")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "partial seed bar 2")
+
+    -- One leftover HasAction, and that leftover even changed. Fresh count is
+    -- lower, so the whole denser kit stays (including the previous slot 1).
+    putSpell(1, 4)
+    slots[2] = nil
+    slots[3] = nil
+    slots[4] = nil
+    slots[13] = nil
+    event = "PLAYER_LEAVING_WORLD"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Healing Wave", "sparse logout kept the prior slot 1")
+    check(kit[2].kind == "macro", "sparse logout kept slot 2")
+    check(kit[3].kind == "item", "sparse logout kept slot 3")
+    check(kit[4].spell == "Lightning Bolt", "sparse logout kept slot 4")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "fully empty bar 2 kept its kit")
+
+    -- Same filled-count still writes. Bar 2 empty is the fully-empty refuse.
+    putSpell(1, 4)
+    putMacro(2)
+    putItem(3)
+    putSpell(4, 3)
+    slots[13] = nil
+    event = "PLAYER_LOGOUT"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "equal count logout saved the live edit")
+    check(kit[2].kind == "macro" and kit[4].spell == "Lightning Bolt", "equal count kept the other slots")
+    check(IchaUIDB.stance.actionKits[2][0].slots[1].spell == "Lightning Bolt", "empty bar still refused")
+
+    -- Every owned slot empty: early return, kits unchanged.
+    slots[1] = nil
+    slots[2] = nil
+    slots[3] = nil
+    slots[4] = nil
+    event = "PLAYER_LOGOUT"
+    fr.scripts.OnEvent()
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[1].spell == "Attack", "all-empty logout did not wipe bar 1")
+    check(kit[4].spell == "Lightning Bolt", "all-empty logout did not wipe slot 4")
+
+    -- Not a logout: a sparser in-world snapshot (stance swap) still saves the clear.
+    putSpell(1, 4)
+    putMacro(2)
+    putItem(3)
+    slots[4] = nil
+    IchaUI_StanceSetSim(1)
+    kit = IchaUIDB.stance.actionKits[1][0].slots
+    check(kit[4].empty == 1, "stance swap wrote the real clear")
+    check(kit[1].spell == "Attack" and kit[2].kind == "macro", "stance swap kept the filled slots")
+    check(IchaUIDB.stance.applied == 1, "swap moved to the other page")
+    check(IchaUIDB.stance.actionKits[1][1].slots[1].empty == 1, "other page was not the applied kit")
 end
 
 if fails > 0 then

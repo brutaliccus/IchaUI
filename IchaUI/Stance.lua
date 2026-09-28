@@ -821,6 +821,10 @@ end
 -- Also refuse per-bar when a kit that had abilities would be replaced with an
 -- all-empty capture (partial teardown can leave one leftover so anyBarAction
 -- is still true while most slots are already gone).
+-- protectSparse (logout only): refuse when fresh has fewer filled slots than
+-- old — partial teardown leaves a few HasAction slots so kitHasAction(fresh)
+-- is true and would otherwise rewrite the whole bar as a sparse kit
+-- ("some slots stick, most don't").
 local function kitHasAction(kit)
     if type(kit) ~= "table" or type(kit.slots) ~= "table" then return false end
     local _, snap
@@ -832,7 +836,7 @@ local function kitHasAction(kit)
     return false
 end
 
-local function countFilled(kit)
+local function kitActionCount(kit)
     if type(kit) ~= "table" or type(kit.slots) ~= "table" then return 0 end
     local n = 0
     local _, snap
@@ -844,12 +848,7 @@ local function countFilled(kit)
     return n
 end
 
--- logoutGuard: PLAYER_LOGOUT / PLAYER_LEAVING_WORLD only. A partial teardown
--- leaves a few slots HasAction, so the fresh kit "has actions" and would
--- replace the saved kit with that sparse capture. Refuse when the fresh
--- filled-count is lower than the saved kit. Fully-empty fresh is still
--- refused above (and by the anyBarAction early return).
-local function snapshotBarKits(stanceId, logoutGuard)
+local function snapshotBarKits(stanceId, protectSparse)
     if not anyBarAction() then return end
     seenActions = true
     stanceId = tonumber(stanceId) or 0
@@ -860,9 +859,9 @@ local function snapshotBarKits(stanceId, logoutGuard)
         local fresh = captureBar(b)
         local old = s.actionKits[b][stanceId]
         if kitHasAction(old) and not kitHasAction(fresh) then
-            -- keep old
-        elseif logoutGuard and countFilled(fresh) < countFilled(old) then
-            -- keep denser prior kit
+            -- keep old (fully empty capture)
+        elseif protectSparse and kitActionCount(old) > kitActionCount(fresh) then
+            -- keep old (partial teardown sparse capture)
         else
             s.actionKits[b][stanceId] = fresh
         end
@@ -1434,11 +1433,12 @@ local function startup()
     end
 end
 
-local function snapshotApplied(logoutGuard)
+local function snapshotApplied()
     if swapping or not booted then return end
     local s = db()
     if s._kitsSeeded and s.applied ~= nil then
-        snapshotBarKits(s.applied, logoutGuard)
+        -- Logout/leave-world: protect against sparse teardown captures.
+        snapshotBarKits(s.applied, true)
     end
 end
 
@@ -1458,7 +1458,7 @@ evt:SetScript("OnEvent", function()
         return
     end
     if event == "PLAYER_LOGOUT" or event == "PLAYER_LEAVING_WORLD" then
-        snapshotApplied(true)
+        snapshotApplied()
         return
     end
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then

@@ -14,6 +14,10 @@ local hoveredBtn = nil
 local buttonOnKeyDown
 local setBindMode
 local clearBind
+local ensureBarBinds
+local applySavedBarBinds
+local scheduleBarBindReapply
+local bindsRetryAt = nil
 
 local buttons = {}
 local pool = {}
@@ -2358,12 +2362,17 @@ f:SetScript("OnEvent", function()
     if (ev == "PLAYER_LOGIN" or ev == "PLAYER_ENTERING_WORLD") and not wiped then
         wiped = true
         loadDB()
+        ensureBarBinds()
         restoreRootPos()
         wipeOldWA()
         hookActionButtons()
         IchaUI_ApplyIconStrata()
         pendingLayout = true
         lastSig = nil
+        -- Hero/Totems rebind after Bars on login and SaveBindings over CLICK keys.
+        scheduleBarBindReapply(1.0)
+    elseif ev == "PLAYER_ENTERING_WORLD" then
+        scheduleBarBindReapply(0.75)
     end
     if ev == "UPDATE_BINDINGS" then
         for _, b in pairs(buttons) do updateHotkey(b) end
@@ -2457,6 +2466,13 @@ end
 
 f:SetScript("OnUpdate", function()
     local dt = arg1 or 0
+    if bindsRetryAt then
+        local now = GetTime and GetTime() or 0
+        if now >= bindsRetryAt then
+            bindsRetryAt = nil
+            applySavedBarBinds()
+        end
+    end
     applyBarFade()
     local editEmpty = IchaUI_EditModeActive and IchaUI_EditModeActive()
     local wantEmpty = bindMode or cursorHasAction() or (editEmpty and true or false)
@@ -2493,15 +2509,92 @@ end)
 
 
 -- Hover-to-bind: /icha bind, then hover a button and press a key.
+-- CLICK binds are stored in IchaUIDB.barBinds and re-applied after login.
+-- Abilities live separately in stance.actionKits (Stance.lua).
 
 local function bindingCommand(buttonId)
     -- Named button click — works for every IchaUI slot (ACTIONBUTTON only exists for 1-12).
     return "CLICK IchaUIBtn" .. buttonId .. ":LeftButton"
 end
 
+ensureBarBinds = function()
+    if not IchaUIDB then IchaUIDB = {} end
+    if type(IchaUIDB.barBinds) ~= "table" then IchaUIDB.barBinds = {} end
+    return IchaUIDB.barBinds
+end
+
+local function saveBindSet()
+    if not SaveBindings then return end
+    local set = GetCurrentBindingSet and GetCurrentBindingSet() or 1
+    SaveBindings(set or 1)
+end
+
 local function clearKeyBinding(key)
     if not key or key == "" then return end
     SetBinding(key)
+end
+
+local function rememberBarBind(buttonId, fullKey)
+    buttonId = tonumber(buttonId)
+    if not buttonId then return end
+    local db = ensureBarBinds()
+    if not fullKey or fullKey == "" then
+        db[buttonId] = nil
+        return
+    end
+    fullKey = string.upper(tostring(fullKey))
+    local id, key
+    for id, key in pairs(db) do
+        if tonumber(id) ~= buttonId and key and string.upper(tostring(key)) == fullKey then
+            db[tonumber(id) or id] = nil
+        end
+    end
+    db[buttonId] = fullKey
+end
+
+local function migrateBarBindsFromClient()
+    local db = ensureBarBinds()
+    local id, key
+    for id, key in pairs(db) do
+        if key and tostring(key) ~= "" then return end
+    end
+    if not GetBindingKey then return end
+    local i
+    for i = 1, 120 do
+        local k1 = GetBindingKey(bindingCommand(i))
+        if k1 and k1 ~= "" then
+            db[i] = string.upper(k1)
+        end
+    end
+end
+
+applySavedBarBinds = function()
+    if not SetBinding or not GetBindingKey then return end
+    migrateBarBindsFromClient()
+    local db = ensureBarBinds()
+    local id, key
+    for id, key in pairs(db) do
+        local buttonId = tonumber(id)
+        key = key and string.upper(tostring(key)) or ""
+        if buttonId and key ~= "" then
+            local cmd = bindingCommand(buttonId)
+            local k1, k2 = GetBindingKey(cmd)
+            if k1 then clearKeyBinding(k1) end
+            if k2 then clearKeyBinding(k2) end
+            clearKeyBinding(key)
+            SetBinding(key, cmd)
+        end
+    end
+    saveBindSet()
+    local _, b
+    for _, b in pairs(buttons) do updateHotkey(b) end
+end
+
+scheduleBarBindReapply = function(delay)
+    delay = tonumber(delay) or 1.0
+    if delay < 0.2 then delay = 0.2 end
+    local now = GetTime and GetTime() or 0
+    bindsRetryAt = now + delay
 end
 
 local function applyBind(buttonId, key)
@@ -2526,8 +2619,8 @@ local function applyBind(buttonId, key)
     clearKeyBinding(full)
     local ok = SetBinding(full, cmd)
     if ok then
-        local set = GetCurrentBindingSet and GetCurrentBindingSet() or 1
-        SaveBindings(set)
+        rememberBarBind(buttonId, full)
+        saveBindSet()
         if DEFAULT_CHAT_FRAME then
             local shown = abbreviateKey(GetBindingText(full, "KEY_") or full)
             DEFAULT_CHAT_FRAME:AddMessage("Bound " .. shown .. " -> IchaUI slot " .. buttonId)
@@ -2554,8 +2647,8 @@ clearBind = function(buttonId)
         if k1 then clearKeyBinding(k1) end
         if k2 then clearKeyBinding(k2) end
     end
-    local set = GetCurrentBindingSet and GetCurrentBindingSet() or 1
-    SaveBindings(set)
+    rememberBarBind(buttonId, nil)
+    saveBindSet()
     for _, b in pairs(buttons) do updateHotkey(b) end
     if DEFAULT_CHAT_FRAME then
         DEFAULT_CHAT_FRAME:AddMessage("Cleared binds on IchaUI slot " .. buttonId)

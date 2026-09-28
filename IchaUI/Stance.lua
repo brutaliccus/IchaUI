@@ -264,12 +264,46 @@ local function ensureHeroPages()
     end
 end
 
+-- True when a hero page/setup holds at least one named ability.
+local function pageHasAbilities(page)
+    if type(page) ~= "table" or type(page.slots) ~= "table" then return false end
+    local k, slot, i, e
+    for k, slot in pairs(page.slots) do
+        if type(slot) == "table" and type(slot.abs) == "table" then
+            for i = 1, table.getn(slot.abs) do
+                e = slot.abs[i]
+                if e and e.spell and e.spell ~= "" then return true end
+            end
+        end
+    end
+    return false
+end
+
+-- If stance page is empty but live heroSetup still has abilities (common after
+-- SV load splits a former shared ref, or first bind to an unused page), adopt
+-- live into the page so bindHeroLivePage cannot orphan the filled table.
+local function adoptLiveIntoPage(page)
+    if type(page) ~= "table" then return end
+    if pageHasAbilities(page) then return end
+    local live = IchaUIDB and IchaUIDB.heroSetup
+    if live == page then return end
+    if not pageHasAbilities(live) then return end
+    local copy = deepCopy(live)
+    local k, v
+    for k, v in pairs(copy) do
+        page[k] = v
+    end
+    if type(page.slots) ~= "table" then page.slots = {} end
+    syncPageDims(page)
+end
+
 local function bindHeroLivePage()
     local s = db()
     if not s.heroPrimaryFollows then return end
     ensureHeroPages()
     local id = IchaUI_StanceState()
     local page = ensureHeroPage(id)
+    adoptLiveIntoPage(page)
     -- Same table reference so Hero setup edits the active stance page
     IchaUIDB.heroSetup = page
     if IchaUI_HeroReloadFromDB then
@@ -781,15 +815,38 @@ local function withQuiet(fn)
     if not ok then error(err, 0) end
 end
 
+-- Never snapshot when every owned slot is empty. After seenActions is set,
+-- PLAYER_LOGOUT / teardown still runs HasAction=false and would otherwise
+-- overwrite saved kits with empties (bars look like they "did not save").
+-- Also refuse per-bar when a kit that had abilities would be replaced with an
+-- all-empty capture (partial teardown can leave one leftover so anyBarAction
+-- is still true while most slots are already gone).
+local function kitHasAction(kit)
+    if type(kit) ~= "table" or type(kit.slots) ~= "table" then return false end
+    local _, snap
+    for _, snap in pairs(kit.slots) do
+        if type(snap) == "table" and snap.empty ~= 1 and snap.kind and snap.kind ~= "" then
+            return true
+        end
+    end
+    return false
+end
+
 local function snapshotBarKits(stanceId)
-    if not anyBarAction() and not seenActions then return end
-    if anyBarAction() then seenActions = true end
+    if not anyBarAction() then return end
+    seenActions = true
     stanceId = tonumber(stanceId) or 0
     local s = db()
     local b
     for b = 1, barCount() do
         if type(s.actionKits[b]) ~= "table" then s.actionKits[b] = {} end
-        s.actionKits[b][stanceId] = captureBar(b)
+        local fresh = captureBar(b)
+        local old = s.actionKits[b][stanceId]
+        if kitHasAction(old) and not kitHasAction(fresh) then
+            -- keep old
+        else
+            s.actionKits[b][stanceId] = fresh
+        end
     end
 end
 
@@ -845,6 +902,26 @@ local function seedActionKits()
     if anyBarAction() then seenActions = true end
 end
 
+-- True when any saved kit for this stance still holds a non-empty snap.
+local function kitsHaveActions(stanceId)
+    stanceId = tonumber(stanceId) or 0
+    local s = db()
+    local b, k, snap
+    for b = 1, barCount() do
+        local kits = s.actionKits and s.actionKits[b]
+        local kit = kits and kits[stanceId]
+        if type(kit) == "table" and type(kit.slots) == "table" then
+            -- slots may be a sparse hash (not a Lua array); use pairs
+            for k, snap in pairs(kit.slots) do
+                if type(snap) == "table" and not snap.empty then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function swapActionKits(target)
     target = tonumber(target) or 0
     seedActionKits()
@@ -854,7 +931,15 @@ local function swapActionKits(target)
         s.applied = target
         applied = target
     end
-    if applied == target then return end
+    -- Same stance (login / refresh): still place kits when live bars are empty
+    -- but SV kits have content. Otherwise applied==target skipped restore and
+    -- empty logout damage never recovered even after the anyBarAction guard.
+    if applied == target then
+        if (not anyBarAction()) and kitsHaveActions(target) then
+            applyAllKits(target)
+        end
+        return
+    end
     snapshotBarKits(applied)
     applyAllKits(target)
     s.applied = target

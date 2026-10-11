@@ -397,8 +397,87 @@ function IchaUIXP_SetMove(on)
     setMove(want)
 end
 
+-- Factory layout baked from one screen: TOPLEFT 759, -911. That sits below
+-- the parent on shorter UI heights, and hidden=true was copied with it.
+-- Show used to store nil, so the next baked fill wrote hidden=true again.
+local FACTORY_XP_X = 759.0888516421588
+local FACTORY_XP_Y = -911.6226217055216
+
+local function nearNum(a, b)
+    a = tonumber(a)
+    b = tonumber(b)
+    if not a or not b then return false end
+    local d = a - b
+    if d < 0 then d = -d end
+    return d < 1
+end
+
+local function parentSize()
+    local sw, sh = 1024, 768
+    if UIParent and UIParent.GetWidth then
+        local w = UIParent:GetWidth()
+        if w and w > 1 then sw = w end
+    end
+    if UIParent and UIParent.GetHeight then
+        local h = UIParent:GetHeight()
+        if h and h > 1 then sh = h end
+    end
+    return sw, sh
+end
+
+local function factoryXpAnchor(d)
+    if type(d) ~= "table" then return false end
+    if d.point ~= "TOPLEFT" then return false end
+    if (d.relPoint or "TOPLEFT") ~= "TOPLEFT" then return false end
+    return nearNum(d.x, FACTORY_XP_X) and nearNum(d.y, FACTORY_XP_Y)
+end
+
+-- Anchor point in parent space. TOP* y grows down from the top; RIGHT* x
+-- grows left from the right. CENTER/TOP/BOTTOM x is from the middle.
+local function anchorOffScreen(d)
+    if type(d) ~= "table" or not d.point or d.x == nil then return false end
+    local sw, sh = parentSize()
+    local x = tonumber(d.x) or 0
+    local y = tonumber(d.y) or 0
+    local p = tostring(d.point)
+    local ax, ay = x, y
+    if p == "TOPLEFT" or p == "TOP" or p == "TOPRIGHT" then
+        ay = sh + y
+    elseif p == "LEFT" or p == "CENTER" or p == "RIGHT" then
+        ay = (sh / 2) + y
+    end
+    if p == "TOPRIGHT" or p == "RIGHT" or p == "BOTTOMRIGHT" then
+        ax = sw + x
+    elseif p == "TOP" or p == "CENTER" or p == "BOTTOM" then
+        ax = (sw / 2) + x
+    end
+    if ax < -8 or ay < -8 or ax > sw + 8 or ay > sh + 8 then
+        return true
+    end
+    return false
+end
+
+local function placeDefault(d)
+    d.point = nil
+    d.relPoint = nil
+    d.x = nil
+    d.y = nil
+    root:ClearAllPoints()
+    root:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 55)
+end
+
 local function restorePos()
     local d = db()
+    if factoryXpAnchor(d) then
+        -- This pair was the baked default, not a placement the player chose.
+        d.hidden = false
+        placeDefault(d)
+        return
+    end
+    if anchorOffScreen(d) then
+        placeDefault(d)
+        return
+    end
     root:ClearAllPoints()
     if d.point and d.x then
         root:SetPoint(d.point, UIParent, d.relPoint or d.point, d.x, d.y)
@@ -414,7 +493,9 @@ function IchaUIXP_Slash(rest)
         setMove(not moving)
     elseif rest == "show" then
         root:Show()
-        db().hidden = nil
+        -- false, not nil. A nil key is "missing" and the next login's baked
+        -- fill would put hidden back.
+        db().hidden = false
         save()
         DEFAULT_CHAT_FRAME:AddMessage("XP bar shown.")
     elseif rest == "hide" then

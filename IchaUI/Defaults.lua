@@ -1518,13 +1518,13 @@ IchaUI_BakedDefaults = {
     },
     xp = {
         height = 7,
-        hidden = true,
-        point = "TOPLEFT",
-        relPoint = "TOPLEFT",
+        hidden = false,
+        point = "BOTTOM",
+        relPoint = "BOTTOM",
         scale = 1.75,
         width = 170,
-        x = 759.0888516421588,
-        y = -911.6226217055216,
+        x = 0,
+        y = 55,
     },
     xpBarMode = "xp",
     stance = {
